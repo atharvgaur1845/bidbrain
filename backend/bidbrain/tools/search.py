@@ -63,7 +63,8 @@ def fulltext_search(g: Graph, text: str, doc_type: str | None = None, limit: int
            RETURN node.doc_id AS doc_id, node.page AS page, d.doc_type AS doc_type, score,
                   substring(node.text, 0, 400) AS text
            ORDER BY score DESC LIMIT $lim"""
-    clean = re.sub(r"[^\w\s*%\"|-]", " ", text)
+    # RediSearch reads "-" as negation, so "Pkg-116" would mean "Pkg and not 116": split such words instead
+    clean = re.sub(r"[^\w\s*%\"|-]", " ", re.sub(r"(?<=\w)-(?=\w)", " ", text))
     rows = g.read(q, {"q": clean, "dt": doc_type, "lim": int(limit)})
     return {"result": rows,
             "evidence": [{"doc_id": r["doc_id"], "page": r["page"], "what": "keyword match"} for r in rows],

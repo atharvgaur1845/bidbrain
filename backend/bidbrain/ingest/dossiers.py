@@ -85,8 +85,14 @@ def load_bids(g, pages) -> list[dict]:
                  MATCH (p:Person {key:nm}) CREATE (b)-[:PROPOSES {annexure:'E'}]->(p)""",
               {"ref": b["tender_ref"], "ppl": [norm(p) for p in b["people"]]})
         if b["security"]:
+            # the annexure prints the amount rounded to 0.01 Cr (Rs 1 lakh), so match within that precision,
+            # preferring the bond that secures this bid's own tender over a same-bank bond on another one
             g.run("""MATCH (b:Bid {key:$ref}), (bd:Bond)-[:ISSUED_BY]->(:Bank {key:$bank})
-                     WHERE bd.amount = $amt CREATE (b)-[:SECURED_BY]->(bd)""",
+                     WHERE abs(bd.amount - $amt) <= 50000
+                     OPTIONAL MATCH (bd)-[own:SECURES]->(:Tender {key:$ref})
+                     WITH b, bd, own IS NOT NULL AS own_tender, abs(bd.amount - $amt) AS gap
+                     ORDER BY own_tender DESC, gap LIMIT 1
+                     CREATE (b)-[:SECURED_BY]->(bd)""",
                   {"ref": b["tender_ref"], "bank": b["security"]["bank"], "amt": b["security"]["amount"]})
     return bids
 

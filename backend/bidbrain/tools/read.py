@@ -405,12 +405,20 @@ def date_span(g: Graph, credential_id: str | None = None, person: str | None = N
 
 @tool("receivables",
       """Invoice (receivables ageing) totals for a client: measure = outstanding | invoiced |
-      received; optional status (paid|partial|overdue|...) and year. Invoices are keyed by
+      received; optional status (paid | part_paid | due) and year. Invoices are keyed by
       client, not by work — to ask about a project, resolve its client first.""",
       {"client": {"type": "string"}, "measure": {"type": "string", "enum": ["outstanding", "invoiced", "received"]},
        "status": {"type": "string"}, "year": {"type": "integer"}}, ["measure"])
 def receivables(g: Graph, measure: str, client: str | None = None, status: str | None = None,
                 year: int | None = None) -> dict:
+    if measure not in ("outstanding", "invoiced", "received"):   # interpolated into the Cypher below
+        raise ValueError("measure must be outstanding, invoiced or received")
+    if status:
+        s = status.strip().lower().replace("-", "_").replace(" ", "_")
+        status = {"partial": "part_paid", "partially_paid": "part_paid", "overdue": "due", "unpaid": "due",
+                  "outstanding": "due", "open": "due"}.get(s, s)
+        if status not in ("paid", "part_paid", "due"):
+            raise ValueError("status must be paid, part_paid or due")
     res = None
     if client:
         client, res = _resolve(g, client, "client")
