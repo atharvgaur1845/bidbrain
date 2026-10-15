@@ -348,11 +348,15 @@ async def resolve(card_id: str, req: Request, x_session: str | None = Header(Non
             raise HTTPException(409, f"card is already {card['status']}")
         if winner not in card["claims"]:
             raise HTTPException(400, "winner_claim is not one of this card's claims")
-        out = engine.resolve_card(g, card_id, winner, body.get("rationale") or "resolved by bid manager",
-                                  user=str(body.get("user") or "bid-manager")[:64],
-                                  apply_to_similar=bool(body.get("apply_to_similar")))
+        try:
+            out = engine.resolve_card(g, card_id, winner, body.get("rationale") or "resolved by bid manager",
+                                      user=str(body.get("user") or "bid-manager")[:64],
+                                      apply_to_similar=bool(body.get("apply_to_similar")))
+        except ValueError as exc:      # card superseded or settled while the user was looking at it
+            raise HTTPException(409, str(exc))
         ripple = blast_radius(g, card["l"], card["k"])
-        apply_flips(g, ripple["result"]["verdict_flips"], f"decision {out['decision_id']}")
+        apply_flips(g, ripple["result"]["verdict_flips"], f"decision {out['decision_id']}",
+                    ripple["result"].get("evidence_changed"))
         return {"decision": out, "ripple": ripple["result"], "subgraph": ripple["subgraph"]}
 
     with sessions.busy(g):
@@ -382,10 +386,12 @@ def _ripple_after(g: Graph, emit, out: dict, cause: str) -> dict:
     from bidbrain.tools.case import apply_flips, blast_radius
     subjects = {(c["conflict"]["subject_label"], c["conflict"]["subject_key"])
                 for c in out.get("decisions", []) + out.get("cards", [])}
+    # a first-time fact (no rival claim) is written to its subject too, so it can flip clauses as well
+    subjects |= {(c["conflict"]["subject_label"], c["conflict"]["subject_key"]) for c in out.get("first_claims", [])}
     ripples = []
     for label, key in subjects:
         br = blast_radius(g, label, key)
-        apply_flips(g, br["result"]["verdict_flips"], cause)
+        apply_flips(g, br["result"]["verdict_flips"], cause, br["result"].get("evidence_changed"))
         ripples.append(br["result"])
         emit({"type": "ripple", "subject": f"{label}:{key}", "result": br["result"], "subgraph": br["subgraph"]})
     return {"ripples": ripples}

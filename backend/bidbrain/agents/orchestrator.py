@@ -25,7 +25,6 @@ from bidbrain.tools import call
 from bidbrain.tools import case as C
 from bidbrain.tools.proof import prove_absence, qualify_clause
 
-SAT_LABEL = {"similar_works": "Work", "key_personnel": "Person", "certification": "Certification"}
 # which facts each clause kind actually depends on (ConflictSentinel only reports these)
 RELEVANT = {"similar_works": ["value", "completed", "role", "client", "grading"],
             "turnover": ["revenue_operations"], "key_personnel": ["experience_years", "valid_through"],
@@ -70,15 +69,7 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
             continue
         out = qualify_clause(g, c["kind"], c["params"], tender.get("bid_date"))
         res = out["result"]
-        sat = []
-        for s in res.get("satisfied_by") or []:
-            label = SAT_LABEL.get(c["kind"])
-            if label:
-                sat.append((label, s["key"], {"credited": s.get("value") or s.get("experience_years") or 1}))
-        if c["kind"] == "turnover":
-            sat = [("FinancialStatement", f"FS-{y['fy']}", {"credited": y["revenue"]}) for y in res.get("years", [])]
-        if c["kind"] == "years_in_business":
-            sat = [("Company", "company", {"credited": 1})]
+        sat = C.satisfied_edges(c["kind"], res)
         C.set_verdict(g, kid, res["verdict"], res["basis"], sat, r2)
         verdicts[kid] = res
         emit({"type": "verdict", "agent": "EvidenceHunter", "clause_id": kid, "ref": c["id"], "kind": c["kind"],
@@ -98,12 +89,16 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
             missing = g.read("MATCH (w:Work) WHERE w.key IN $k AND NOT (w)-[:HAS_REFERENCE]->() "
                              "RETURN w.key AS key, w.title AS title", {"k": keys})
             if missing:
-                proof = prove_absence(g, "reference_letter",
-                                      client=g.scalar("MATCH (w:Work {key:$k})-[:FOR_CLIENT]->(c) RETURN c.key",
-                                                      {"k": missing[0]["key"]}))
+                # one absence proof per client of the missing works, so the proof covers every work named
+                clients = [r["client"] for r in g.read(
+                    """MATCH (w:Work)-[:FOR_CLIENT]->(c:Client) WHERE w.key IN $k
+                       RETURN DISTINCT c.key AS client ORDER BY client""", {"k": [m["key"] for m in missing]})]
+                proofs = [prove_absence(g, "reference_letter", client=ck) for ck in clients]
+                proof = proofs[0]
+                checks = [p["result"]["checks"] for p in proofs]
                 txt = (f"No client reference letter on file for {', '.join(m['title'] for m in missing)} "
-                       f"(proof: {proof['result']['checks']['corpus_closure']}; boundary "
-                       f"{proof['result']['checks']['boundary_attested_by_3_views']} attested). "
+                       f"(proof across {len(proofs)} client(s): {checks[0]['corpus_closure']}; boundary "
+                       f"{', '.join(str(ch['boundary_attested_by_3_views']) for ch in checks)} attested). "
                        f"Request letters from the client before submission or cite alternates.")
                 C.add_finding(g, kid, "absence", txt, "high" if "reference" in c["text"].lower() else "medium",
                               [("Work", m["key"]) for m in missing], r3)
@@ -116,8 +111,12 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
                 alts = ", ".join(a["name"] for a in res.get("safe_alternates", []))
                 txt = (f"PMP of {', '.join(e['name'] + ' (to ' + e['valid_through'] + ')' for e in exp[:4])} lapses within "
                        f"90 days of the bid date. Renew now, or propose {alts or 'alternates'} (valid well beyond).")
+                names = [e["name"] for e in exp]
+                keys = [x["key"] for x in res.get("satisfied_by") or [] if x.get("name") in names and x.get("key")]
+                keys += [r["key"] for r in g.read("MATCH (p:Person) WHERE p.name IN $n RETURN p.key AS key",
+                                                  {"n": names}) if r["key"] not in keys]
                 C.add_finding(g, kid, "expiry", txt, "high" if res.get("verdict") == "AT_RISK" else "low",
-                              [("Person", e) for e in []], r3)
+                              [("Person", k) for k in keys], r3)
                 n_find += 1
                 emit({"type": "finding", "agent": "AbsenceAuditor", "clause_id": kid, "kind": "expiry", "text": txt})
         if c["kind"] == "similar_works" and res.get("verdict") == "FAIL" and res.get("near_misses"):
@@ -134,15 +133,22 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
     # 4 ── ConflictSentinel ──────────────────────────────────────────────────
     r4 = C.agent_run(g, case_id, "ConflictSentinel", prev_run=r3)
     emit({"type": "agent_start", "agent": "ConflictSentinel", "run": r4})
-    rows = g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause)-[:SATISFIED_BY]->(s)<-[:ABOUT]-(cl:Claim)
-                     OPTIONAL MATCH (d:Decision)-[:BASED_ON]->(cl)
-                     WITH k, s, cl, collect(DISTINCT d) AS ds
+    # a claim about the satisfying node itself, or about a credential that person HOLDS (PMP validity);
+    # its resolution is the *head* decision for that fact (the one nothing supersedes), not whichever
+    # past decision happened to cite the claim
+    rows = g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause)-[:SATISFIED_BY]->(s)
+                     MATCH (s)-[:HOLDS*0..1]->(x)<-[:ABOUT]-(cl:Claim)
                      WHERE cl.status IN ['contested','rejected','superseded']
                        AND cl.predicate IN $preds[k.kind]
-                     RETURN k.id AS clause_id, labels(s)[0] AS label, s.key AS key,
+                     OPTIONAL MATCH (d:Decision {subject_key: x.key, predicate: cl.predicate})
+                     WHERE NOT ()-[:SUPERSEDES]->(d)
+                     WITH k, s, x, cl, d ORDER BY d.at DESC
+                     WITH k, s, x, cl, collect(d) AS ds
+                     RETURN k.id AS clause_id, labels(s)[0] AS label, x.key AS key,
                             coalesce(s.title, s.name, s.key) AS name, cl.predicate AS predicate,
                             cl.value_str AS value, cl.source_doc AS doc, cl.status AS status, cl.id AS claim,
-                            [x IN ds | {policy: x.policy, why: x.rationale, chosen: x.chosen_value}] AS decisions""",
+                            [y IN ds[0..1] | {policy: y.policy, why: y.rationale, chosen: y.chosen_value}] AS decisions
+                     ORDER BY clause_id, key, predicate, claim""",
                   {"c": case_id, "preds": RELEVANT})
     seen = set()
     for r in rows:
@@ -195,9 +201,7 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
     prec = call(g, "precedents", {"category": tender.get("category")})
     for p in prec.get("result", [])[:2]:
         g.run("MATCH (c:Case {id:$c}), (b:Bid {key:$b}) MERGE (c)-[:PRECEDENT]->(b)", {"c": case_id, "b": p["bid"]})
-    verds = [c["verdict"] for c in rec["clauses"] if c["verdict"] != "DECLARE"]
-    sev = [f["severity"] for c in rec["clauses"] for f in c["findings"] if f]
-    overall = "NO-BID" if "FAIL" in verds else ("BID WITH FIXES" if "AT_RISK" in verds or "high" in sev else "BID")
+    overall = C.overall_verdict(g, case_id)      # the same rule the ripple recomputes with
     memo, how = None, "template"
     if providers.available() or providers.REPLAY:
         try:

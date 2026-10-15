@@ -22,7 +22,7 @@ from bidbrain.graph.client import Graph
 sys.path.insert(0, str(config.VENDOR / "src"))
 import extract as X  # noqa: E402  (vendored)
 import pdftext  # noqa: E402  (vendored)
-from money import best_money  # noqa: E402  (vendored)
+from money import _MONEY, _parse_match  # noqa: E402  (vendored)
 
 GRADE_RE = re.compile(r"\b(Outstanding|Excellent|Very Good|Good|Satisfactory|Fair|Poor)\b")
 
@@ -41,6 +41,27 @@ def _first_date(text: str) -> str | None:
     return None
 
 
+def _money(text: str | None) -> tuple[int | None, int]:
+    """(rupees, precision) of the most precisely rendered amount — vendored best_money's choice,
+    plus the granularity of that rendering: 1 for '19,32,99,999', 100,000 for '19.33 Cr',
+    1,000 for '1,933.00 Lakh'. A rounded rendering must not read as a contradiction."""
+    best = None
+    for m in _MONEY.finditer(text or ""):
+        parsed = _parse_match(m)
+        if parsed and (best is None or parsed[1] < best[1]):
+            best = parsed
+    return (best[0], best[1]) if best else (None, 1)
+
+
+# "Name, State (Package 60)", "Name — State Pkg 60", "Name - State Pkg-60" -> "Name State Pkg-60"
+_PKG = re.compile(r"[\s,(—–-]*\b(?:Package|Pkg)\.?[\s-]*(\d+)\s*\)?\s*$", re.I)
+
+
+def _canonical_title(title: str) -> str | None:
+    m = _PKG.search(title)
+    return f"{title[:m.start()]} Pkg-{m.group(1)}" if m else None
+
+
 def _resolve_work(g: Graph, title: str | None, cert_ref: str | None) -> tuple[str | None, str]:
     if cert_ref:
         k = g.scalar("MATCH (w:Work {cert_ref:$r}) RETURN w.key", {"r": cert_ref})
@@ -50,6 +71,9 @@ def _resolve_work(g: Graph, title: str | None, cert_ref: str | None) -> tuple[st
         k = g.scalar("MATCH (w:Work {key:$k}) RETURN w.key", {"k": X.norm_key(title)})
         if k:
             return k, "exact title"
+        canon = _canonical_title(title)
+        if canon and (k := g.scalar("MATCH (w:Work {key:$k}) RETURN w.key", {"k": X.norm_key(canon)})):
+            return k, "title (package number)"
         from bidbrain.tools.read import _resolve
         try:
             k, how = _resolve(g, title, "work")
@@ -81,7 +105,8 @@ def classify(text: str) -> str:
 
 
 def parse(g: Graph, text: str, kind: str) -> dict:
-    """-> {subject_label, subject_key, resolved_via, issuer, observed, claims:[(pred, value, source_kind)]}"""
+    """-> {subject_label, subject_key, resolved_via, issuer, observed,
+           claims:[(pred, value, source_kind[, precision])]}"""
     issuer = X.first_line(text)
     observed = _first_date(text)
     out = {"issuer": issuer, "observed": observed, "claims": []}
@@ -89,8 +114,15 @@ def parse(g: Graph, text: str, kind: str) -> dict:
         r = X.completion_certificate(text)                      # vendored, unmodified
         key, how = _resolve_work(g, r["work"], r["cert_ref"])
         out.update(subject_label="Work", subject_key=key, resolved_via=how)
-        out["claims"] = [("completed", r["completed"], "revised_certificate"),
-                         ("value", r["value"], "revised_certificate")]
+        out["claims"] = [("completed", r["completed"], "revised_certificate")]
+        # the re-issued certificate restates the *original* contract value; it is a claim about
+        # the value only if the document says the value itself was revised
+        if r["value"] is not None and re.search(r"\b(?:revised|amended)\s+(?:contract\s+)?value\b"
+                                                r"|\bvalue\s*\((?:revised|amended)\)", text, re.I):
+            v, prec = _money(X.label_value(text, "Revised Contract Value", "Contract Value (Revised)",
+                                           "Amended Contract Value", "Contract Value (Amended)") or "")
+            if v is not None:
+                out["claims"].append(("value", v, "revised_certificate", prec))
     elif kind == "corrigendum":
         title = X.label_value(text, "Name of Work")
         ref = X.label_value(text, "Certificate Reference")
@@ -99,7 +131,8 @@ def parse(g: Graph, text: str, kind: str) -> dict:
         field = (X.label_value(text, "Field Amended") or "").lower()
         amended = X.label_value(text, "Amended Entry") or ""
         if "value" in field:
-            out["claims"] = [("value", best_money(amended), "client_corrigendum")]
+            v, prec = _money(amended)
+            out["claims"] = [("value", v, "client_corrigendum", prec)]
         elif "completion" in field:
             out["claims"] = [("completed", X.parse_date(amended), "client_corrigendum")]
         elif "defect" in field:
@@ -136,12 +169,14 @@ def parse(g: Graph, text: str, kind: str) -> dict:
         if m := re.search(r"assess its overall quality as\s+(Outstanding|Excellent|Very Good|Good|Satisfactory|Fair|Poor)", body):
             out["claims"].append(("grading", m.group(1), "reference_letter"))
         if m := re.search(r"valued at\s+(.{0,40})", body, re.S):
-            out["claims"].append(("value", best_money(m.group(1)), "reference_letter"))
+            v, prec = _money(m.group(1))
+            out["claims"].append(("value", v, "reference_letter", prec))
     elif kind == "brochure":
         title = X.label_value(text, "Name of Work")
         key, how = _resolve_work(g, title, None)
         out.update(subject_label="Work", subject_key=key, resolved_via=how, issuer="company")
-        out["claims"] = [("value", best_money(X.label_value(text, "Contract Value") or ""), "portfolio")]
+        v, prec = _money(X.label_value(text, "Contract Value") or "")
+        out["claims"] = [("value", v, "portfolio", prec)]
     out["claims"] = [c for c in out["claims"] if c[1] is not None]
     return out
 
@@ -162,13 +197,15 @@ def ingest_pdf(g: Graph, path: str | pathlib.Path, doc_id: str | None = None) ->
                   "title": text.splitlines()[2] if len(text.splitlines()) > 2 else kind},
           "claims": [{"subject_label": p["subject_label"], "subject_key": p["subject_key"], "predicate": pred,
                       "value": val, "source_kind": sk, "issuer": p["issuer"], "observed": p["observed"] or config.AS_OF,
-                      "page": 1, "extracted_by": "pdf"} for pred, val, sk in p["claims"]]}
+                      "page": 1, "extracted_by": "pdf", "precision": (rest or [1])[0]}
+                     for pred, val, sk, *rest in p["claims"]]}
     out = apply_event(g, ev)
     _add_chunk(g, doc_id, text)
     return {"doc_id": doc_id, "kind": kind, "subject": {"label": p["subject_label"], "key": p["subject_key"],
                                                         "resolved_via": p["resolved_via"]},
             "issuer": p["issuer"], "observed": p["observed"],
-            "extracted": [{"predicate": a, "value": b, "source_kind": c} for a, b, c in p["claims"]], **out}
+            "extracted": [{"predicate": a, "value": b, "source_kind": c, "precision": (rest or [1])[0]}
+                          for a, b, c, *rest in p["claims"]], **out}
 
 
 def _add_chunk(g: Graph, doc_id: str, text: str) -> None:

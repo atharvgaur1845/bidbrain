@@ -27,6 +27,23 @@ LABEL_OF = {"Work": "Work", "Person": "Person", "FinancialStatement": "Financial
             "Contract": "Contract"}
 
 
+SAT_LABEL = {"similar_works": "Work", "key_personnel": "Person", "certification": "Certification"}
+
+
+def satisfied_edges(kind: str, res: dict) -> list[tuple[str, str, dict]]:
+    """The SATISFIED_BY edges a qualify_clause result implies — one definition for the
+    EvidenceHunter and for the ripple, so a re-checked clause is rewired the same way."""
+    if kind == "turnover":
+        return [("FinancialStatement", f"FS-{y['fy']}", {"credited": y["revenue"]}) for y in res.get("years", [])]
+    if kind == "years_in_business":
+        return [("Company", "company", {"credited": 1})]
+    label = SAT_LABEL.get(kind)
+    if not label:
+        return []
+    return [(label, s["key"], {"credited": s.get("value") or s.get("experience_years") or 1})
+            for s in res.get("satisfied_by") or [] if s.get("key")]
+
+
 def _id(prefix, *parts):
     return prefix + hashlib.sha1("|".join(map(str, parts)).encode()).hexdigest()[:10]
 
@@ -183,46 +200,79 @@ def blast_radius(g: Graph, label: str, key: str, rerun: bool = True) -> dict:
     # every open clause whose *candidate set* could include this subject is re-checked, not only the
     # ones it currently satisfies: a corrigendum can make a failing clause pass, too
     clauses = g.read("""MATCH (c:Case {status:'open'})-[:HAS_CLAUSE]->(k:Clause) WHERE k.kind IN $kinds
+                        OPTIONAL MATCH (k)-[:SATISFIED_BY]->(s)
                         RETURN c.id AS case_id, c.title AS case, c.bid_date AS bid_date, k.id AS clause_id,
-                               k.ref AS ref, k.kind AS kind, k.params AS params, k.verdict AS verdict""",
+                               k.ref AS ref, k.kind AS kind, k.params AS params, k.verdict AS verdict,
+                               collect(s.key) AS sat""",
                      {"kinds": kinds})
-    flips = []
+    flips, rewired = [], []
     if rerun:
         for c in clauses:
             out = qualify_clause(g, c["kind"], json.loads(c["params"] or "{}"), c["bid_date"])
             new = out["result"]["verdict"]
+            sat = satisfied_edges(c["kind"], out["result"])
+            entry = {"case": c["case"], "case_id": c["case_id"], "clause": c["ref"], "kind": c["kind"],
+                     "from": c["verdict"], "to": new, "basis": out["result"]["basis"],
+                     "clause_id": c["clause_id"], "satisfied": sat}
             if new != c["verdict"]:
-                flips.append({"case": c["case"], "case_id": c["case_id"], "clause": c["ref"], "kind": c["kind"],
-                              "from": c["verdict"], "to": new, "basis": out["result"]["basis"],
-                              "clause_id": c["clause_id"]})
+                flips.append(entry)
+            elif sorted(k for _, k, _ in sat) != sorted(c["sat"]):
+                rewired.append(entry)       # same verdict, different evidence: still rewire SATISFIED_BY
     sg = {"nodes": [{"id": f"{label}:{key}", "label": label, "name": key}]
           + [{"id": f"Case:{d['case_id']}", "label": "Case", "name": d["case"]} for d in direct]
           + [{"id": f"Bid:{b['bid']}", "label": "Bid", "name": b["bid"]} for b in bids],
           "edges": [{"source": f"Case:{d['case_id']}", "target": f"{label}:{key}", "type": "RELIES_ON"} for d in direct]
           + [{"source": f"Bid:{b['bid']}", "target": f"{label}:{key}", "type": "CITES"} for b in bids]}
     return {"result": {"subject": f"{label}:{key}", "cases_relying": direct, "past_bids_citing": bids,
-                       "tenders_secured": tenders, "clauses_rechecked": len(clauses), "verdict_flips": flips},
+                       "tenders_secured": tenders, "clauses_rechecked": len(clauses), "verdict_flips": flips,
+                       "evidence_changed": rewired},
             "subgraph": sg}
 
 
+# finding kinds that describe the clause's *current* verdict (a gap closes, a ripple note is
+# history once the clause passes) and so do not hold a PASS clause back
+_VERDICT_BOUND = ("gap", "ripple")
+
+
 def overall_verdict(g: Graph, case_id: str) -> str:
-    rows = g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause) OPTIONAL MATCH (k)-[:HAS_FINDING]->(f:Finding)
-                     RETURN k.verdict AS v, collect(f.severity) AS sev""", {"c": case_id})
+    """The case recommendation — the one rule both the Assembler and the ripple use.
+
+    NO-BID if any clause FAILs; BID WITH FIXES if any is AT_RISK or carries a live high-severity
+    finding (on any clause, PASS included: a contested fact or a missing reference letter is a
+    risk even where the clause passes); else BID. A 'conflict' finding stays live only while a
+    claim it cites is still contested."""
+    rows = g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause)
+                     OPTIONAL MATCH (k)-[:HAS_FINDING]->(f:Finding {severity:'high'})
+                     OPTIONAL MATCH (f)-[:CITES]->(cl:Claim)
+                     WITH k, f, collect(cl.status) AS cited
+                     RETURN k.verdict AS v, collect(CASE WHEN f IS NULL THEN NULL
+                            ELSE {kind: f.kind, cited: cited} END) AS high""", {"c": case_id})
     verds = [r["v"] for r in rows if r["v"] != "DECLARE"]
-    high = any("high" in r["sev"] for r in rows if r["v"] != "PASS")
+
+    def live(f: dict, verdict: str) -> bool:
+        if f["kind"] == "conflict" and f["cited"]:
+            return "contested" in f["cited"]
+        return not (verdict == "PASS" and f["kind"] in _VERDICT_BOUND)
+
+    high = any(live(f, r["v"]) for r in rows for f in r["high"] if f)
     return "NO-BID" if "FAIL" in verds else ("BID WITH FIXES" if "AT_RISK" in verds or high else "BID")
 
 
-def apply_flips(g: Graph, flips: list[dict], cause: str) -> list[dict]:
-    """Write ripple results back: new verdicts, a 'ripple' finding naming the cause, and the case's
-    recomputed overall recommendation. Returns per-case before/after."""
+def apply_flips(g: Graph, flips: list[dict], cause: str, evidence_changed: list[dict] | None = None) -> list[dict]:
+    """Write ripple results back: new verdicts *and* the evidence they now rest on (SATISFIED_BY is
+    rebuilt), a 'ripple' finding naming the cause, and the case's recomputed overall recommendation.
+    `evidence_changed` (blast_radius's list of same-verdict clauses whose satisfying set moved) is
+    rewired too. Returns per-case before/after."""
     for f in flips:
-        g.run("MATCH (k:Clause {id:$id}) SET k.verdict = $v, k.basis = $b",
-              {"id": f["clause_id"], "v": f["to"], "b": f["basis"]})
+        _rewire(g, f)
         add_finding(g, f["clause_id"], "ripple", f"verdict changed {f['from']} -> {f['to']} because {cause}",
                     severity="high" if f["to"] == "FAIL" else "medium")
+    for f in evidence_changed or []:
+        _rewire(g, f)
+        add_finding(g, f["clause_id"], "ripple", f"verdict {f['to']} unchanged, but the evidence it rests on "
+                                                 f"changed because {cause}", severity="info")
     changed = []
-    for cid in {f["case_id"] for f in flips}:
+    for cid in sorted({f["case_id"] for f in flips + list(evidence_changed or [])}):
         before = g.scalar("MATCH (c:Case {id:$c}) RETURN c.verdict", {"c": cid})
         after = overall_verdict(g, cid)
         g.run("MATCH (c:Case {id:$c}) SET c.verdict = $v", {"c": cid, "v": after})
@@ -231,3 +281,11 @@ def apply_flips(g: Graph, flips: list[dict], cause: str) -> list[dict]:
             if f["case_id"] == cid:
                 f["case_from"], f["case_to"] = before, after
     return changed
+
+
+def _rewire(g: Graph, f: dict) -> None:
+    if "satisfied" in f:
+        set_verdict(g, f["clause_id"], f["to"], f["basis"], [tuple(x) for x in f["satisfied"]])
+    else:                               # a flip computed by an older blast_radius: verdict only
+        g.run("MATCH (k:Clause {id:$id}) SET k.verdict = $v, k.basis = $b",
+              {"id": f["clause_id"], "v": f["to"], "b": f["basis"]})

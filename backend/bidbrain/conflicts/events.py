@@ -167,6 +167,10 @@ def apply_event(g: Graph, ev: dict, resolve: bool = True) -> dict:
                            source_doc=d["doc_id"], source_kind=c["source_kind"], page=c.get("page", 1),
                            issuer=c["issuer"], observed=c["observed"], planted=ev["type"],
                            extracted_by=c.get("extracted_by", "event"), basis=ev["event_id"]))
+        if c.get("precision"):
+            # the document's own rendering can be coarser than the source kind's default:
+            # "INR 19.33 Cr" in a letter is exact only to 1 lakh
+            rows[-1]["precision"] = max(rows[-1]["precision"] or 1, int(c["precision"]))
     for r in rows:
         g.run(f"""MATCH (s:{r['subject_label']} {{key:$k}}), (d:Document {{doc_id:$doc}})
                   MERGE (c:Claim {{id:$id}}) SET c += $r
@@ -175,6 +179,10 @@ def apply_event(g: Graph, ev: dict, resolve: bool = True) -> dict:
     if not resolve:
         return {"event_id": ev["event_id"], "claims": [r["id"] for r in rows]}
     out = engine.run(g, [c["subject_key"] for c in ev["claims"]])
+    # a fact stated for the first time has no rival, so no conflict materializes it: adopt it
+    # (kept apart from `decisions`, which are resolved contradictions — what the P/R eval scores)
+    in_conflict = {c["id"] for x in out["decisions"] + out["cards"] for c in x["conflict"]["claims"]}
+    out["first_claims"] = engine.adopt_uncontested(g, [r["id"] for r in rows], in_conflict)
     return {"event_id": ev["event_id"], "claims": [r["id"] for r in rows], **out}
 
 
