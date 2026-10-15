@@ -3,7 +3,8 @@ domain knowledge lives in the tools, not in the prompt."""
 
 QA_TOOLS = ["resolve_entity", "find_portfolio", "aggregate", "credential_timeline", "date_span",
             "receivables", "collection_rate", "awarded_vs_billed", "prove_absence", "qualify_clause",
-            "who_knows", "key_people", "explain_path", "get_entity", "vector_search", "cypher_readonly"]
+            "who_knows", "key_people", "explain_path", "get_entity", "vector_search", "graph_schema",
+            "cypher_readonly"]
 
 # One-line tool descriptions for the LLM (the full descriptions are served over MCP and in docs/CYPHER.md).
 BRIEF = {
@@ -22,6 +23,7 @@ BRIEF = {
     "explain_path": "Shortest connection paths between two entities (a, a_kind, b, b_kind).",
     "get_entity": "One entity's properties and direct links. kind: client|person|work|tender|bond|credential|contract|document.",
     "vector_search": "Semantic search over document pages (for prose, not for counting).",
+    "graph_schema": "All labels, properties and relationships, with FalkorDB dialect notes (before cypher_readonly).",
     "cypher_readonly": "Read-only Cypher escape hatch. Labels: Work{key,title,value,completed,category,role,has_reference} -[:FOR_CLIENT]->Client{name,govt_level} ; Work-[:LED_BY]->Person{name,experience_years} ; Person-[:HOLDS]->Credential{kind,issued,valid_through} ; Invoice-[:BILLED_TO]->Client ; Bond-[:SECURES]->Tender.",
 }
 
@@ -41,7 +43,8 @@ How to work:
 - Verify dates a user "remembers" against the record (credential_timeline / date_span); the graph wins.
 - Invoices are keyed by client, not by work: hop work -> client first (receivables / collection_rate /
   awarded_vs_billed accept `work`).
-- Use cypher_readonly only when no tool fits (call graph_schema first).
+- Use cypher_readonly only when no tool fits (call graph_schema first if its labels are not enough).
+- Call only the tools you are given.
 
 When done, reply with a short explanation of the path you followed, then a final line exactly:
 ANSWER: <number or short text>

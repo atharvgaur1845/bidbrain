@@ -1,7 +1,11 @@
 """The thin tool-calling loop every BidBrain agent runs on.
 
 No framework: messages in, tool calls out, tool results back, until the model
-answers or the step budget runs out. Each step is emitted as an event so the UI
+answers or the step budget runs out. Only the tools offered to the agent can run:
+a call to any other registered tool gets an error tool message instead. When the
+budget runs out (or an endpoint rejects a mid-run request) the model gets one last
+tool-free turn to answer from the results it already has, so gathered evidence is
+never thrown away. Each step is emitted as an event so the UI
 can stream the trace and animate the subgraph each tool touched. The loop also
 accumulates evidence + subgraph across steps, which is what the answer card
 shows as "the path behind this answer".
@@ -32,6 +36,11 @@ class RunResult:
     ms: float = 0.0
     providers: list[str] = field(default_factory=list)
     error: str | None = None
+    note: str | None = None        # e.g. "step budget exhausted; answered from the results so far"
+
+
+FINALIZE = ("You have no tool calls left. Do not call any tools. Using only the tool results above, "
+            "reply now in the required final format.")
 
 
 def _merge_subgraph(acc: dict, sg: dict) -> None:
@@ -48,12 +57,35 @@ def _merge_subgraph(acc: dict, sg: dict) -> None:
             seen_e.add(k)
 
 
+def _finalize(messages: list[dict], res: RunResult, agent: str, emit: Emit, why: str) -> bool:
+    """One tool-free call asking for the answer from what the tools already returned."""
+    try:
+        rep = providers.chat([*messages, {"role": "user", "content": FINALIZE}])
+    except providers.LLMUnavailable as exc:
+        emit({"type": "error", "agent": agent, "message": f"{why}; final answer call failed: {exc}"})
+        return False
+    _count(res, rep)
+    if not rep.content:
+        return False
+    res.final, res.note = rep.content, f"{why}; answered from the results gathered so far"
+    emit({"type": "final", "agent": agent, "text": rep.content, "provider": rep.provider, "note": res.note})
+    return True
+
+
+def _count(res: RunResult, rep) -> None:
+    res.usage["llm_calls"] += 1
+    res.usage["prompt"] += rep.usage.get("prompt", 0)
+    res.usage["completion"] += rep.usage.get("completion", 0)
+    res.providers.append(rep.provider + (" (cached)" if rep.cached else ""))
+
+
 def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str],
               max_steps: int = 8, emit: Emit | None = None, history: list[dict] | None = None) -> RunResult:
     emit = emit or (lambda e: None)
     t0 = time.perf_counter()
     res = RunResult(agent=agent, final="")
-    tools = schemas([t for t in tool_names if t in TOOLS], brief=BRIEF)
+    offered = [t for t in tool_names if t in TOOLS]
+    tools = schemas(offered, brief=BRIEF)
     messages = [{"role": "system", "content": system}, *(history or []), {"role": "user", "content": user}]
     emit({"type": "agent_start", "agent": agent})
     for step in range(max_steps):
@@ -62,11 +94,13 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
         except providers.LLMUnavailable as exc:
             res.error = str(exc)
             emit({"type": "error", "agent": agent, "message": str(exc)})
+            # the endpoint rejected this particular request (e.g. a malformed generated tool call): a
+            # tool-free request may still go through, and the evidence gathered so far deserves an answer
+            if res.steps and getattr(exc, "kind", None) == "request" \
+                    and _finalize(messages, res, agent, emit, f"LLM request failed mid-run ({exc})"):
+                res.error = None
             break
-        res.usage["llm_calls"] += 1
-        res.usage["prompt"] += rep.usage.get("prompt", 0)
-        res.usage["completion"] += rep.usage.get("completion", 0)
-        res.providers.append(rep.provider + (" (cached)" if rep.cached else ""))
+        _count(res, rep)
         if not rep.tool_calls:
             res.final = rep.content
             emit({"type": "final", "agent": agent, "text": rep.content, "provider": rep.provider})
@@ -83,7 +117,10 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
             except json.JSONDecodeError:
                 args = {}
             emit({"type": "tool_call", "agent": agent, "tool": tc["name"], "args": args, "step": step})
-            out = call(g, tc["name"], args)
+            if tc["name"] in offered:
+                out = call(g, tc["name"], args)
+            else:       # registered or not, a tool this agent was not given must not run
+                out = {"error": f"tool {tc['name']!r} is not available here", "available": offered}
             res.usage["tool_calls"] += 1
             res.evidence += [e for e in out.get("evidence", []) if e not in res.evidence]
             _merge_subgraph(res.subgraph, out.get("subgraph", {}))
@@ -95,8 +132,9 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
                   "evidence": out.get("evidence", [])[:12], "cypher": out.get("cypher", [])})
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": compact(out)[:9000]})
     else:
-        res.error = "step budget exhausted"
-        emit({"type": "error", "agent": agent, "message": res.error})
+        if not _finalize(messages, res, agent, emit, "step budget exhausted"):
+            res.error = "step budget exhausted"
+            emit({"type": "error", "agent": agent, "message": res.error})
     res.ms = round((time.perf_counter() - t0) * 1000, 1)
     return res
 
