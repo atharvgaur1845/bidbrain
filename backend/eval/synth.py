@@ -37,7 +37,7 @@ def build_abs(g: Graph) -> list[dict]:
                                count(w) AS n, sum(CASE WHEN w.has_reference THEN 0 ELSE 1 END) AS missing""")
     for c in clients:
         nm = _informal(c["name"], c["aliases"] or [])
-        out.append({"qid": f"ABS-C-{c['key'][:18]}", "answer_type": "count", "gold": int(c["missing"]), "hops": 3,
+        out.append({"qid": f"ABS-C-{c['key']}", "answer_type": "count", "gold": int(c["missing"]), "hops": 3,
                     "family": "absence_client", "absence": True,
                     "question": R.choice([f"How many of {nm}'s completed works have no client reference letter on file?",
                                           f"For {nm}, count the completed works that lack a reference letter.",
@@ -48,7 +48,7 @@ def build_abs(g: Graph) -> list[dict]:
     for p in people:
         if p["n"] < 2:
             continue
-        out.append({"qid": f"ABS-P-{p['key'][:18]}", "answer_type": "count", "gold": int(p["missing"]), "hops": 3,
+        out.append({"qid": f"ABS-P-{p['key']}", "answer_type": "count", "gold": int(p["missing"]), "hops": 3,
                     "family": "absence_person", "absence": True,
                     "question": f"Of the works {p['name']} led as project lead, how many have no client reference letter?"})
     # person -> credential -> works for a client: 5 hops
@@ -70,7 +70,7 @@ def build_abs(g: Graph) -> list[dict]:
     lvl_word = {"central": "central government", "state": "state government", "psu": "public sector undertaking",
                 "municipal": "municipal", "private": "private-sector"}
     for r in cats:
-        out.append({"qid": f"ABS-K-{r['cat'][:8]}-{r['lvl']}", "answer_type": "count", "gold": int(r["missing"]), "hops": 4,
+        out.append({"qid": f"ABS-K-{r['cat'].replace(' ', '_')}-{r['lvl']}", "answer_type": "count", "gold": int(r["missing"]), "hops": 4,
                     "family": "absence_category", "absence": True,
                     "question": f"How many {r['cat']} works we completed for {lvl_word[r['lvl']]} clients have no client "
                                 f"reference letter on file?"})
@@ -83,7 +83,7 @@ def build_abs(g: Graph) -> list[dict]:
                              WITH p, max(cr.valid_through_day) AS v
                              RETURN count(p) AS n, sum(CASE WHEN v IS NULL OR v < $d THEN 1 ELSE 0 END) AS lacking""",
                           {"c": c["key"], "d": day(when)})
-            out.append({"qid": f"ABS-V-{c['key'][:12]}-{when}", "answer_type": "count", "gold": int(rows[0]["lacking"]),
+            out.append({"qid": f"ABS-V-{c['key']}-{when}", "answer_type": "count", "gold": int(rows[0]["lacking"]),
                         "hops": 4, "family": "absence_credential", "absence": True,
                         "question": f"Of the project leads who have delivered work for {c['name']}, how many will NOT hold a "
                                     f"valid PMP certification on {when}?"})
@@ -146,9 +146,17 @@ def build_tnd(g: Graph) -> list[dict]:
     return out
 
 
+def _unique(rows: list[dict], name: str) -> list[dict]:
+    """qids key results and resumes in eval.run, so two questions must never share one."""
+    import collections
+    dup = [k for k, v in collections.Counter(r["qid"] for r in rows).items() if v > 1]
+    assert not dup, f"{name}: duplicate qids {dup}"
+    return rows
+
+
 if __name__ == "__main__":
     g = Graph()
-    a, t = build_abs(g), build_tnd(g)
+    a, t = _unique(build_abs(g), "ABS"), _unique(build_tnd(g), "TND")
     (config.DATA / "eval" / "abs_set.json").write_text(json.dumps(a, indent=1))
     (config.DATA / "eval" / "tnd_set.json").write_text(json.dumps(t, indent=1))
     import collections

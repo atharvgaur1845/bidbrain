@@ -12,18 +12,35 @@ baseline, not a strawman.
 """
 from __future__ import annotations
 
+import collections
 import json
 import re
 import time
 
 from bidbrain.agents import providers
+from bidbrain.agents.prompts import QA_SYSTEM
 from bidbrain.agents.qa import parse_answer
 from bidbrain.graph.client import Graph
 from bidbrain.tools.search import SCHEMA_DOC
 
-RAG_SYSTEM = """You answer questions about a construction company's records using ONLY the document
+_FALLBACK_FORMAT = """ANSWER: <number or short text>
+For money give the integer rupee amount, for percentages a number with 2 decimals, for days an integer."""
+
+
+def _answer_format(system: str) -> str:
+    """The answer-format rules BidBrain's QA_SYSTEM ends with (the ANSWER: line and everything after it),
+    taken from that prompt at import time so every baseline gets exactly the same rules and the parser
+    penalises no system's formatting more than another's."""
+    i = system.rfind("\nANSWER:")
+    return system[i + 1:].strip() if i >= 0 else _FALLBACK_FORMAT
+
+
+ANSWER_FORMAT = _answer_format(QA_SYSTEM)
+
+RAG_SYSTEM = f"""You answer questions about a construction company's records using ONLY the document
 excerpts provided. Amounts are in Indian rupees (1 Cr = 10,000,000; 1 Lakh = 100,000). Show brief
-working, then end with a final line exactly: ANSWER: <number or short text>"""
+working, then end with a final line exactly:
+{ANSWER_FORMAT}"""
 
 T2C_SYSTEM = f"""You write ONE FalkorDB Cypher query that answers the user's question over this graph.
 {SCHEMA_DOC}
@@ -31,8 +48,13 @@ Rules: read-only; return the final number(s) directly when possible; use exact n
 (names match Client.name / Person.name / Work.title; use CONTAINS for partial names).
 Reply with only the query inside ```cypher ... ```."""
 
-T2C_ANSWER = """Given a question, the Cypher that was run and its rows, answer the question.
-End with a final line exactly: ANSWER: <number or short text>"""
+T2C_ANSWER = f"""Given a question, the Cypher that was run and its rows, answer the question.
+End with a final line exactly:
+{ANSWER_FORMAT}"""
+
+
+def _tag(rep) -> str:
+    return rep.provider + (" (cached)" if rep.cached else "")
 
 
 def vector_rag(g: Graph, question: str, k: int = 8) -> dict:
@@ -48,19 +70,21 @@ def vector_rag(g: Graph, question: str, k: int = 8) -> dict:
     return {"system": "vector_rag", "answer": val, "answer_text": raw, "explanation": rep.content,
             "retrieved": [{"doc_id": r["doc_id"], "page": r["page"], "sim": round(r["sim"], 3)} for r in rows],
             "usage": {**rep.usage, "llm_calls": 1}, "ms": round((time.perf_counter() - t0) * 1000, 1),
-            "provider": rep.provider}
+            "provider": rep.provider, "providers": [_tag(rep)]}
 
 
 def _extract_cypher(text: str) -> str:
-    m = re.search(r"```(?:cypher)?\s*(.+?)```", text, re.S)
-    return (m.group(1) if m else text).strip().rstrip(";")
+    # any-case language tag (```Cypher, ```CYPHER, ```sql) on its own line, or an inline ```cypher
+    m = re.search(r"```(?:[A-Za-z]+[ \t]*\n|[ \t]*cypher\b)?\s*(.+?)```", text, re.S | re.I)
+    q = (m.group(1) if m else text).strip()
+    return re.sub(r"^cypher\b[:\s]*", "", q, flags=re.I).strip().rstrip(";")
 
 
 def text2cypher(g: Graph, question: str) -> dict:
     t0 = time.perf_counter()
     msgs = [{"role": "system", "content": T2C_SYSTEM}, {"role": "user", "content": question}]
     rep = providers.chat(msgs, max_tokens=700)
-    calls, usage = 1, dict(rep.usage)
+    calls, usage, tags = 1, collections.Counter(rep.usage), [_tag(rep)]
     q = _extract_cypher(rep.content)
     rows, err = None, None
     for attempt in range(2):
@@ -75,13 +99,17 @@ def text2cypher(g: Graph, question: str) -> dict:
                          {"role": "user", "content": f"That query failed: {err}\nFix it. Reply with only the query."}]
                 rep = providers.chat(msgs, max_tokens=700)
                 calls += 1
+                usage.update(rep.usage)
+                tags.append(_tag(rep))
                 q = _extract_cypher(rep.content)
     rep2 = providers.chat([{"role": "system", "content": T2C_ANSWER},
                            {"role": "user", "content": json.dumps({"question": question, "cypher": q,
                                                                    "rows": rows, "error": err}, default=str)[:9000]}],
                           max_tokens=500)
     calls += 1
+    usage.update(rep2.usage)
+    tags.append(_tag(rep2))
     val, raw = parse_answer(rep2.content)
     return {"system": "text2cypher", "answer": val, "answer_text": raw, "cypher": q, "error": err,
-            "rows": (rows or [])[:10], "explanation": rep2.content, "usage": {"llm_calls": calls},
-            "ms": round((time.perf_counter() - t0) * 1000, 1)}
+            "rows": (rows or [])[:10], "explanation": rep2.content, "usage": {**usage, "llm_calls": calls},
+            "ms": round((time.perf_counter() - t0) * 1000, 1), "providers": tags}

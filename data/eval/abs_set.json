@@ -1,6 +1,6 @@
 [
  {
-  "qid": "ABS-C-publicworksdepartm",
+  "qid": "ABS-C-publicworksdepartmentgovtofmaharashtra",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -9,7 +9,7 @@
   "question": "Across everything we completed for PWD MAHARASHTRA, how many works have no client testimonial on record?"
  },
  {
-  "qid": "ABS-C-gujaratmunicipalco",
+  "qid": "ABS-C-gujaratmunicipalcorporation",
   "answer_type": "count",
   "gold": 0,
   "hops": 3,
@@ -18,7 +18,7 @@
   "question": "How many of Gujarat Municipal Corporation's completed works have no client reference letter on file?"
  },
  {
-  "qid": "ABS-C-meridianconstructo",
+  "qid": "ABS-C-meridianconstructorsco",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -27,7 +27,7 @@
   "question": "How many of Meridian Constructors & Co.'s completed works have no client reference letter on file?"
  },
  {
-  "qid": "ABS-C-publicworksdepartm",
+  "qid": "ABS-C-publicworksdepartmentgovtofwestbengal",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -36,7 +36,7 @@
   "question": "Across everything we completed for Public Works Department, Govt of West Bengal, how many works have no client testimonial on record?"
  },
  {
-  "qid": "ABS-C-megainfrastructure",
+  "qid": "ABS-C-megainfrastructureauthority",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -45,7 +45,7 @@
   "question": "Across everything we completed for Mega Infrastructure Authority, how many works have no client testimonial on record?"
  },
  {
-  "qid": "ABS-C-trishaktipowergene",
+  "qid": "ABS-C-trishaktipowergenerationcorporation",
   "answer_type": "count",
   "gold": 2,
   "hops": 3,
@@ -54,7 +54,7 @@
   "question": "For Trishakti Power Generation Corporation, count the completed works that lack a reference letter."
  },
  {
-  "qid": "ABS-C-jharkhandmunicipal",
+  "qid": "ABS-C-jharkhandmunicipalcorporation",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -63,7 +63,7 @@
   "question": "Across everything we completed for Jharkhand Municipal Corporation, how many works have no client testimonial on record?"
  },
  {
-  "qid": "ABS-C-jalnigamuttarprade",
+  "qid": "ABS-C-jalnigamuttarpradesh",
   "answer_type": "count",
   "gold": 0,
   "hops": 3,
@@ -72,7 +72,7 @@
   "question": "For Jal Nigam, Uttar Pradesh, count the completed works that lack a reference letter."
  },
  {
-  "qid": "ABS-C-nationalspecialpro",
+  "qid": "ABS-C-nationalspecialprojectsoffice",
   "answer_type": "count",
   "gold": 0,
   "hops": 3,
@@ -81,7 +81,7 @@
   "question": "Across everything we completed for National Special Projects Office, how many works have no client testimonial on record?"
  },
  {
-  "qid": "ABS-C-publicworksdepartm",
+  "qid": "ABS-C-publicworksdepartmentgovtofgujarat",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -90,7 +90,7 @@
   "question": "How many of Public Works Department, Govt of Gujarat's completed works have no client reference letter on file?"
  },
  {
-  "qid": "ABS-C-irrigationwaterway",
+  "qid": "ABS-C-irrigationwaterwaysdeptgovtofwestbengal",
   "answer_type": "count",
   "gold": 0,
   "hops": 3,
@@ -99,7 +99,7 @@
   "question": "How many of Irrigation & Waterways Dept, Govt of West Bengal's completed works have no client reference letter on file?"
  },
  {
-  "qid": "ABS-C-nationalexpressway",
+  "qid": "ABS-C-nationalexpresswaydevelopmentauthority",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -108,7 +108,7 @@
   "question": "For National Expressway Development Authority, count the completed works that lack a reference letter."
  },
  {
-  "qid": "ABS-C-publichealthengine",
+  "qid": "ABS-C-publichealthengineeringdeptgujarat",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -117,7 +117,7 @@
   "question": "For Public Health Engineering Dept, Gujarat, count the completed works that lack a reference letter."
  },
  {
-  "qid": "ABS-C-publicworksdepartm",
+  "qid": "ABS-C-publicworksdepartmentgovtoftamilnadu",
   "answer_type": "count",
   "gold": 0,
   "hops": 3,
@@ -126,7 +126,7 @@
   "question": "Across everything we completed for TN PW, how many works have no client testimonial on record?"
  },
  {
-  "qid": "ABS-C-peninsularpetroleu",
+  "qid": "ABS-C-peninsularpetroleumcorporation",
   "answer_type": "count",
   "gold": 0,
   "hops": 3,
@@ -135,7 +135,7 @@
   "question": "For Peninsular Petroleum Corporation, count the completed works that lack a reference letter."
  },
  {
-  "qid": "ABS-C-irrigationwaterway",
+  "qid": "ABS-C-irrigationwaterwaysdeptgovtofrajasthan",
   "answer_type": "count",
   "gold": 0,
   "hops": 3,
@@ -144,7 +144,7 @@
   "question": "For IWD RAJASTHAN, count the completed works that lack a reference letter."
  },
  {
-  "qid": "ABS-C-irrigationwaterway",
+  "qid": "ABS-C-irrigationwaterwaysdeptgovtofuttarpradesh",
   "answer_type": "count",
   "gold": 0,
   "hops": 3,
@@ -153,7 +153,7 @@
   "question": "For Irrigation & Waterways Dept, Govt of Uttar Pradesh, count the completed works that lack a reference letter."
  },
  {
-  "qid": "ABS-C-tamilnadumunicipal",
+  "qid": "ABS-C-tamilnadumunicipalcorporation",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -162,7 +162,7 @@
   "question": "Across everything we completed for Tamil Nadu Municipal Corporation, how many works have no client testimonial on record?"
  },
  {
-  "qid": "ABS-C-mahanadisteelcorpo",
+  "qid": "ABS-C-mahanadisteelcorporation",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -171,7 +171,7 @@
   "question": "Across everything we completed for Mahanadi Steel Corporation, how many works have no client testimonial on record?"
  },
  {
-  "qid": "ABS-C-lakshyaengineering",
+  "qid": "ABS-C-lakshyaengineeringconstruction",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -180,7 +180,7 @@
   "question": "Across everything we completed for Lakshya Engineering & Construction, how many works have no client testimonial on record?"
  },
  {
-  "qid": "ABS-C-arunodayainfrastru",
+  "qid": "ABS-C-arunodayainfrastructure",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -189,7 +189,7 @@
   "question": "How many of Arunodaya Infrastructure's completed works have no client reference letter on file?"
  },
  {
-  "qid": "ABS-C-centralworksbuildi",
+  "qid": "ABS-C-centralworksbuildingsbureau",
   "answer_type": "count",
   "gold": 0,
   "hops": 3,
@@ -198,7 +198,7 @@
   "question": "Across everything we completed for Central Works & Buildings Bureau, how many works have no client testimonial on record?"
  },
  {
-  "qid": "ABS-C-publichealthengine",
+  "qid": "ABS-C-publichealthengineeringdeptodisha",
   "answer_type": "count",
   "gold": 3,
   "hops": 3,
@@ -207,7 +207,7 @@
   "question": "Across everything we completed for Public Health Engineering Dept, Odisha, how many works have no client testimonial on record?"
  },
  {
-  "qid": "ABS-C-suvarnaprojectslim",
+  "qid": "ABS-C-suvarnaprojectslimited",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -225,7 +225,7 @@
   "question": "How many of JN GUJ's completed works have no client reference letter on file?"
  },
  {
-  "qid": "ABS-C-subarnarekhavalley",
+  "qid": "ABS-C-subarnarekhavalleycorporation",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -234,7 +234,7 @@
   "question": "Across everything we completed for Subarnarekha Valley Corporation, how many works have no client testimonial on record?"
  },
  {
-  "qid": "ABS-C-maharashtramunicip",
+  "qid": "ABS-C-maharashtramunicipalcorporation",
   "answer_type": "count",
   "gold": 1,
   "hops": 3,
@@ -936,7 +936,7 @@
   "question": "Starting from Rajesh Rao's PMP and their RCC Bridge \u2014 Maharashtra Pkg-50 project, how many of that client's completed works have no reference letter on file?"
  },
  {
-  "qid": "ABS-K-expressw-central",
+  "qid": "ABS-K-expressways-central",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -945,7 +945,7 @@
   "question": "How many expressways works we completed for central government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-water tr-central",
+  "qid": "ABS-K-water_treatment-central",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -954,7 +954,7 @@
   "question": "How many water treatment works we completed for central government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-roads hi-state",
+  "qid": "ABS-K-roads_highways-state",
   "answer_type": "count",
   "gold": 1,
   "hops": 4,
@@ -963,7 +963,7 @@
   "question": "How many roads highways works we completed for state government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-irrigati-state",
+  "qid": "ABS-K-irrigation-state",
   "answer_type": "count",
   "gold": 1,
   "hops": 4,
@@ -972,7 +972,7 @@
   "question": "How many irrigation works we completed for state government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-small bu-psu",
+  "qid": "ABS-K-small_buildings-psu",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -990,7 +990,7 @@
   "question": "How many tunnels works we completed for state government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-industri-central",
+  "qid": "ABS-K-industrial_epc-central",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -999,7 +999,7 @@
   "question": "How many industrial epc works we completed for central government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-irrigati-private",
+  "qid": "ABS-K-irrigation-private",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1008,7 +1008,7 @@
   "question": "How many irrigation works we completed for private-sector clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-sewerage-state",
+  "qid": "ABS-K-sewerage_drainage-state",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1017,7 +1017,7 @@
   "question": "How many sewerage drainage works we completed for state government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-bridges -private",
+  "qid": "ABS-K-bridges_flyovers-private",
   "answer_type": "count",
   "gold": 2,
   "hops": 4,
@@ -1035,7 +1035,7 @@
   "question": "How many tunnels works we completed for public sector undertaking clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-industri-state",
+  "qid": "ABS-K-industrial_epc-state",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1044,7 +1044,7 @@
   "question": "How many industrial epc works we completed for state government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-irrigati-psu",
+  "qid": "ABS-K-irrigation-psu",
   "answer_type": "count",
   "gold": 1,
   "hops": 4,
@@ -1053,7 +1053,7 @@
   "question": "How many irrigation works we completed for public sector undertaking clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-roads ma-psu",
+  "qid": "ABS-K-roads_maintenance-psu",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1062,7 +1062,7 @@
   "question": "How many roads maintenance works we completed for public sector undertaking clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-building-central",
+  "qid": "ABS-K-buildings-central",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1071,7 +1071,7 @@
   "question": "How many buildings works we completed for central government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-expressw-state",
+  "qid": "ABS-K-expressways-state",
   "answer_type": "count",
   "gold": 1,
   "hops": 4,
@@ -1080,7 +1080,7 @@
   "question": "How many expressways works we completed for state government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-industri-psu",
+  "qid": "ABS-K-industrial_epc-psu",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1089,7 +1089,7 @@
   "question": "How many industrial epc works we completed for public sector undertaking clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-water tr-municipal",
+  "qid": "ABS-K-water_treatment-municipal",
   "answer_type": "count",
   "gold": 1,
   "hops": 4,
@@ -1098,7 +1098,7 @@
   "question": "How many water treatment works we completed for municipal clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-sewerage-private",
+  "qid": "ABS-K-sewerage_drainage-private",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1107,7 +1107,7 @@
   "question": "How many sewerage drainage works we completed for private-sector clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-large br-central",
+  "qid": "ABS-K-large_bridges-central",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1116,7 +1116,7 @@
   "question": "How many large bridges works we completed for central government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-small bu-central",
+  "qid": "ABS-K-small_buildings-central",
   "answer_type": "count",
   "gold": 2,
   "hops": 4,
@@ -1125,7 +1125,7 @@
   "question": "How many small buildings works we completed for central government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-water su-psu",
+  "qid": "ABS-K-water_supply-psu",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1134,7 +1134,7 @@
   "question": "How many water supply works we completed for public sector undertaking clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-water tr-private",
+  "qid": "ABS-K-water_treatment-private",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1143,7 +1143,7 @@
   "question": "How many water treatment works we completed for private-sector clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-irrigati-central",
+  "qid": "ABS-K-irrigation-central",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1152,7 +1152,7 @@
   "question": "How many irrigation works we completed for central government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-water tr-psu",
+  "qid": "ABS-K-water_treatment-psu",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1161,7 +1161,7 @@
   "question": "How many water treatment works we completed for public sector undertaking clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-large br-state",
+  "qid": "ABS-K-large_bridges-state",
   "answer_type": "count",
   "gold": 2,
   "hops": 4,
@@ -1170,7 +1170,7 @@
   "question": "How many large bridges works we completed for state government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-bridges -psu",
+  "qid": "ABS-K-bridges_flyovers-psu",
   "answer_type": "count",
   "gold": 2,
   "hops": 4,
@@ -1188,7 +1188,7 @@
   "question": "How many tunnels works we completed for central government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-water tr-state",
+  "qid": "ABS-K-water_treatment-state",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1197,7 +1197,7 @@
   "question": "How many water treatment works we completed for state government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-roads hi-private",
+  "qid": "ABS-K-roads_highways-private",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1206,7 +1206,7 @@
   "question": "How many roads highways works we completed for private-sector clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-expressw-psu",
+  "qid": "ABS-K-expressways-psu",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1215,7 +1215,7 @@
   "question": "How many expressways works we completed for public sector undertaking clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-roads ma-municipal",
+  "qid": "ABS-K-roads_maintenance-municipal",
   "answer_type": "count",
   "gold": 2,
   "hops": 4,
@@ -1233,7 +1233,7 @@
   "question": "How many tunnels works we completed for private-sector clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-water su-private",
+  "qid": "ABS-K-water_supply-private",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1242,7 +1242,7 @@
   "question": "How many water supply works we completed for private-sector clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-roads ma-state",
+  "qid": "ABS-K-roads_maintenance-state",
   "answer_type": "count",
   "gold": 2,
   "hops": 4,
@@ -1251,7 +1251,7 @@
   "question": "How many roads maintenance works we completed for state government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-building-private",
+  "qid": "ABS-K-buildings-private",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1260,7 +1260,7 @@
   "question": "How many buildings works we completed for private-sector clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-water su-state",
+  "qid": "ABS-K-water_supply-state",
   "answer_type": "count",
   "gold": 1,
   "hops": 4,
@@ -1269,7 +1269,7 @@
   "question": "How many water supply works we completed for state government clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-roads hi-psu",
+  "qid": "ABS-K-roads_highways-psu",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1278,7 +1278,7 @@
   "question": "How many roads highways works we completed for public sector undertaking clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-sewerage-psu",
+  "qid": "ABS-K-sewerage_drainage-psu",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1287,7 +1287,7 @@
   "question": "How many sewerage drainage works we completed for public sector undertaking clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-building-psu",
+  "qid": "ABS-K-buildings-psu",
   "answer_type": "count",
   "gold": 1,
   "hops": 4,
@@ -1296,7 +1296,7 @@
   "question": "How many buildings works we completed for public sector undertaking clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-roads ma-private",
+  "qid": "ABS-K-roads_maintenance-private",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1305,7 +1305,7 @@
   "question": "How many roads maintenance works we completed for private-sector clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-K-bridges -municipal",
+  "qid": "ABS-K-bridges_flyovers-municipal",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1314,7 +1314,7 @@
   "question": "How many bridges flyovers works we completed for municipal clients have no client reference letter on file?"
  },
  {
-  "qid": "ABS-V-peninsularpe-2027-06-30",
+  "qid": "ABS-V-peninsularpetroleumcorporation-2027-06-30",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1323,7 +1323,7 @@
   "question": "Of the project leads who have delivered work for Peninsular Petroleum Corporation, how many will NOT hold a valid PMP certification on 2027-06-30?"
  },
  {
-  "qid": "ABS-V-lakshyaengin-2027-06-30",
+  "qid": "ABS-V-lakshyaengineeringconstruction-2027-06-30",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1332,7 +1332,7 @@
   "question": "Of the project leads who have delivered work for Lakshya Engineering & Construction, how many will NOT hold a valid PMP certification on 2027-06-30?"
  },
  {
-  "qid": "ABS-V-jalnigamutta-2027-06-30",
+  "qid": "ABS-V-jalnigamuttarpradesh-2027-06-30",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1341,7 +1341,7 @@
   "question": "Of the project leads who have delivered work for Jal Nigam, Uttar Pradesh, how many will NOT hold a valid PMP certification on 2027-06-30?"
  },
  {
-  "qid": "ABS-V-centralworks-2027-06-30",
+  "qid": "ABS-V-centralworksbuildingsbureau-2027-06-30",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1350,7 +1350,7 @@
   "question": "Of the project leads who have delivered work for Central Works & Buildings Bureau, how many will NOT hold a valid PMP certification on 2027-06-30?"
  },
  {
-  "qid": "ABS-V-publichealth-2027-06-30",
+  "qid": "ABS-V-publichealthengineeringdeptodisha-2027-06-30",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1359,7 +1359,7 @@
   "question": "Of the project leads who have delivered work for Public Health Engineering Dept, Odisha, how many will NOT hold a valid PMP certification on 2027-06-30?"
  },
  {
-  "qid": "ABS-V-meridiancons-2027-06-30",
+  "qid": "ABS-V-meridianconstructorsco-2027-06-30",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1368,7 +1368,7 @@
   "question": "Of the project leads who have delivered work for Meridian Constructors & Co., how many will NOT hold a valid PMP certification on 2027-06-30?"
  },
  {
-  "qid": "ABS-V-tamilnadumun-2027-12-31",
+  "qid": "ABS-V-tamilnadumunicipalcorporation-2027-12-31",
   "answer_type": "count",
   "gold": 3,
   "hops": 4,
@@ -1377,7 +1377,7 @@
   "question": "Of the project leads who have delivered work for Tamil Nadu Municipal Corporation, how many will NOT hold a valid PMP certification on 2027-12-31?"
  },
  {
-  "qid": "ABS-V-publichealth-2027-12-31",
+  "qid": "ABS-V-publichealthengineeringdeptgujarat-2027-12-31",
   "answer_type": "count",
   "gold": 2,
   "hops": 4,
@@ -1386,7 +1386,7 @@
   "question": "Of the project leads who have delivered work for Public Health Engineering Dept, Gujarat, how many will NOT hold a valid PMP certification on 2027-12-31?"
  },
  {
-  "qid": "ABS-V-gujaratmunic-2027-12-31",
+  "qid": "ABS-V-gujaratmunicipalcorporation-2027-12-31",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1395,7 +1395,7 @@
   "question": "Of the project leads who have delivered work for Gujarat Municipal Corporation, how many will NOT hold a valid PMP certification on 2027-12-31?"
  },
  {
-  "qid": "ABS-V-jharkhandmun-2027-12-31",
+  "qid": "ABS-V-jharkhandmunicipalcorporation-2027-12-31",
   "answer_type": "count",
   "gold": 1,
   "hops": 4,
@@ -1404,7 +1404,7 @@
   "question": "Of the project leads who have delivered work for Jharkhand Municipal Corporation, how many will NOT hold a valid PMP certification on 2027-12-31?"
  },
  {
-  "qid": "ABS-V-arunodayainf-2027-12-31",
+  "qid": "ABS-V-arunodayainfrastructure-2027-12-31",
   "answer_type": "count",
   "gold": 4,
   "hops": 4,
@@ -1413,7 +1413,7 @@
   "question": "Of the project leads who have delivered work for Arunodaya Infrastructure, how many will NOT hold a valid PMP certification on 2027-12-31?"
  },
  {
-  "qid": "ABS-V-trishaktipow-2027-12-31",
+  "qid": "ABS-V-trishaktipowergenerationcorporation-2027-12-31",
   "answer_type": "count",
   "gold": 9,
   "hops": 4,
@@ -1422,7 +1422,7 @@
   "question": "Of the project leads who have delivered work for Trishakti Power Generation Corporation, how many will NOT hold a valid PMP certification on 2027-12-31?"
  },
  {
-  "qid": "ABS-V-gujaratmunic-2028-06-30",
+  "qid": "ABS-V-gujaratmunicipalcorporation-2028-06-30",
   "answer_type": "count",
   "gold": 0,
   "hops": 4,
@@ -1431,7 +1431,7 @@
   "question": "Of the project leads who have delivered work for Gujarat Municipal Corporation, how many will NOT hold a valid PMP certification on 2028-06-30?"
  },
  {
-  "qid": "ABS-V-arunodayainf-2028-06-30",
+  "qid": "ABS-V-arunodayainfrastructure-2028-06-30",
   "answer_type": "count",
   "gold": 4,
   "hops": 4,
@@ -1440,7 +1440,7 @@
   "question": "Of the project leads who have delivered work for Arunodaya Infrastructure, how many will NOT hold a valid PMP certification on 2028-06-30?"
  },
  {
-  "qid": "ABS-V-tamilnadumun-2028-06-30",
+  "qid": "ABS-V-tamilnadumunicipalcorporation-2028-06-30",
   "answer_type": "count",
   "gold": 3,
   "hops": 4,
@@ -1449,7 +1449,7 @@
   "question": "Of the project leads who have delivered work for Tamil Nadu Municipal Corporation, how many will NOT hold a valid PMP certification on 2028-06-30?"
  },
  {
-  "qid": "ABS-V-jalnigamjhar-2028-06-30",
+  "qid": "ABS-V-jalnigamjharkhand-2028-06-30",
   "answer_type": "count",
   "gold": 1,
   "hops": 4,
@@ -1458,7 +1458,7 @@
   "question": "Of the project leads who have delivered work for Jal Nigam, Jharkhand, how many will NOT hold a valid PMP certification on 2028-06-30?"
  },
  {
-  "qid": "ABS-V-peninsularpe-2028-06-30",
+  "qid": "ABS-V-peninsularpetroleumcorporation-2028-06-30",
   "answer_type": "count",
   "gold": 2,
   "hops": 4,
@@ -1467,7 +1467,7 @@
   "question": "Of the project leads who have delivered work for Peninsular Petroleum Corporation, how many will NOT hold a valid PMP certification on 2028-06-30?"
  },
  {
-  "qid": "ABS-V-maharashtram-2028-06-30",
+  "qid": "ABS-V-maharashtramunicipalcorporation-2028-06-30",
   "answer_type": "count",
   "gold": 1,
   "hops": 4,
