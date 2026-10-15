@@ -66,13 +66,23 @@ def call(g, name: str, args: dict | str | None) -> dict:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
-def schemas(names: list[str] | None = None) -> list[dict]:
-    return [TOOLS[n].schema() for n in (names or sorted(TOOLS))]
+def schemas(names: list[str] | None = None, brief: dict[str, str] | None = None) -> list[dict]:
+    """Tool schemas for an LLM. With `brief`, descriptions are the one-line versions and parameter
+    descriptions are dropped — free-tier rate limits are per token, and the full prose lives in MCP/docs."""
+    out = []
+    for n in (names or sorted(TOOLS)):
+        s = TOOLS[n].schema()
+        if brief and n in brief:
+            f = s["function"]
+            f["description"] = brief[n]
+            f["parameters"]["properties"] = {k: {kk: vv for kk, vv in v.items() if kk != "description"}
+                                             for k, v in f["parameters"]["properties"].items()}
+        out.append(s)
+    return out
 
 
-def compact(out: dict, max_items: int = 40) -> str:
-    """What the LLM sees: result + evidence, without the UI subgraph payload."""
-    slim = {k: v for k, v in out.items() if k not in ("subgraph", "cypher", "ms")}
-    if isinstance(slim.get("evidence"), list) and len(slim["evidence"]) > max_items:
-        slim["evidence"] = slim["evidence"][:max_items] + [f"... {len(out['evidence']) - max_items} more"]
-    return json.dumps(slim, ensure_ascii=False, default=str)
+def compact(out: dict) -> str:
+    """What the LLM sees: the result (plus resolution notes / errors). Evidence, Cypher and the
+    subgraph go to the UI through events; resending them to the model only burns rate limit."""
+    slim = {k: v for k, v in out.items() if k in ("result", "resolved_as", "error", "missing_keys", "available")}
+    return json.dumps(slim, ensure_ascii=False, default=str, separators=(",", ":"))

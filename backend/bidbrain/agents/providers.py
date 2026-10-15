@@ -1,21 +1,25 @@
-"""One OpenAI-compatible chat client for vLLM (Sharanga), Groq and Cerebras.
+"""One OpenAI-compatible chat client over a pool of (provider, model) endpoints.
 
-All three serve Qwen3-32B, so the benchmark (run on vLLM) and the live demo
-(Groq, failing over to Cerebras) exercise the same model.
+Free tiers rate-limit per model (Groq: 8k tokens/minute each), so every
+(provider, model) pair is its own quota bucket and the pool rotates through
+them. A 429 parks that bucket until the reset time the server reports; if every
+bucket is parked, the call waits for the earliest one (bounded) instead of
+failing — a judge clicking twice must not see an error.
 
-* Failover: a provider that rate-limits (429) or errors is skipped for a
-  cooldown and the next one in `LLM_PROVIDERS` is tried.
-* Cache: every completion is stored by a hash of (model family, messages,
-  tools). With BIDBRAIN_REPLAY=1 only the cache is used — the canned demo
-  tenders replay a recorded run instantly and cost nothing.
-* Qwen3 "thinking" is switched off (`/no_think`): tool routing does not need a
-  hidden chain of thought, and it burns free-tier tokens.
+    LLM_PROVIDERS="groq:openai/gpt-oss-120b,groq:qwen/qwen3.8-27b,groq:openai/gpt-oss-20b,cerebras:gpt-oss-120b"
+    LLM_PROVIDERS="vllm"                     # benchmark: one local model, no rate limits
+
+* Cache: every completion is stored by a hash of (messages, tools). With
+  BIDBRAIN_REPLAY=1 only the cache is used (offline demo of recorded runs).
+* Reasoning is kept short: gpt-oss gets reasoning_effort=low, Qwen gets
+  thinking disabled — tool routing does not need a long hidden chain of thought.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -25,17 +29,31 @@ from openai import OpenAI
 
 from bidbrain import config
 
-PROVIDERS = {
-    "vllm": dict(base_url=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"),
-                 key_env="VLLM_API_KEY", model=os.getenv("VLLM_MODEL", "Qwen/Qwen3-32B")),
+ENDPOINTS = {
+    "vllm": dict(base_url=os.getenv("VLLM_BASE_URL", "http://localhost:8011/v1"), key_env="VLLM_API_KEY",
+                 default_model=os.getenv("VLLM_MODEL", "Qwen/Qwen3-32B")),
     "groq": dict(base_url="https://api.groq.com/openai/v1", key_env="GROQ_API_KEY",
-                 model=os.getenv("GROQ_MODEL", "qwen/qwen3-32b")),
+                 default_model="openai/gpt-oss-120b"),
     "cerebras": dict(base_url="https://api.cerebras.ai/v1", key_env="CEREBRAS_API_KEY",
-                     model=os.getenv("CEREBRAS_MODEL", "qwen-3-32b")),
+                     default_model="gpt-oss-120b"),
 }
-ORDER = [p.strip() for p in os.getenv("LLM_PROVIDERS", "groq,cerebras").split(",") if p.strip()]
+DEFAULT_POOL = "groq:openai/gpt-oss-120b,groq:qwen/qwen3.8-27b,groq:openai/gpt-oss-20b,cerebras:gpt-oss-120b"
 REPLAY = os.getenv("BIDBRAIN_REPLAY", "0") == "1"
+MAX_WAIT = float(os.getenv("LLM_MAX_WAIT", "45"))      # seconds a call may wait for a rate limit to reset
 CACHE_PATH = config.DATA / "llm_cache.sqlite"
+
+
+def _parse_pool(spec: str) -> list[tuple[str, str]]:
+    out = []
+    for item in [s.strip() for s in spec.split(",") if s.strip()]:
+        prov, _, model = item.partition(":")
+        if prov in ENDPOINTS:
+            out.append((prov, model or ENDPOINTS[prov]["default_model"]))
+    return out
+
+
+POOL = _parse_pool(os.getenv("LLM_PROVIDERS", DEFAULT_POOL))
+ORDER = [f"{p}:{m}" for p, m in POOL]          # kept for callers that print the pool
 
 
 class LLMUnavailable(RuntimeError):
@@ -72,35 +90,57 @@ class _Cache:
 
 
 _cache = _Cache(CACHE_PATH)
-_cooldown: dict[str, float] = {}
+_parked: dict[str, float] = {}         # bucket -> unix time it may be used again
 _clients: dict[str, OpenAI] = {}
+_lock = threading.Lock()
 
 
-def _client(name: str) -> OpenAI | None:
-    p = PROVIDERS[name]
-    key = os.getenv(p["key_env"]) or ("EMPTY" if name == "vllm" else None)
+def _client(prov: str) -> OpenAI | None:
+    ep = ENDPOINTS[prov]
+    key = os.getenv(ep["key_env"]) or ("EMPTY" if prov == "vllm" else None)
     if not key:
         return None
-    if name not in _clients:
-        _clients[name] = OpenAI(api_key=key, base_url=p["base_url"], timeout=90, max_retries=0)
-    return _clients[name]
+    if prov not in _clients:
+        _clients[prov] = OpenAI(api_key=key, base_url=ep["base_url"], timeout=120, max_retries=0)
+    return _clients[prov]
 
 
 def available() -> list[str]:
-    return [n for n in ORDER if _client(n) is not None]
+    return [f"{p}:{m}" for p, m in POOL if _client(p) is not None]
 
 
 def _key(messages, tools, temperature) -> str:
-    blob = json.dumps({"m": messages, "t": [t["function"]["name"] for t in (tools or [])],
-                       "temp": temperature, "family": "qwen3-32b"}, sort_keys=True, default=str)
+    blob = json.dumps({"m": messages, "t": [t["function"]["name"] for t in (tools or [])], "temp": temperature},
+                      sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
-def _no_think(messages: list[dict]) -> list[dict]:
-    out = [dict(m) for m in messages]
-    if out and out[0]["role"] == "system" and "/no_think" not in out[0]["content"]:
-        out[0]["content"] = out[0]["content"] + "\n/no_think"
-    return out
+def _reset_seconds(exc) -> float:
+    """How long the server asked us to back off (Retry-After / x-ratelimit-reset-*), else a default."""
+    resp = getattr(exc, "response", None)
+    h = getattr(resp, "headers", None) or {}
+    for name in ("retry-after", "x-ratelimit-reset-tokens", "x-ratelimit-reset-requests"):
+        v = h.get(name)
+        if v:
+            m = re.match(r"(?:(\d+)m)?([\d.]+)s?$", str(v).strip())
+            if m:
+                return float(m.group(1) or 0) * 60 + float(m.group(2))
+    m = re.search(r"try again in ([\d.]+)s", str(exc))
+    return float(m.group(1)) if m else 20.0
+
+
+def _shape(prov: str, model: str, messages: list[dict]) -> tuple[list[dict], dict]:
+    """Per-family request shaping: keep hidden reasoning short."""
+    msgs = [dict(m) for m in messages]
+    extra: dict = {}
+    if "gpt-oss" in model:
+        extra["reasoning_effort"] = "low"
+    elif "qwen" in model.lower():
+        if prov == "vllm":
+            extra["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+        elif msgs and msgs[0]["role"] == "system" and "/no_think" not in msgs[0]["content"]:
+            msgs[0]["content"] += "\n/no_think"
+    return msgs, extra
 
 
 def chat(messages: list[dict], tools: list[dict] | None = None, temperature: float = 0.0,
@@ -109,40 +149,48 @@ def chat(messages: list[dict], tools: list[dict] | None = None, temperature: flo
     if use_cache and (hit := _cache.get(k)):
         return Reply(**{**hit, "cached": True, "ms": 0.0})
     if REPLAY:
-        raise LLMUnavailable("replay mode: no cached completion for this request")
-    errors = []
-    for name in ORDER:
-        if _cooldown.get(name, 0) > time.time():
+        raise LLMUnavailable("replay mode: no recorded completion for this request")
+    errors: list[str] = []
+    deadline = time.time() + MAX_WAIT
+    while True:
+        now = time.time()
+        live = [(p, m) for p, m in POOL if _client(p) is not None]
+        if not live:
+            raise LLMUnavailable("no LLM configured: set GROQ_API_KEY / CEREBRAS_API_KEY or VLLM_BASE_URL")
+        ready = [(p, m) for p, m in live if _parked.get(f"{p}:{m}", 0) <= now]
+        if not ready:
+            wake = min(_parked[f"{p}:{m}"] for p, m in live)
+            if wake > deadline:
+                raise LLMUnavailable("all LLM endpoints are rate-limited; " + "; ".join(errors[-3:]))
+            time.sleep(max(0.2, wake - now))
             continue
-        cli = _client(name)
-        if cli is None:
-            continue
-        p = PROVIDERS[name]
-        t0 = time.perf_counter()
-        try:
-            kw = dict(model=p["model"], messages=_no_think(messages), temperature=temperature,
-                      max_tokens=max_tokens)
+        for prov, model in ready:
+            bucket = f"{prov}:{model}"
+            msgs, extra = _shape(prov, model, messages)
+            kw = dict(model=model, messages=msgs, temperature=temperature, max_tokens=max_tokens, **extra)
             if tools:
                 kw.update(tools=tools, tool_choice="auto")
-            if name == "vllm":
-                kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
-            resp = cli.chat.completions.create(**kw)
-        except Exception as exc:  # 429 / 5xx / network: cool down this provider, try the next
-            msg = f"{name}: {type(exc).__name__}: {str(exc)[:200]}"
-            errors.append(msg)
-            status = getattr(exc, "status_code", None)
-            _cooldown[name] = time.time() + (30 if status == 429 else 10)
-            continue
-        m = resp.choices[0].message
-        content = m.content or ""
-        if "</think>" in content:  # some servers still emit an (empty) think block
-            content = content.split("</think>", 1)[1]
-        calls = [{"id": tc.id, "name": tc.function.name, "arguments": tc.function.arguments}
-                 for tc in (m.tool_calls or [])]
-        usage = {"prompt": getattr(resp.usage, "prompt_tokens", 0), "completion": getattr(resp.usage, "completion_tokens", 0)}
-        rep = dict(content=content.strip(), tool_calls=calls, provider=name, model=p["model"], usage=usage)
-        if use_cache:
-            _cache.put(k, rep)
-        return Reply(**rep, cached=False, ms=round((time.perf_counter() - t0) * 1000, 1))
-    raise LLMUnavailable("no LLM provider available: " + ("; ".join(errors) or
-                         "set GROQ_API_KEY / CEREBRAS_API_KEY or VLLM_BASE_URL"))
+            t0 = time.perf_counter()
+            try:
+                resp = _client(prov).chat.completions.create(**kw)
+            except Exception as exc:
+                status = getattr(exc, "status_code", None)
+                wait = _reset_seconds(exc) if status == 429 else (5.0 if status and status >= 500 else 60.0)
+                if status == 404:      # model not offered on this account: park it for good
+                    wait = 86400.0
+                with _lock:
+                    _parked[bucket] = time.time() + wait
+                errors.append(f"{bucket}: {status or type(exc).__name__}")
+                continue
+            m = resp.choices[0].message
+            content = m.content or ""
+            if "</think>" in content:
+                content = content.split("</think>", 1)[1]
+            calls = [{"id": tc.id, "name": tc.function.name, "arguments": tc.function.arguments}
+                     for tc in (m.tool_calls or [])]
+            usage = {"prompt": getattr(resp.usage, "prompt_tokens", 0) or 0,
+                     "completion": getattr(resp.usage, "completion_tokens", 0) or 0}
+            rep = dict(content=content.strip(), tool_calls=calls, provider=bucket, model=model, usage=usage)
+            if use_cache:
+                _cache.put(k, rep)
+            return Reply(**rep, cached=False, ms=round((time.perf_counter() - t0) * 1000, 1))

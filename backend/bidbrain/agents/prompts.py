@@ -1,10 +1,29 @@
 """System prompts. Short, specific, and about *how to use the graph* — the
 domain knowledge lives in the tools, not in the prompt."""
 
-QA_TOOLS = ["resolve_entity", "get_entity", "find_portfolio", "aggregate", "credential_timeline",
-            "date_span", "receivables", "collection_rate", "awarded_vs_billed", "prove_absence",
-            "who_knows", "key_people", "explain_path", "vector_search", "fulltext_search",
-            "graph_schema", "cypher_readonly"]
+QA_TOOLS = ["resolve_entity", "find_portfolio", "aggregate", "credential_timeline", "date_span",
+            "receivables", "collection_rate", "awarded_vs_billed", "prove_absence", "qualify_clause",
+            "who_knows", "key_people", "explain_path", "get_entity", "vector_search", "cypher_readonly"]
+
+# One-line tool descriptions for the LLM (the full descriptions are served over MCP and in docs/CYPHER.md).
+BRIEF = {
+    "resolve_entity": "Map an informal name ('phed odisha', 'Pkg-59') to graph entities. kind: client|person|work|category|tender.",
+    "find_portfolio": "List completed works. Scope: client | person (works they led) | via_work (the whole portfolio of that work's client). Filters: categories, exclude_categories, min_value/max_value (rupees, inclusive), completed_after/completed_before (ISO, strict), years, role ('Prime'|'JV Partner'), has_reference, govt_levels.",
+    "aggregate": "Exact maths over work keys (never pass numbers). op: sum|count|average|median|mean_median_gap(signed)|max|min|rank_gap|top_two_sum|distinct_categories|distinct_clients|distinct_leads|category_difference(category_a,category_b)|year_difference(year_a,year_b)|gap_to_threshold(threshold)|referenced_share(absent)|absence_count.",
+    "credential_timeline": "A person's credentials (PMP, Six Sigma) with issue/expiry dates.",
+    "date_span": "Days from a credential's issue date (credential_id, or person+credential_kind, or from_date) to a work's completion (work) or to_date. With only `work`, uses that work's project lead.",
+    "receivables": "Invoice totals for a client. measure: outstanding|invoiced|received; optional status, year.",
+    "collection_rate": "% of invoiced amount received from a client (or from the client of `work`).",
+    "awarded_vs_billed": "Gap between a client's completed work value and what we invoiced them (client or work).",
+    "prove_absence": "Which items in a scope LACK evidence, with proof. evidence: reference_letter (scope client|person|via_work|category) | valid_credential | performance_bond.",
+    "qualify_clause": "Check a tender clause. kind: similar_works|turnover|key_personnel|certification|years_in_business; params per kind; bid_date.",
+    "who_knows": "People who worked with a client / in a category / state, ranked by works led.",
+    "key_people": "Bus factor: people ranked by betweenness over the person-client graph.",
+    "explain_path": "Shortest connection paths between two entities (a, a_kind, b, b_kind).",
+    "get_entity": "One entity's properties and direct links. kind: client|person|work|tender|bond|credential|contract|document.",
+    "vector_search": "Semantic search over document pages (for prose, not for counting).",
+    "cypher_readonly": "Read-only Cypher escape hatch. Labels: Work{key,title,value,completed,category,role,has_reference} -[:FOR_CLIENT]->Client{name,govt_level} ; Work-[:LED_BY]->Person{name,experience_years} ; Person-[:HOLDS]->Credential{kind,issued,valid_through} ; Invoice-[:BILLED_TO]->Client ; Bond-[:SECURES]->Tender.",
+}
 
 QA_SYSTEM = """You are BidBrain, the bid desk's company brain for National Infrastructure Corp. Ltd.
 All company knowledge — completed works, clients, people, credentials, documents, invoices, bonds,

@@ -16,6 +16,7 @@ from typing import Callable
 from bidbrain.agents import providers
 from bidbrain.graph.client import Graph
 from bidbrain.tools import TOOLS, call, compact, schemas
+from bidbrain.agents.prompts import BRIEF
 
 Emit = Callable[[dict], None]
 
@@ -52,7 +53,7 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
     emit = emit or (lambda e: None)
     t0 = time.perf_counter()
     res = RunResult(agent=agent, final="")
-    tools = schemas([t for t in tool_names if t in TOOLS])
+    tools = schemas([t for t in tool_names if t in TOOLS], brief=BRIEF)
     messages = [{"role": "system", "content": system}, *(history or []), {"role": "user", "content": user}]
     emit({"type": "agent_start", "agent": agent})
     for step in range(max_steps):
@@ -92,7 +93,7 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
             emit({"type": "tool_result", "agent": agent, "tool": tc["name"], "ms": out.get("ms"),
                   "error": out.get("error"), "summary": _summary(out), "subgraph": out.get("subgraph"),
                   "evidence": out.get("evidence", [])[:12], "cypher": out.get("cypher", [])})
-            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": compact(out)[:12000]})
+            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": compact(out)[:9000]})
     else:
         res.error = "step budget exhausted"
         emit({"type": "error", "agent": agent, "message": res.error})
