@@ -1,0 +1,277 @@
+"use client";
+
+import clsx from "clsx";
+import { FileText, GitBranch, ListChecks, MessageSquare, Scale } from "lucide-react";
+import Link from "next/link";
+import { useState } from "react";
+import { Avatar, Button, Card, Empty, Markdown, Spinner, Verdict, useOpenDoc } from "@/components/ui";
+
+// Table cells line up with the card's 20px gutter. `.kt` is unlayered CSS, so the overrides need `!`.
+// Cards that hold a table clip it (`overflow-hidden`) so the row hover tint follows the rounded corners.
+const EDGE_CELLS = "[&_td:first-child]:pl-5! [&_th:first-child]:pl-5! [&_td:last-child]:pr-5! [&_th:last-child]:pr-5!";
+const LINK = "font-medium text-kb-ink hover:underline";
+
+export function when(ms?: number | null) {
+  if (!ms) return "";
+  const s = (Date.now() - Number(ms)) / 1000;
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 7 * 86400) return `${Math.floor(s / 86400)} d ago`;
+  return new Date(Number(ms)).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function PillLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link href={href}
+      className={clsx(
+        "inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-full border border-transparent bg-surface-solid px-3.5",
+        "text-[13px] font-semibold whitespace-nowrap text-ink shadow-[var(--shadow-border)]",
+        "transition-[scale,box-shadow] duration-150 ease-out hover:shadow-[var(--shadow-border-hover)] motion-safe:active:scale-[0.96]")}>
+      {children}
+    </Link>
+  );
+}
+
+function Toolbar({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <div className="mb-3 flex min-h-8 items-center gap-3 text-[13px] text-ink-3">
+      <div className="min-w-0">{children}</div>
+      {action && <div className="ml-auto">{action}</div>}
+    </div>
+  );
+}
+
+function Loading({ label }: { label: string }) {
+  return <div className="px-5 py-8"><Spinner label={label} /></div>;
+}
+
+// ======================================================================= conversation
+
+export type Turn = { i: number; role: string; text: string; at?: number; mentions?: string[] };
+export type Case = { id: string; title?: string; verdict?: string; bid_date?: string; status?: string; verified?: boolean | null; created_at?: number };
+export type Decision = {
+  id: string; policy?: string; rationale?: string; predicate?: string; key?: string; subject?: string;
+  chosen?: string | number | null; at?: number; actor?: string; actor_kind?: string; source_doc?: string;
+};
+export type Rule = { id: string; predicate: string; prefer: string; over: string; rationale?: string; by?: string; learned_from?: string; applied: number };
+
+/** Groups the flat turn list into exchanges: a user question plus the replies that follow it. */
+function exchanges(turns: Turn[]) {
+  const out: { q?: Turn; a: Turn[] }[] = [];
+  for (const t of turns) {
+    if (t.role === "user") out.push({ q: t, a: [] });
+    else if (out.length) out[out.length - 1].a.push(t);
+    else out.push({ a: [t] });
+  }
+  return out;
+}
+
+function TurnHead({ who, t }: { who: React.ReactNode; t: Turn }) {
+  return (
+    <div className="flex items-baseline gap-2 text-[13px]">
+      {who}
+      {t.at ? <span className="text-ink-3">{when(t.at)}</span> : null}
+      <span className="num ml-auto text-[12px] text-ink-3">turn {t.i}</span>
+    </div>
+  );
+}
+
+function Mentions({ items }: { items?: string[] }) {
+  if (!items?.length) return null;
+  return (
+    <p className="mt-3 text-[12.5px] leading-relaxed text-ink-3">
+      Mentions <span className="text-ink-2">{items.join(" · ")}</span>
+    </p>
+  );
+}
+
+function Reply({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  if (!text.trim()) return <p className="mt-1 text-[13px] text-ink-3">No explanation recorded.</p>;
+  const long = text.length > 420 || text.split("\n").length > 7;
+  return (
+    <div className="mt-1">
+      <div className={clsx("[&_.md>:first-child]:mt-0 [&_.md>:last-child]:mb-0",
+        long && !open && "max-h-[8.5rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_55%,transparent)]")}>
+        <Markdown>{text}</Markdown>
+      </div>
+      {long && (
+        <Button type="button" size="sm" className="mt-2" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          {open ? "Show less" : "Show more"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function ConversationTab({ turns, ready }: { turns: Turn[]; ready: boolean }) {
+  const groups = exchanges(turns);
+  return (
+    <>
+      <Toolbar action={<PillLink href="/ask/">Ask a follow-up</PillLink>}>
+        Follow-up questions read the last 6 turns as context.
+        <span className="num ml-2 hidden text-[12px] lg:inline">(:Conversation)-[:HAS_TURN]-&gt;(:Turn)</span>
+      </Toolbar>
+      <Card pad={false}>
+        {!ready ? <Loading label="Loading conversation" /> : groups.length === 0 ? (
+          <Empty icon={<MessageSquare size={20} strokeWidth={1.75} />} title="No conversation yet"
+            text={<>Questions you ask on <Link href="/ask/" className={LINK}>Ask</Link> are stored here as turns.</>} />
+        ) : (
+          <ol className="divide-y divide-line">
+            {groups.map((g, k) => (
+              <li key={g.q?.i ?? `a${g.a[0]?.i ?? k}`} className="flex gap-3 px-5 py-4">
+                <div className="w-7 shrink-0">{g.q && <Avatar name="You" size={28} />}</div>
+                <div className="min-w-0 flex-1">
+                  {g.q && (
+                    <>
+                      <TurnHead t={g.q} who={<span className="font-semibold text-ink">You</span>} />
+                      <p className="mt-1 text-[14px] leading-relaxed whitespace-pre-line text-ink">{g.q.text}</p>
+                      <Mentions items={g.q.mentions} />
+                    </>
+                  )}
+                  {g.a.map((a) => (
+                    <div key={a.i} className={clsx("well px-4 py-3", g.q && "mt-3")}>
+                      <TurnHead t={a} who={<span className="text-[14px] font-extrabold tracking-[-0.04em] text-kb-ink">bidbrain</span>} />
+                      <Reply text={a.text || ""} />
+                      <Mentions items={a.mentions} />
+                    </div>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </Card>
+    </>
+  );
+}
+
+// ======================================================================= cases
+
+export function CasesTab({ cases, ready }: { cases: Case[]; ready: boolean }) {
+  return (
+    <>
+      <Toolbar action={<PillLink href="/qualify/">Qualify a tender</PillLink>}>
+        Agents hand work to each other through each case. Newest first.
+      </Toolbar>
+      <Card pad={false} className="overflow-hidden">
+        {!ready ? <Loading label="Loading cases" /> : cases.length === 0 ? (
+          <Empty icon={<GitBranch size={20} strokeWidth={1.75} />} title="No cases yet"
+            text={<><Link href="/qualify/" className={LINK}>Qualify a tender</Link> to open a case in your graph.</>} />
+        ) : (
+          <div className="scroll-thin contain-scroll overflow-x-auto pb-1">
+            <table className={clsx("kt", EDGE_CELLS)}>
+              <thead>
+                <tr><th>Case</th><th>Bid date</th><th>Opened</th><th>Checked</th><th className="text-right!">Verdict</th></tr>
+              </thead>
+              <tbody>
+                {cases.map((c) => (
+                  <tr key={c.id}>
+                    <td className="min-w-[16rem]">
+                      <div className="font-medium text-ink">{c.title || "Untitled tender"}</div>
+                      <div className="num text-[12px] text-ink-3">{c.id}</div>
+                    </td>
+                    <td className="num whitespace-nowrap text-[12.5px] text-ink-2">{c.bid_date || "—"}</td>
+                    <td className="whitespace-nowrap text-ink-3">{when(c.created_at) || "—"}</td>
+                    <td className="whitespace-nowrap">
+                      {c.verified === true ? <span className="text-ok">Verified</span>
+                        : c.verified === false ? <span className="text-warn">Mismatches</span>
+                        : <span className="text-ink-3">—</span>}
+                    </td>
+                    <td className="text-right!"><Verdict v={c.verdict} size="sm" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </>
+  );
+}
+
+// ======================================================================= decisions and rules
+
+export function DecisionsTab({ mine, rules, total, openCards, ready }:
+  { mine: Decision[]; rules: Rule[]; total: number; openCards: number; ready: boolean }) {
+  const openDoc = useOpenDoc();
+  const others = total - mine.length;
+  return (
+    <div className="flex flex-col gap-6">
+      <Card title="Your decisions"
+        action={<Link href="/decisions/" className={clsx("text-[13px]", LINK)}>All decisions{others > 0 ? ` (${others} by agents)` : ""}</Link>}
+        pad={false} className="overflow-hidden">
+        {!ready ? <Loading label="Loading decisions" /> : mine.length === 0 ? (
+          <Empty icon={<Scale size={20} strokeWidth={1.75} />} title="No decisions yet"
+            text={<>Pick the winning claim on a conflict in <Link href="/live/" className={LINK}>Live documents</Link>.
+              {openCards > 0 && <> <span className="num">{openCards}</span> {openCards === 1 ? "conflict is" : "conflicts are"} open.</>}</>} />
+        ) : (
+          <div className="scroll-thin contain-scroll overflow-x-auto pb-1">
+            <table className={clsx("kt", EDGE_CELLS)}>
+              <thead>
+                <tr><th>Subject</th><th>Field</th><th>Chosen value</th><th>Why</th><th>Source</th><th>When</th></tr>
+              </thead>
+              <tbody>
+                {mine.map((d) => (
+                  <tr key={d.id}>
+                    <td className="min-w-[12rem]">
+                      <div className="font-medium text-ink">{d.subject || d.key || "—"}</div>
+                      {d.key && d.key !== d.subject && <div className="num text-[12px] text-ink-3">{d.key}</div>}
+                    </td>
+                    <td className="num text-[12.5px] whitespace-nowrap text-ink-2">{d.predicate || "—"}</td>
+                    <td className="num font-semibold text-ink">{d.chosen ?? "—"}</td>
+                    <td className="max-w-[18rem]">
+                      <div className="truncate text-ink-2" title={d.rationale}>{d.rationale || "—"}</div>
+                    </td>
+                    <td>
+                      {d.source_doc ? (
+                        <Button type="button" variant="ghost" size="sm" className="num -ml-3"
+                          onClick={() => openDoc({ doc_id: d.source_doc ?? "", what: [d.predicate, d.subject].filter(Boolean).join(" · ") })}>
+                          <FileText size={16} strokeWidth={1.75} className="text-kb-ink" />
+                          {d.source_doc}
+                        </Button>
+                      ) : <span className="text-ink-3">—</span>}
+                    </td>
+                    <td className="whitespace-nowrap text-ink-3">{when(d.at) || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card title="Learned rules" pad={false} className="overflow-hidden"
+        action={<span className="num hidden text-[12px] text-ink-3 sm:inline">(:PolicyRule)-[:LEARNED_FROM]-&gt;(:Decision)</span>}>
+        {!ready ? <Loading label="Loading rules" /> : rules.length === 0 ? (
+          <Empty icon={<ListChecks size={20} strokeWidth={1.75} />} title="No learned rules"
+            text={<>Resolve a conflict with “Choose and learn rule” on <Link href="/live/" className={LINK}>Live documents</Link>. The next conflict of that shape resolves itself.</>} />
+        ) : (
+          <div className="scroll-thin contain-scroll overflow-x-auto pb-1">
+            <table className={clsx("kt", EDGE_CELLS)}>
+              <thead>
+                <tr><th>Field</th><th>Rule</th><th>Learned from</th><th className="text-right!">Applied</th></tr>
+              </thead>
+              <tbody>
+                {rules.map((r) => (
+                  <tr key={r.id}>
+                    <td className="num text-[12.5px] whitespace-nowrap text-ink-2">{r.predicate}</td>
+                    <td className="min-w-[16rem]">
+                      <div className="text-ink-2">Prefer <span className="font-semibold text-ink">{r.prefer}</span> over {r.over}</div>
+                      {r.rationale && <div className="max-w-[28rem] truncate text-[12.5px] text-ink-3" title={r.rationale}>{r.rationale}</div>}
+                    </td>
+                    <td className="num text-[12px] whitespace-nowrap text-ink-3">
+                      {r.learned_from || "—"}{r.by ? <span className="block font-sans">by {r.by}</span> : null}
+                    </td>
+                    <td className="num text-right! font-semibold text-ink">{r.applied}×</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}

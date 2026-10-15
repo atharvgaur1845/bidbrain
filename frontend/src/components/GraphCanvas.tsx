@@ -10,10 +10,11 @@ export type GEdge = { source: string; target: string; type: string };
 export type GData = { nodes: GNode[]; edges: GEdge[] };
 
 export const LABEL_COLORS: Record<string, string> = {
-  Work: "#60a5fa", Client: "#f5b83d", Person: "#a78bfa", Document: "#8b9bb0", Credential: "#34d399",
-  Claim: "#f472b6", Decision: "#fb7185", Tender: "#22d3ee", Bid: "#fbbf24", Case: "#e879f9",
-  FinancialStatement: "#4ade80", Bond: "#fdba74", Category: "#64748b", Company: "#e6edf5",
-  Certification: "#2dd4bf", Missing: "#fb7185", Clause: "#c084fc", Finding: "#f87171", Invoice: "#93c5fd",
+  Work: "#1a73e8", Client: "#f29900", Person: "#8e44ec", Document: "#8a94a0", Credential: "#0f9d58",
+  Claim: "#e8467c", Decision: "#d93025", Tender: "#12a4c6", Bid: "#e37400", Case: "#7c5cff",
+  FinancialStatement: "#34a853", Bond: "#f57c00", Category: "#9aa4b0", Company: "#1f2328",
+  Certification: "#00897b", Missing: "#d93025", Clause: "#7c5cff", Finding: "#d93025", Invoice: "#5c9bf0",
+  AgentRun: "#12a4c6", Conversation: "#8a94a0", Turn: "#8a94a0",
 };
 const SIZE: Record<string, number> = { Client: 7, Person: 6, Work: 5, Case: 8, Company: 8, Tender: 6, Bid: 6, Missing: 5 };
 
@@ -32,6 +33,19 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
   const [width, setWidth] = useState(600);
   const store = useRef<Map<string, any>>(new Map());
   const [hover, setHover] = useState<string | null>(null);
+  const [pal, setPal] = useState({ edge: "rgba(15,23,42,0.16)", label: "#1f2328", dim: "rgba(31,35,40,0.45)", stroke: "#ffffff", path: "#20beff" });
+  useEffect(() => {
+    const read = () => {
+      const cs = getComputedStyle(document.documentElement);
+      const v = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
+      setPal({ edge: v("--graph-edge", "rgba(15,23,42,0.16)"), label: v("--graph-label", "#1f2328"),
+               dim: v("--graph-label-dim", "rgba(31,35,40,0.45)"), stroke: v("--graph-node-stroke", "#fff"), path: v("--kb", "#20beff") });
+    };
+    read();
+    const mo = new MutationObserver(read);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => mo.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!wrap.current) return;
@@ -87,9 +101,9 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
   };
 
   return (
-    <div ref={wrap} className="relative w-full overflow-hidden rounded-xl" style={{ height, background: "var(--bg-2)" }}>
+    <div ref={wrap} className="relative w-full overflow-hidden" style={{ height }}>
       {graph.nodes.length === 0 && (
-        <div className="absolute inset-0 grid place-items-center text-[13px] text-ink-3">
+        <div className="absolute inset-0 grid place-items-center px-6 text-center text-[13px] text-ink-3">
           {emptyHint || "The graph the agent touches appears here."}
         </div>
       )}
@@ -102,11 +116,11 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
         cooldownTicks={120}
         onEngineStop={fitNow}
         nodeRelSize={1}
-        linkColor={(l: any) => (linkOnPath(l) ? "rgba(245,184,61,0.95)" : "rgba(140,155,175,0.28)")}
+        linkColor={(l: any) => (linkOnPath(l) ? pal.path : pal.edge)}
         linkWidth={(l: any) => (linkOnPath(l) ? 2.2 : 0.8)}
         linkDirectionalParticles={(l: any) => (linkOnPath(l) ? 3 : 0)}
         linkDirectionalParticleWidth={2.6}
-        linkDirectionalParticleColor={() => "#ffd27a"}
+        linkDirectionalParticleColor={() => pal.path}
         linkDirectionalArrowLength={(l: any) => (linkOnPath(l) ? 3.5 : 0)}
         linkDirectionalArrowRelPos={0.92}
         onNodeHover={(n: any) => setHover(n?.id ?? null)}
@@ -127,19 +141,19 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
           } else {
             if (isHl(node.id)) {
               ctx.beginPath(); ctx.arc(node.x, node.y, r + 3.5, 0, 2 * Math.PI);
-              ctx.fillStyle = "rgba(245,184,61,0.18)"; ctx.fill();
+              ctx.fillStyle = "rgba(32,190,255,0.20)"; ctx.fill();
             }
             ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
             ctx.fillStyle = color; ctx.fill();
-            ctx.lineWidth = 1; ctx.strokeStyle = "rgba(10,13,18,0.9)"; ctx.stroke();
+            ctx.lineWidth = 1.2; ctx.strokeStyle = pal.stroke; ctx.stroke();
           }
           const showLabel = showAllLabels || isHl(node.id) || hover === node.id || scale > 2.2 || ["Client", "Case"].includes(node.label);
           if (showLabel && node.name) {
             const fs = Math.max(3.2, 11 / scale);
-            ctx.font = `${isHl(node.id) ? 600 : 500} ${fs}px Inter, sans-serif`;
+            ctx.font = `${isHl(node.id) ? 600 : 500} ${fs}px Inter, ui-sans-serif, sans-serif`;
             ctx.textAlign = "center"; ctx.textBaseline = "top";
             const text = String(node.name).length > 42 ? String(node.name).slice(0, 40) + "…" : String(node.name);
-            ctx.fillStyle = dim ? "rgba(167,180,196,0.5)" : "rgba(230,237,245,0.95)";
+            ctx.fillStyle = dim ? pal.dim : pal.label;
             ctx.fillText(text, node.x, node.y + r + 2);
           }
           ctx.globalAlpha = 1;
@@ -149,16 +163,16 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
         }}
       />
       {labelsPresent.length > 0 && (
-        <div className="pointer-events-none absolute bottom-2 left-2 flex flex-wrap gap-1.5">
+        <div className="pointer-events-none absolute bottom-3 left-4 flex flex-wrap gap-x-3.5 gap-y-1">
           {labelsPresent.map((l) => (
-            <span key={l} className="chip" style={{ background: "color-mix(in oklab, var(--panel) 85%, transparent)" }}>
+            <span key={l} className="inline-flex items-center gap-1.5 text-[12px] text-ink-3">
               <span className="h-2 w-2 rounded-full" style={{ background: LABEL_COLORS[l] || "#94a3b8" }} />
               {l}
             </span>
           ))}
         </div>
       )}
-      <div className="pointer-events-none absolute right-2 top-2 chip num" style={{ background: "color-mix(in oklab, var(--panel) 85%, transparent)" }}>
+      <div className="num pointer-events-none absolute right-4 top-3 text-[12px] text-ink-3">
         {graph.nodes.length} nodes · {graph.links.length} edges
       </div>
     </div>

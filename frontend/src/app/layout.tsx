@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" data-theme="dark" className={`${inter.variable} ${jbm.variable}`}>
+    <html lang="en" data-theme="light" className={`${inter.variable} ${jbm.variable}`}>
       <body>
         <Shell>{children}</Shell>
       </body>

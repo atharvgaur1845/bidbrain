@@ -1,61 +1,96 @@
 "use client";
 
-import { Brain, Database, GitBranch, MessageSquare } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
-import { Panel, Stat, Verdict } from "@/components/ui";
+import { Card, Stat, Tabs } from "@/components/ui";
 import { api, getSession } from "@/lib/api";
+import { CasesTab, ConversationTab, DecisionsTab, type Case, type Decision, type Rule, type Turn } from "./parts";
+
+type Conflicts = { cards?: unknown[]; decisions: Decision[]; rules: Rule[] };
+type Overview = {
+  version?: number | null; open_cards?: number;
+  labels?: { label: string; n: number }[]; relationships?: { type: string; n: number }[];
+};
+
+const TABS = [
+  { id: "conversation", label: "Conversation" },
+  { id: "cases", label: "Cases" },
+  { id: "decisions", label: "Decisions and rules" },
+];
+
+const fmt = (n?: number | null) => (n === null || n === undefined ? "—" : Number(n).toLocaleString("en-IN"));
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** "2 bid, 1 no-bid" from the case list, most common verdict first. */
+function verdictMix(cases: Case[]) {
+  const counts = new Map<string, number>();
+  for (const c of cases) {
+    const v = (c.verdict || "pending").replace("_", " ").toLowerCase();
+    counts.set(v, (counts.get(v) || 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([v, n]) => `${n} ${v}`).join(", ");
+}
 
 export default function MemoryPage() {
-  const [mem, setMem] = useState<any>({ turns: [] });
-  const [conf, setConf] = useState<any>({ decisions: [], rules: [] });
-  const [cases, setCases] = useState<any[]>([]);
-  const [ov, setOv] = useState<any>(null);
+  const [mem, setMem] = useState<{ turns?: Turn[] }>({ turns: [] });
+  const [conf, setConf] = useState<Conflicts>({ decisions: [], rules: [] });
+  const [cases, setCases] = useState<Case[]>([]);
+  const [ov, setOv] = useState<Overview | null>(null);
   const [sid, setSid] = useState("");
+  const [loaded, setLoaded] = useState({ mem: false, conf: false, cases: false });
+  const [tab, setTab] = useState("conversation");
+
   useEffect(() => {
+    const done = (k: keyof typeof loaded) => () => setLoaded((l) => ({ ...l, [k]: true }));
     getSession().then(setSid);
-    api("/api/memory").then(setMem); api("/api/conflicts").then(setConf); api("/api/cases").then(setCases); api("/api/overview").then(setOv);
+    api("/api/memory").then(setMem).catch(() => {}).finally(done("mem"));
+    api("/api/conflicts").then(setConf).catch(() => {}).finally(done("conf"));
+    api("/api/cases").then(setCases).catch(() => {}).finally(done("cases"));
+    api("/api/overview").then(setOv).catch(() => {});
   }, []);
-  const mine = conf.decisions.filter((d: any) => d.actor_kind === "User");
+
+  const turns: Turn[] = mem.turns || [];
+  const mine = conf.decisions.filter((d) => d.actor_kind === "User");
+  const rules: Rule[] = conf.rules || [];
+  const asked = turns.filter((t) => t.role === "user").length;
+  const nodes = ov?.labels?.reduce((a, l) => a + l.n, 0);
+  const edges = ov?.relationships?.reduce((a, r) => a + r.n, 0);
+  const openCards = conf.cards?.length ?? ov?.open_cards ?? 0;
+
   return (
     <div>
-      <PageHeader eyebrow="Agent memory & coordination" title="What BidBrain remembers — in your own graph">
-        Your session is a separate FalkorDB graph, created with GRAPH.COPY from the company graph, and it persists between
-        visits on this browser. Conversations, cases, the agents' handoffs, your decisions and the rules learned from them all live there as nodes and edges.
-      </PageHeader>
-      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Your graph" value={<span className="text-[15px]">session_{sid}</span>} sub="isolated tenant · GRAPH.COPY" />
-        <Stat label="Conversation turns" value={mem.turns.length} sub="(:Conversation)-[:HAS_TURN]->(:Turn)" />
-        <Stat label="Cases" value={cases.length} sub="multi-agent shared state" />
-        <Stat label="Your decisions / rules" value={`${mine.length} / ${conf.rules.length}`} sub="episodic → procedural" />
-      </div>
-      <div className="grid gap-5 lg:grid-cols-3">
-        <Panel title={<span className="flex items-center gap-1.5"><MessageSquare size={13} /> Episodic: conversation</span>}>
-          <div className="scroll-thin max-h-[60vh] space-y-2 overflow-y-auto">
-            {mem.turns.length === 0 && <div className="text-[12.5px] text-ink-3">Ask something on the Ask page. Follow-up questions use these turns as context.</div>}
-            {mem.turns.map((t: any) => (
-              <div key={t.i} className={`rounded-lg px-3 py-2 text-[12.5px] ${t.role === "user" ? "bg-panel-2" : "border hairline"}`}>
-                <div className="eyebrow">{t.role}</div>
-                <div className="line-clamp-4 text-ink-2">{t.text}</div>
-                {t.mentions?.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{t.mentions.map((m: string) => <span key={m} className="chip !py-0 !text-[10.5px]">{m}</span>)}</div>}
-              </div>
-            ))}
-          </div>
-        </Panel>
-        <Panel title={<span className="flex items-center gap-1.5"><GitBranch size={13} /> Shared state: cases</span>}>
-          {cases.length === 0 && <div className="text-[12.5px] text-ink-3">Qualify a tender: six agents will hand work to each other through a Case subgraph.</div>}
-          {cases.map((c) => (
-            <div key={c.id} className="flex items-center gap-2 border-b hairline py-2 text-[12.5px]">
-              <span className="min-w-0 flex-1 truncate">{c.title}</span><Verdict v={c.verdict} size="sm" />
-            </div>
-          ))}
-        </Panel>
-        <Panel title={<span className="flex items-center gap-1.5"><Brain size={13} /> Procedural: learned rules</span>}>
-          {conf.rules.length === 0 && <div className="text-[12.5px] text-ink-3">None yet. Rules are learned from your conflict resolutions.</div>}
-          {conf.rules.map((r: any) => <div key={r.id} className="py-1 text-[12.5px]"><b>{r.prefer}</b> over {r.over} for <span className="num">{r.predicate}</span> · applied {r.applied}×</div>)}
-          <div className="mt-3 border-t hairline pt-3 text-[12px] text-ink-3"><Database size={12} className="mr-1 inline" />
-            Graph version <span className="num">{ov?.version}</span>, bumped on every settled fact. Semantic memory is the company graph itself: {ov?.labels?.reduce((a: number, l: any) => a + l.n, 0)?.toLocaleString()} nodes.</div>
-        </Panel>
+      <PageHeader title="Memory"
+        subtitle="Your session is a private GRAPH.COPY of the company graph in FalkorDB. It keeps your conversation, cases, decisions and learned rules, and persists on this browser."
+        meta={ov ? (
+          <>
+            <span>Version <span className="num text-ink-2">{fmt(ov.version)}</span></span>
+            <span aria-hidden>·</span>
+            <span><span className="num text-ink-2">{fmt(nodes)}</span> nodes</span>
+            <span aria-hidden>·</span>
+            <span><span className="num text-ink-2">{fmt(edges)}</span> relationships</span>
+          </>
+        ) : undefined} />
+
+      <Card className="mb-6">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-5 pt-3 md:grid-cols-4 [&>*]:md:border-l [&>*]:md:border-line [&>*]:md:pl-6 [&>*:first-child]:md:border-l-0 [&>*:first-child]:md:pl-0">
+          <Stat label="Your graph" value={<span className="text-[18px]" title={sid ? `session_${sid}` : undefined}>{sid ? `session_${sid}` : "…"}</span>}
+            sub="Private to this browser" />
+          <Stat label="Conversation turns" value={loaded.mem ? turns.length : "…"}
+            sub={loaded.mem ? (turns.length ? `${plural(asked, "question")}, ${plural(turns.length - asked, "answer")}` : "Nothing asked yet") : undefined} />
+          <Stat label="Cases" value={loaded.cases ? cases.length : "…"}
+            sub={loaded.cases ? (cases.length ? verdictMix(cases) : "No tenders qualified yet") : undefined} />
+          <Stat label="Your decisions / learned rules" value={loaded.conf ? `${mine.length} / ${rules.length}` : "…"}
+            sub={loaded.conf ? (openCards ? `${plural(openCards, "conflict")} open` : "No open conflicts") : undefined} />
+        </div>
+      </Card>
+
+      <Tabs tabs={TABS} value={tab} onChange={setTab} />
+      <div className="pt-6" role="tabpanel">
+        {tab === "conversation" && <ConversationTab turns={turns} ready={loaded.mem} />}
+        {tab === "cases" && <CasesTab cases={cases} ready={loaded.cases} />}
+        {tab === "decisions" && (
+          <DecisionsTab mine={mine} rules={rules} total={conf.decisions.length} openCards={openCards} ready={loaded.conf} />
+        )}
       </div>
     </div>
   );

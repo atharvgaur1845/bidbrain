@@ -1,12 +1,12 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowRight, BookMarked, FileUp, Gavel, GitBranch, Radio, Upload, Waves, Zap } from "lucide-react";
+import { ArrowRight, Check, CircleAlert, CircleCheck, FileText, Gavel, Scale, ScanText, Upload, Waves } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import GraphCanvas, { GData, mergeGraph } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/Shell";
-import { Panel, Spinner, Verdict, useOpenDoc } from "@/components/ui";
+import { Badge, Button, Card, Empty, EvidenceList, Spinner, Tabs, Verdict, useOpenDoc } from "@/components/ui";
 import { API_BASE, api, stream } from "@/lib/api";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -27,6 +27,8 @@ export default function LivePage() {
   const [graph, setGraph] = useState<GData>({ nodes: [], edges: [] });
   const [hl, setHl] = useState<Set<string>>(new Set());
   const [cases, setCases] = useState<any[]>([]);
+  const [tab, setTab] = useState("scenarios");
+  const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const openDoc = useOpenDoc();
 
@@ -84,210 +86,369 @@ export default function LivePage() {
 
   const demo = events.filter((e) => e.type === "demo");
   const rest = events.filter((e) => e.type !== "demo");
+  const cards: any[] = conf.cards || [];
+  const rules: any[] = conf.rules || [];
 
   return (
     <div>
-      <PageHeader eyebrow="Keeping knowledge current" title="Live documents: conflicts, decisions, ripple">
-        New paperwork keeps arriving: corrigenda, re-issued certificates, bank notices, partner certificates. Each becomes claims.
-        Disagreements are detected and settled by an authority/recency policy, or sent to you. Every settlement is a Decision node,
-        and every open bid that relied on the fact is re-checked.
-      </PageHeader>
+      <PageHeader title="Live documents"
+        subtitle="New paperwork becomes claims. Conflicts are settled by policy or by you, and every bid relying on the fact is re-checked."
+        meta={<>
+          <span><span className="num font-semibold text-ink-2">{conf.decisions?.length || 0}</span> decisions on record</span>
+          {conf.restatements !== undefined && conf.restatements !== null && <>
+            <span aria-hidden>·</span>
+            <span><span className="num font-semibold text-ink-2">{conf.restatements}</span> financial restatements in the corpus</span>
+          </>}
+          <span aria-hidden>·</span>
+          <Link href="/decisions/" className="inline-flex items-center gap-1 font-medium text-kb-ink hover:underline">
+            Decision log <ArrowRight size={13} strokeWidth={1.75} />
+          </Link>
+        </>} />
 
       {cases.length === 0 && (
-        <div className="panel mb-4 flex items-center gap-3 px-4 py-3 text-[13px]">
-          <Zap size={16} className="text-accent" />
-          <span>Tip: first <Link href="/qualify/" className="font-semibold text-accent underline">qualify a tender</Link> — then a corrigendum here can flip its verdict live.</span>
+        <div className="well mb-5 px-4 py-3 text-[13.5px] text-ink-2">
+          No qualified tenders yet. <Link href="/qualify/" className="font-semibold text-kb-ink hover:underline">Qualify a tender</Link> first,
+          then a corrigendum here can flip its verdict live.
         </div>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-12">
-        <div className="space-y-4 xl:col-span-4">
-          <Panel title="Incoming documents" right={busy ? <Spinner label="processing" /> : null}>
-            {demo.length > 0 && (
-              <div className="mb-3 space-y-2">
-                <div className="eyebrow">Scenarios</div>
-                {demo.map((e) => (
-                  <button key={e.event_id} disabled={busy} onClick={() => fire(e.event_id)}
-                    className="panel-2 block w-full px-3 py-2.5 text-left hover:border-accent disabled:opacity-60">
-                    <div className="flex items-center gap-2 text-[13px] font-semibold"><Radio size={13} className="text-accent" />{e.title}</div>
-                    <div className="mt-0.5 text-[12px] leading-snug text-ink-3">{e.narrative}</div>
-                  </button>
-                ))}
+      <div className="grid gap-5 lg:grid-cols-12">
+        {/* ---------------- inbox */}
+        <div className="flex min-w-0 flex-col gap-5 lg:col-span-5 xl:col-span-4">
+          <Card title="Inbox" action={busy ? <Spinner label="Processing" /> : null}>
+            <Tabs value={tab} onChange={setTab} tabs={[
+              { id: "scenarios", label: "Scenarios", count: demo.length },
+              { id: "upload", label: "Upload" },
+              { id: "planted", label: "Planted events", count: rest.length },
+            ]} />
+
+            {tab === "scenarios" && (
+              demo.length ? (
+                <ul className="scroll-thin contain-scroll max-h-[62vh] divide-y divide-line overflow-y-auto">
+                  {demo.map((e) => (
+                    <li key={e.event_id} className="flex items-start gap-3 py-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13.5px] font-semibold leading-snug text-ink">{e.title}</div>
+                        <p className="mt-1 text-[12.5px] leading-snug text-ink-3">{e.narrative}</p>
+                      </div>
+                      <Button size="sm" disabled={busy} onClick={() => fire(e.event_id)}>Send</Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : <Empty title="No scenarios" text="Scenarios load from the server when it starts." />
+            )}
+
+            {tab === "upload" && (
+              <div className="pt-4">
+                <div role="button" tabIndex={0} aria-label="Upload a PDF"
+                  onClick={() => fileRef.current?.click()}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileRef.current?.click(); } }}
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) upload(f, f.name); }}
+                  className={clsx("grid cursor-pointer place-items-center rounded-xl border border-dashed px-4 py-8 text-center outline-none",
+                    "transition-[border-color,background-color,box-shadow] duration-150 ease-out hover:border-kb hover:bg-well",
+                    "focus-visible:border-kb focus-visible:shadow-[0_0_0_3px_var(--kb-soft)]",
+                    dragOver ? "border-kb bg-kb-soft" : "border-line-strong")}>
+                  <Upload size={16} strokeWidth={1.75} className="mb-2 text-ink-3" />
+                  <div className="text-[13.5px] font-semibold text-ink">Drop a PDF, or click to choose</div>
+                  <div className="mt-1 max-w-[280px] text-[12.5px] leading-snug text-ink-3">
+                    Corrigenda, bank notices, certificates. Parsed by the same extractors as the corpus.
+                  </div>
+                  <input ref={fileRef} type="file" accept="application/pdf" className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f, f.name); }} />
+                </div>
+
+                {samples.length > 0 && (
+                  <div className="mt-5">
+                    <div className="flex items-baseline gap-2">
+                      <h3 className="text-[13.5px] font-semibold text-ink">Sample PDFs</h3>
+                      <span className="num text-[12px] text-ink-3">{samples.length}</span>
+                    </div>
+                    <ul className="scroll-thin contain-scroll mt-1 max-h-[40vh] divide-y divide-line overflow-y-auto">
+                      {samples.map((s) => (
+                        <li key={s.name} className="flex items-center gap-2 py-2">
+                          <span className="num min-w-0 flex-1 truncate text-[12.5px] text-ink" title={s.name}>{s.name}</span>
+                          <Button size="sm" variant="ghost" onClick={() => openDoc({ doc_id: s.name.replace(".pdf", "") })}>View</Button>
+                          <Button size="sm" disabled={busy} onClick={() => sendSample(s)}>Send</Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
-            <div className="eyebrow mb-1.5">Drop a PDF — parsed by the same extractors as the corpus</div>
-            <div onClick={() => fileRef.current?.click()} onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) upload(f, f.name); }}
-              className="grid cursor-pointer place-items-center rounded-xl border border-dashed px-3 py-5 text-center text-[12.5px] text-ink-3 hover:border-accent"
-              style={{ borderColor: "var(--line-2)" }}>
-              <Upload size={18} className="mb-1 text-accent" />Drop a corrigendum, bank notice, certificate… or click
-              <input ref={fileRef} type="file" accept="application/pdf" className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f, f.name); }} />
-            </div>
-            {samples.length > 0 && (
-              <details className="mt-2">
-                <summary className="cursor-pointer text-[12px] text-ink-3">Sample PDFs ({samples.length})</summary>
-                <div className="scroll-thin mt-1 max-h-40 space-y-1 overflow-y-auto">
-                  {samples.map((s) => (
-                    <div key={s.name} className="flex items-center gap-2 text-[12px]">
-                      <button className="num text-ink-2 hover:text-accent" onClick={() => openDoc({ doc_id: s.name.replace(".pdf", "") })}>{s.name}</button>
-                      <button className="btn ml-auto !px-2 !py-0.5 !text-[11px]" disabled={busy} onClick={() => sendSample(s)}><FileUp size={11} />send</button>
-                    </div>
-                  ))}
-                </div>
-              </details>
+
+            {tab === "planted" && (
+              rest.length ? (
+                <>
+                  <p className="pt-3 text-[12.5px] text-ink-3">Includes hard negatives that should not raise a conflict.</p>
+                  <ul className="scroll-thin contain-scroll max-h-[58vh] divide-y divide-line overflow-y-auto">
+                    {rest.map((e) => (
+                      <li key={e.event_id} className="flex items-start gap-3 py-3">
+                        <div className="min-w-0 flex-1">
+                          <Badge>{TYPE_LABEL[e.type] || e.type}</Badge>
+                          <p className="mt-2 text-[12.5px] leading-snug text-ink-2">{e.narrative}</p>
+                        </div>
+                        <Button size="sm" disabled={busy} onClick={() => fire(e.event_id)}>Send</Button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : <Empty title="No planted events" />
             )}
-            <details className="mt-3">
-              <summary className="cursor-pointer text-[12px] text-ink-3">Planted events ({rest.length}) — including hard negatives</summary>
-              <div className="scroll-thin mt-1 max-h-56 space-y-1 overflow-y-auto">
-                {rest.map((e) => (
-                  <button key={e.event_id} disabled={busy} onClick={() => fire(e.event_id)}
-                    className="block w-full rounded-md px-2 py-1.5 text-left hover:bg-bg-2">
-                    <span className="chip !py-0 !text-[10.5px]">{TYPE_LABEL[e.type] || e.type}</span>
-                    <span className="mt-0.5 block text-[12px] leading-snug text-ink-2">{e.narrative}</span>
-                  </button>
+          </Card>
+        </div>
+
+        {/* ---------------- activity */}
+        <div className="flex min-w-0 flex-col gap-5 lg:col-span-7 xl:col-span-5">
+          <Card title="Activity" pad={false}
+            action={feed.length ? <span className="num text-[12.5px] text-ink-3">{feed.length} events</span> : null}>
+            <div className="scroll-thin contain-scroll max-h-[72vh] overflow-y-auto px-5 pb-3 pt-3">
+              {feed.length === 0 ? (
+                <Empty title="No activity yet"
+                  text="Send a scenario or a PDF from the inbox. Claims, conflicts, decisions and re-checks appear here." />
+              ) : (
+                <ol>
+                  {feed.map((f, i) => <FeedCard key={f.at + "-" + i} item={f} last={i === feed.length - 1} />)}
+                </ol>
+              )}
+            </div>
+          </Card>
+        </div>
+
+        {/* ---------------- judgement, rules, ripple */}
+        <div className="grid min-w-0 grid-cols-1 content-start gap-5 lg:col-span-12 lg:grid-cols-2 xl:col-span-3 xl:grid-cols-1">
+          <Card title="Needs your judgement" action={<span className="num text-[13px] text-ink-3">{cards.length}</span>}>
+            {cards.length ? (
+              <div className="-mt-1 divide-y divide-line">
+                {cards.map((c: any) => (
+                  <div key={c.id} className="py-4 first:pt-1 last:pb-0">
+                    <div className="text-[13.5px] font-semibold leading-snug text-ink">{c.subject}</div>
+                    <div className="num mt-1 text-[12px] text-ink-3">{c.predicate}</div>
+                    <div className="mt-3 flex flex-col gap-2">
+                      {c.claims.map((cl: any) => (
+                        <div key={cl.id} className="well p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="num text-[15px] font-semibold text-ink">{cl.value}</span>
+                            {c.suggested === cl.id && <Badge tone="blue">Suggested</Badge>}
+                          </div>
+                          <div className="mt-1 text-[12px] leading-snug text-ink-3">
+                            {cl.source_kind} · authority <span className="num">{cl.authority}</span> · {cl.issuer}
+                          </div>
+                          {cl.source_doc && (
+                            <div className="mt-1">
+                              <EvidenceList items={[{ doc_id: cl.source_doc, page: cl.page }]} max={1} />
+                            </div>
+                          )}
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Button size="sm" disabled={busy} onClick={() => resolve(c, cl.id, false)}>Choose</Button>
+                            <Button size="sm" variant="primary" disabled={busy} onClick={() => resolve(c, cl.id, true)}
+                              title="Also learn a rule for conflicts of this shape">Choose and learn rule</Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {c.rationale && <p className="mt-3 text-[12.5px] leading-snug text-ink-3">{c.rationale}</p>}
+                  </div>
                 ))}
               </div>
-            </details>
-          </Panel>
+            ) : (
+              <p className="text-[13px] leading-snug text-ink-3">
+                No open conflicts. Disagreements between issuers of similar authority land here.
+              </p>
+            )}
+          </Card>
 
-          <Panel title="Learned rules (procedural memory)">
-            {conf.rules?.length ? conf.rules.map((r: any) => (
-              <div key={r.id} className="panel-2 mb-2 px-3 py-2 text-[12.5px]">
-                <div className="flex items-center gap-2"><BookMarked size={13} className="text-violet" />
-                  <span className="font-semibold">prefer {r.prefer}</span><span className="text-ink-3">over {r.over} · {r.predicate}</span></div>
-                <div className="mt-0.5 text-ink-3">learned from {r.learned_from} by {r.by} · applied {r.applied}×</div>
-              </div>
-            )) : <div className="text-[12.5px] text-ink-3">None yet. Resolve a card with "apply to similar" and the next conflict of that shape resolves itself, citing your decision.</div>}
-          </Panel>
-        </div>
-
-        <div className="space-y-4 xl:col-span-5">
-          <Panel title="What happened" pad={false}>
-            <div className="scroll-thin max-h-[72vh] space-y-2 overflow-y-auto p-3">
-              {feed.length === 0 && <div className="p-3 text-[13px] text-ink-3">Send a document to watch it flow through claims → conflicts → decisions → ripple.</div>}
-              {feed.map((f, i) => <FeedCard key={f.at + "-" + i} item={f} />)}
-            </div>
-          </Panel>
-        </div>
-
-        <div className="space-y-4 xl:col-span-3">
-          <Panel title={`Needs your judgement (${conf.cards?.length || 0})`}>
-            {conf.cards?.length ? conf.cards.map((c: any) => (
-              <div key={c.id} className="panel-2 mb-3 px-3 py-2.5">
-                <div className="text-[13px] font-semibold leading-snug">{c.subject}</div>
-                <div className="num text-[11.5px] text-ink-3">{c.predicate}</div>
-                <div className="mt-2 space-y-1.5">
-                  {c.claims.map((cl: any) => (
-                    <div key={cl.id} className="rounded-md border hairline p-2">
-                      <div className="flex items-center gap-2">
-                        <span className="num text-[13.5px] font-bold">{cl.value}</span>
-                        {c.suggested === cl.id && <span className="chip !py-0 !text-[10px]">suggested</span>}
-                      </div>
-                      <div className="text-[11.5px] text-ink-3">{cl.source_kind} · authority {cl.authority} · {cl.issuer}</div>
-                      <button className="num text-[11.5px] text-accent" onClick={() => openDoc({ doc_id: cl.source_doc, page: cl.page })}>{cl.source_doc}</button>
-                      <div className="mt-1.5 flex gap-1.5">
-                        <button className="btn !px-2 !py-1 !text-[11.5px]" disabled={busy} onClick={() => resolve(c, cl.id, false)}>Choose</button>
-                        <button className="btn !px-2 !py-1 !text-[11.5px]" disabled={busy} onClick={() => resolve(c, cl.id, true)} title="Also learn a rule for conflicts of this shape">Choose + learn rule</button>
-                      </div>
+          <Card title="Learned rules" action={rules.length ? <span className="num text-[13px] text-ink-3">{rules.length}</span> : null}>
+            {rules.length ? (
+              <ul className="-mt-1 divide-y divide-line">
+                {rules.map((r: any) => (
+                  <li key={r.id} className="py-3 first:pt-1 last:pb-0">
+                    <div className="text-[13px] leading-snug text-ink">
+                      Prefer <span className="font-semibold">{r.prefer}</span> <span className="text-ink-3">over</span> {r.over}
                     </div>
-                  ))}
-                </div>
-                <div className="mt-2 text-[11.5px] leading-snug text-ink-3">{c.rationale}</div>
-              </div>
-            )) : <div className="text-[12.5px] text-ink-3">No open conflicts. Close-authority disagreements from different issuers land here.</div>}
-          </Panel>
-          <Panel title="Ripple" pad={false}>
-            <div className="p-2"><GraphCanvas data={graph} highlight={hl} height={260} emptyHint="Cases & bids touched by a change." /></div>
-          </Panel>
-          <Panel title="Decision log" right={<Link href="/decisions/" className="text-[12px] text-accent">all <ArrowRight size={11} className="inline" /></Link>}>
-            <div className="text-[12.5px] text-ink-2">{conf.decisions?.length || 0} decisions on record ·{" "}
-              <span className="text-ink-3">{conf.restatements} are financial restatements the corpus itself contains</span></div>
-          </Panel>
+                    <div className="num mt-1 text-[12px] text-ink-3">{r.predicate}</div>
+                    <div className="mt-1 text-[12px] text-ink-3">
+                      From {r.learned_from} by {r.by} · applied <span className="num">{r.applied}</span>×
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[13px] leading-snug text-ink-3">
+                None yet. Use “Choose and learn rule” on a conflict and the next one of that shape resolves itself, citing your decision.
+              </p>
+            )}
+          </Card>
+
+          <Card title="Ripple" pad={false} className="overflow-hidden lg:col-span-2 xl:col-span-1">
+            <GraphCanvas data={graph} highlight={hl} height={260} emptyHint="Cases and bids touched by a change appear here." />
+          </Card>
         </div>
       </div>
     </div>
   );
 }
 
-function FeedCard({ item }: { item: FeedItem }) {
+// ======================================================================= activity feed
+
+const fmtTime = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+function Entry({ icon, title, aside, at, last, children }:
+  { icon: React.ReactNode; title: React.ReactNode; aside?: React.ReactNode; at: number; last?: boolean; children?: React.ReactNode }) {
+  return (
+    <li className="flex gap-3">
+      <div className="flex w-4 shrink-0 flex-col items-center pt-0.5">
+        {icon}
+        {!last && <span aria-hidden className="mt-2 w-px flex-1 bg-line" />}
+      </div>
+      <div className={clsx("min-w-0 flex-1", last ? "pb-2" : "pb-5")}>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-[13.5px] font-semibold leading-snug text-ink">{title}</span>
+          {aside}
+          <time dateTime={new Date(at).toISOString()} className="num ml-auto text-[11.5px] text-ink-3">{fmtTime(at)}</time>
+        </div>
+        {children}
+      </div>
+    </li>
+  );
+}
+
+const ICON = { size: 16, strokeWidth: 1.75 } as const;
+
+function FeedCard({ item, last }: { item: FeedItem; last?: boolean }) {
   const d = item.data;
   const openDoc = useOpenDoc();
+  const base = { at: item.at, last };
+
   if (item.kind === "document")
     return (
-      <div className="flex items-start gap-2 rounded-lg px-2 py-1.5">
-        <FileUp size={15} className="mt-0.5 text-info" />
-        <div className="text-[12.5px]"><span className="font-semibold">{d.doc?.title || d.doc?.doc_id}</span>
-          {d.narrative && <div className="text-ink-3">{d.narrative}</div>}</div>
-      </div>
+      <Entry {...base} icon={<FileText {...ICON} className="text-kb-ink" />} title={d.doc?.title || d.doc?.doc_id}>
+        {d.narrative && <p className="mt-1 text-[13px] leading-snug text-ink-3">{d.narrative}</p>}
+      </Entry>
     );
+
   if (item.kind === "extracted")
     return (
-      <div className="panel-2 px-3 py-2 text-[12.5px]">
-        <div className="eyebrow">Extracted · {d.kind}</div>
-        {d.error ? <div style={{ color: "var(--fail)" }}>{d.error}</div> : (
+      <Entry {...base} icon={<ScanText {...ICON} className="text-ink-3" />} title={`Extracted ${d.kind ?? ""}`.trim()}>
+        {d.error ? <p className="mt-1 text-[13px] text-bad">{d.error}</p> : (
           <>
-            <div className="mt-0.5">subject <span className="num font-semibold">{d.subject?.key}</span> <span className="text-ink-3">(resolved via {d.subject?.resolved_via})</span></div>
-            {(d.extracted || []).map((x: any, i: number) => <div key={i} className="num text-ink-2">{x.predicate} = {String(x.value)} <span className="text-ink-3">· {x.source_kind}</span></div>)}
+            <p className="mt-1 text-[13px] text-ink-2">
+              Subject <span className="num font-semibold text-ink">{d.subject?.key}</span>
+              <span className="text-ink-3"> · resolved via {d.subject?.resolved_via}</span>
+            </p>
+            {(d.extracted || []).length > 0 && (
+              <ul className="well mt-2 flex flex-col gap-1 px-3 py-2">
+                {(d.extracted || []).map((x: any, i: number) => (
+                  <li key={i} className="num flex flex-wrap gap-x-2 text-[12px] text-ink-2">
+                    <span>{x.predicate} = <span className="font-semibold text-ink">{String(x.value)}</span></span>
+                    <span className="text-ink-3">{x.source_kind}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </>
         )}
-      </div>
+      </Entry>
     );
+
   if (item.kind === "decision") {
     const c = d.conflict || {};
     return (
-      <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "color-mix(in oklab, var(--pass) 35%, transparent)" }}>
-        <div className="flex items-center gap-2 text-[12.5px]"><Gavel size={14} style={{ color: "var(--pass)" }} />
-          <span className="font-semibold">{d.human ? "Your decision" : "Auto-resolved"}</span>
-          <span className="chip !py-0">{d.policy}</span><span className="num ml-auto text-[11px] text-ink-3">{d.decision_id}</span></div>
-        <div className="mt-1 text-[12.5px]"><span className="num">{c.subject_key}</span> · <span className="num">{c.predicate}</span> → <span className="num font-bold">{String(d.value)}</span></div>
+      <Entry {...base} icon={<Gavel {...ICON} className="text-ok" />}
+        title={d.human ? "Your decision" : "Auto-resolved"}
+        aside={d.policy ? <Badge>{d.policy}</Badge> : null}>
+        <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-[13px] text-ink-2">
+          <span><span className="num">{c.subject_key}</span> · <span className="num">{c.predicate}</span>
+            <ArrowRight size={13} strokeWidth={1.75} className="mx-1 inline align-[-2px] text-ink-3" />
+            <span className="num font-semibold text-ink">{String(d.value)}</span></span>
+          {d.decision_id && <span className="num ml-auto text-[11.5px] text-ink-3">{d.decision_id}</span>}
+        </div>
         {c.claims && (
-          <div className="mt-1.5 grid gap-1">
-            {c.claims.map((cl: any) => (
-              <div key={cl.id} className={clsx("flex items-center gap-2 rounded px-2 py-1 text-[11.5px]", cl.id === d.winner ? "bg-bg-2" : "opacity-60 line-through")}>
-                <span className="num font-semibold">{cl.value_str}</span><span className="text-ink-3">{cl.source_kind} ({cl.authority})</span>
-                <button className="num ml-auto text-accent" onClick={() => openDoc({ doc_id: cl.source_doc, page: cl.page })}>{cl.source_doc}</button>
-              </div>
-            ))}
-          </div>
+          <ul className="well mt-2 divide-y divide-line overflow-hidden">
+            {c.claims.map((cl: any) => {
+              const won = cl.id === d.winner;
+              return (
+                <li key={cl.id} className={clsx("flex items-center gap-2 px-3 py-2 text-[12.5px]", won && "bg-ok-soft")}>
+                  <span className="w-4 shrink-0">{won && <Check size={14} strokeWidth={1.75} className="text-ok" />}</span>
+                  <span className={clsx("num", won ? "font-semibold text-ink" : "text-ink-3 line-through")}>{cl.value_str}</span>
+                  <span className="truncate text-ink-3">{cl.source_kind} ({cl.authority})</span>
+                  <button className="num ml-auto shrink-0 text-[12px] text-kb-ink hover:underline"
+                    onClick={() => openDoc({ doc_id: cl.source_doc, page: cl.page })}>{cl.source_doc}</button>
+                </li>
+              );
+            })}
+          </ul>
         )}
-        <div className="mt-1.5 text-[12px] leading-snug text-ink-3">{d.rationale}</div>
-      </div>
+        {d.rationale && <p className="mt-2 text-[12.5px] leading-snug text-ink-3">{d.rationale}</p>}
+      </Entry>
     );
   }
+
   if (item.kind === "card")
     return (
-      <div className="rounded-lg border px-3 py-2.5 text-[12.5px]" style={{ borderColor: "color-mix(in oklab, var(--risk) 45%, transparent)" }}>
-        <div className="flex items-center gap-2"><GitBranch size={14} style={{ color: "var(--risk)" }} /><span className="font-semibold">Conflict needs a human</span></div>
-        <div className="mt-1 num">{d.conflict?.subject_key} · {d.conflict?.predicate}</div>
-        <div className="mt-1 text-ink-3">{d.rationale}</div>
-      </div>
+      <Entry {...base} icon={<Scale {...ICON} className="text-warn" />} title="Sent to you">
+        <p className="num mt-1 text-[12.5px] text-ink-2">{d.conflict?.subject_key} · {d.conflict?.predicate}</p>
+        {d.rationale && <p className="mt-1 text-[12.5px] leading-snug text-ink-3">{d.rationale}</p>}
+      </Entry>
     );
+
   if (item.kind === "ripple") {
     const r = d.result || {};
+    const flips: any[] = r.verdict_flips || [];
+    const caseFlips = [...new Map(flips.filter((f: any) => f.case_from && f.case_from !== f.case_to)
+      .map((f: any) => [f.case_id, f])).values()];
+    const n = (v: React.ReactNode) => <span className="num font-semibold text-ink">{v}</span>;
     return (
-      <div className="rounded-lg border px-3 py-2.5 text-[12.5px]" style={{ borderColor: "color-mix(in oklab, var(--accent) 40%, transparent)" }}>
-        <div className="flex items-center gap-2"><Waves size={14} className="text-accent" /><span className="font-semibold">Ripple from {d.subject}</span></div>
-        <div className="mt-1 text-ink-2">{r.clauses_rechecked} open clauses re-checked · {r.cases_relying?.length || 0} cases relied on it · {r.past_bids_citing?.length || 0} past bids cited it{r.tenders_secured?.length ? ` · secures ${r.tenders_secured.map((t: any) => t.tender).join(", ")}` : ""}</div>
-        {(r.verdict_flips || []).map((f: any, i: number) => (
-          <div key={i} className="mt-1.5 flex items-center gap-2 rounded bg-bg-2 px-2 py-1.5">
-            <span className="truncate">{f.case} · clause {f.clause}</span>
-            <span className="ml-auto flex items-center gap-1"><Verdict v={f.from} size="sm" /><ArrowRight size={12} /><Verdict v={f.to} size="sm" /></span>
+      <Entry {...base} icon={<Waves {...ICON} className="text-kb-ink" />}
+        title={<>Ripple from <span className="num">{d.subject}</span></>}>
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
+          {n(r.clauses_rechecked ?? 0)} open clauses re-checked · {n(r.cases_relying?.length || 0)} cases relied on it
+          · {n(r.past_bids_citing?.length || 0)} past bids cited it
+          {r.tenders_secured?.length ? <> · secures <span className="num">{r.tenders_secured.map((t: any) => t.tender).join(", ")}</span></> : null}
+        </p>
+        {flips.length > 0 && (
+          <ul className="well mt-2 divide-y divide-line overflow-hidden">
+            {flips.map((f: any, i: number) => (
+              <li key={i} className="flex items-center gap-2 px-3 py-2 text-[12.5px]">
+                <span className="min-w-0 truncate text-ink-2">{f.case} · clause <span className="num">{f.clause}</span></span>
+                <span className="ml-auto flex shrink-0 items-center gap-1">
+                  <Verdict v={f.from} size="sm" /><ArrowRight size={13} strokeWidth={1.75} className="text-ink-3" /><Verdict v={f.to} size="sm" />
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {caseFlips.map((f: any) => (
+          <div key={f.case_id} className="mt-2 flex flex-wrap items-center gap-2 rounded-[10px] bg-kb-soft px-3 py-2 text-[13px]">
+            <span className="min-w-0 font-semibold text-ink">Recommendation for “{f.case}”</span>
+            <span className="ml-auto flex shrink-0 items-center gap-1">
+              <Verdict v={f.case_from} size="sm" /><ArrowRight size={13} strokeWidth={1.75} className="text-kb-ink" /><Verdict v={f.case_to} size="sm" />
+            </span>
           </div>
         ))}
-        {[...new Map((r.verdict_flips || []).filter((f: any) => f.case_from && f.case_from !== f.case_to)
-            .map((f: any) => [f.case_id, f])).values()].map((f: any) => (
-          <div key={f.case_id} className="mt-1.5 flex items-center gap-2 rounded px-2 py-1.5" style={{ background: "color-mix(in oklab, var(--accent) 10%, transparent)" }}>
-            <span className="font-semibold">Recommendation for “{f.case}”</span>
-            <span className="ml-auto flex items-center gap-1"><Verdict v={f.case_from} size="sm" /><ArrowRight size={12} /><Verdict v={f.case_to} size="sm" /></span>
-          </div>
-        ))}
-        {!(r.verdict_flips || []).length && <div className="mt-1 text-ink-3">No verdict changed.</div>}
-      </div>
+        {!flips.length && <p className="mt-1 text-[12.5px] text-ink-3">No verdict changed.</p>}
+      </Entry>
     );
   }
+
   if (item.kind === "noconflict")
-    return <div className="rounded-lg px-3 py-2 text-[12.5px] text-ink-3">No contradiction: the new claim agrees with the record (within the source's precision) or concerns a field nothing else states. Stored, nothing overwritten.</div>;
-  if (item.kind === "error") return <div className="px-3 py-2 text-[12.5px]" style={{ color: "var(--fail)" }}>{d.message}</div>;
+    return (
+      <Entry {...base} icon={<CircleCheck {...ICON} className="text-ink-3" />} title="No contradiction">
+        <p className="mt-1 text-[12.5px] leading-snug text-ink-3">
+          The new claim agrees with the record within the source&apos;s precision, or concerns a field nothing else states.
+          Stored, nothing overwritten.
+        </p>
+      </Entry>
+    );
+
+  if (item.kind === "error")
+    return (
+      <Entry {...base} icon={<CircleAlert {...ICON} className="text-bad" />} title="Failed">
+        <p className="mt-1 text-[13px] text-bad">{d.message}</p>
+      </Entry>
+    );
+
   return null;
 }

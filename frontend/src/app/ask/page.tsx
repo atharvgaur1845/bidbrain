@@ -1,13 +1,14 @@
 "use client";
 
-import { ArrowUp, GitCompareArrows, Sparkles } from "lucide-react";
+import clsx from "clsx";
+import { ArrowUp, ChevronRight, GitCompareArrows } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import AgentTrace, { TraceStep } from "@/components/AgentTrace";
 import GraphCanvas, { GData, mergeGraph } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/Shell";
-import { EvidenceList, Markdown, Panel, Spinner } from "@/components/ui";
+import { Badge, Button, Card, EvidenceList, Markdown, Spinner, Tabs } from "@/components/ui";
 import { api, fmtINR, stream } from "@/lib/api";
+import { Comparison, Trace, TraceStep, countDocs } from "./parts";
 
 const SUGGESTED = [
   { q: "Which of Trishakti Power Generation Corporation's completed works have no client reference letter on file?",
@@ -26,15 +27,28 @@ type Turn = { q: string; answer?: any; explanation?: string; steps: TraceStep[];
   highlight: Set<string>; running: boolean; error?: string; usage?: any; ms?: number; providers?: string[];
   baseline?: any; baselineLoading?: boolean };
 
+const EMPTY_GRAPH: GData = { nodes: [], edges: [] };
+/** Smooth scrolling is motion: skip it when the viewer asks for reduced motion. */
+const scrollBehavior = (): ScrollBehavior =>
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+const PANEL_H = 500;
+const TAB_HINT: Record<string, string> = {
+  path: "Blue marks the nodes returned by the latest step.",
+  trace: "Every tool call in order, with the Cypher it ran on FalkorDB.",
+  docs: "Open a document at the cited page.",
+};
+
 export default function AskPage() {
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [sel, setSel] = useState<number>(-1);
+  const [tab, setTab] = useState("path");
   const [llm, setLlm] = useState<{ ok: boolean; replay: boolean } | null>(null);
   useEffect(() => { api("/api/health").then((h) => setLlm({ ok: (h.llm || []).length > 0, replay: !!h.replay })).catch(() => {}); }, []);
   const busy = turns.some((t) => t.running);
   const endRef = useRef<HTMLDivElement>(null);
   const cur = sel >= 0 ? turns[sel] : turns[turns.length - 1];
+  const curIdx = sel >= 0 ? sel : turns.length - 1;
 
   const update = (i: number, f: (t: Turn) => Turn) => setTurns((ts) => ts.map((t, j) => (j === i ? f(t) : t)));
 
@@ -44,7 +58,7 @@ export default function AskPage() {
     const i = turns.length;
     setSel(-1);
     setTurns((ts) => [...ts, { q, steps: [], evidence: [], graph: { nodes: [], edges: [] }, highlight: new Set(), running: true }]);
-    setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+    setTimeout(() => endRef.current?.scrollIntoView({ behavior: scrollBehavior(), block: "nearest" }), 50);
     await stream("/api/ask", { question: q }, (ev) => {
       if (ev.type === "tool_call") {
         update(i, (t) => ({ ...t, steps: [...t.steps, { tool: ev.tool, args: ev.args, pending: true }] }));
@@ -80,112 +94,164 @@ export default function AskPage() {
     }
   }
 
+  const tabs = [
+    { id: "path", label: "Evidence path", count: cur ? cur.graph.nodes.length : undefined },
+    { id: "trace", label: "Trace", count: cur ? cur.steps.length : undefined },
+    { id: "docs", label: "Documents", count: cur ? countDocs(cur.evidence) : undefined },
+  ];
+  const link = "font-medium text-kb-ink hover:underline";
+
   return (
     <div>
-      <PageHeader eyebrow="Ask the company brain" title="Multi-hop answers, with the path behind them">
-        The agent plans over 20 graph tools — traversals, exact arithmetic, absence proofs and FalkorDB algorithms —
-        and every answer comes with the documents and pages that prove it. Compare it with vector RAG on the same model.
-      </PageHeader>
+      <PageHeader title="Ask"
+        subtitle="Multi-hop questions answered from the graph, with the documents that prove each answer." />
 
       {llm && !llm.ok && (
-        <div className="panel mb-4 px-4 py-3 text-[13px] text-ink-2">
-          {llm.replay ? "Offline replay mode: the suggested questions answer from a recorded run of the agent; new questions need a live model."
-            : <>No LLM is configured on this server, so free-text questions are off. Everything else runs on the graph alone: <Link className="text-accent underline" href="/qualify/">qualify a tender</Link>, <Link className="text-accent underline" href="/live/">live documents</Link>, <Link className="text-accent underline" href="/explore/">explore</Link>.</>}
+        <div className="well mb-5 px-4 py-3 text-[13px] leading-relaxed text-ink-2">
+          {llm.replay
+            ? "Replay mode: suggested questions answer from a recorded run of the agent. New questions need a live model."
+            : <>No LLM is configured on this server, so free-text questions are off. These run on the graph alone:{" "}
+                <Link className={link} href="/qualify/">qualify a tender</Link>,{" "}
+                <Link className={link} href="/live/">live documents</Link> and{" "}
+                <Link className={link} href="/explore/">explore</Link>.</>}
         </div>
       )}
-      <div className="grid gap-5 lg:grid-cols-12">
-        <div className="flex flex-col gap-4 lg:col-span-5">
-          <Panel title="Conversation" pad={false}>
-            <div className="scroll-thin max-h-[58vh] space-y-4 overflow-y-auto p-4">
-              {turns.length === 0 && (
-                <div className="space-y-2">
-                  <div className="text-[13px] text-ink-2">Try one of these — each needs several hops through the graph:</div>
+
+      <div className="grid items-start gap-5 lg:grid-cols-12">
+        {/* ------------------------------------------------------------ conversation */}
+        <Card className="lg:col-span-5" title="Conversation" pad={false}
+          action={turns.length > 0 && (
+            <span className="num text-[12.5px] text-ink-3">{turns.length} {turns.length === 1 ? "question" : "questions"}</span>
+          )}>
+          <div className="scroll-thin contain-scroll flex max-h-[62vh] flex-col gap-7 overflow-y-auto px-5 pb-5 pt-1">
+            {turns.length === 0 && (
+              <div>
+                <p className="text-[13px] text-ink-3">Start with a suggested question. Each one needs several hops.</p>
+                <ul className="-mx-2 mt-2 flex flex-col">
                   {SUGGESTED.map((s) => (
-                    <button key={s.q} onClick={() => ask(s.q)} className="panel-2 block w-full px-3 py-2.5 text-left hover:border-line-2">
-                      <span className="chip mb-1.5"><Sparkles size={11} className="text-accent" />{s.tag}</span>
-                      <span className="block text-[13px] leading-snug text-ink">{s.q}</span>
-                    </button>
+                    <li key={s.q}>
+                      <button type="button" onClick={() => ask(s.q)}
+                        className="w-full rounded-lg px-2 py-3 text-left transition-colors duration-150 ease-out hover:bg-well">
+                        <span className="block text-[13.5px] leading-snug text-ink">{s.q}</span>
+                        <Badge className="mt-1.5">{s.tag}</Badge>
+                      </button>
+                    </li>
                   ))}
-                </div>
-              )}
-              {turns.map((t, i) => (
-                <div key={i} className="space-y-2" onClick={() => setSel(i)}>
-                  <div className="ml-auto max-w-[92%] rounded-xl rounded-tr-sm bg-panel-2 px-3 py-2 text-[13.5px]">{t.q}</div>
-                  <div className={`rounded-xl border px-3 py-3 ${cur === t ? "border-line-2" : "hairline"}`}>
+                </ul>
+              </div>
+            )}
+
+            {turns.map((t, i) => {
+              const selected = cur === t && turns.length > 1;
+              const ans = String(t.answer);
+              const plain = ans.replace(/,/g, "");
+              const explanation = (t.explanation || "").replace(/ANSWER:.*$/im, "").trim();
+              const meta = [
+                `${t.usage?.tool_calls ?? t.steps.length} tool calls`,
+                `${t.usage?.llm_calls ?? "–"} LLM calls`,
+                t.ms ? `${(t.ms / 1000).toFixed(1)} s` : "",
+                t.providers?.[0] || "",
+              ].filter(Boolean);
+              return (
+                <div key={i} className={clsx(turns.length > 1 && "cursor-pointer")} onClick={() => setSel(i)}>
+                  <button type="button" aria-pressed={turns.length > 1 ? selected : undefined}
+                    className="ml-auto block w-fit max-w-[88%] rounded-2xl rounded-br-md bg-well px-4 py-2 text-left text-[13.5px] leading-snug text-ink">
+                    {t.q}
+                  </button>
+
+                  <div className={clsx("mt-3 border-l-2 pl-4 transition-colors duration-150 ease-out",
+                    selected ? "border-kb" : "border-line")}>
                     {t.running && <Spinner label={`${t.steps.length} tool calls so far`} />}
-                    {t.error && !t.answer && <div className="text-[13px]" style={{ color: "var(--fail)" }}>{t.error}</div>}
+                    {t.error && !t.answer && <div className="text-[13px] text-bad">{t.error}</div>}
+                    {!t.running && t.answer === undefined && !t.error && (
+                      <div className="text-[13px] text-ink-3">No answer returned.</div>
+                    )}
                     {t.answer !== undefined && !t.running && (
                       <>
-                        <div className="eyebrow">Answer</div>
-                        <div className="num mt-0.5 text-[22px] font-bold text-accent">{String(t.answer)}</div>
-                        {/^\d{6,}$/.test(String(t.answer).replace(/,/g, "")) && (
-                          <div className="num text-[12px] text-ink-3">{fmtINR(Number(String(t.answer).replace(/,/g, "")))}</div>
+                        <div className="text-[12.5px] font-medium text-ink-3">Answer</div>
+                        <div className={clsx("num mt-1 break-words font-semibold leading-tight tracking-[-0.02em] text-ink",
+                          ans.length > 24 ? "text-[16px]" : "text-[26px]")}>{ans}</div>
+                        {/^\d{6,}$/.test(plain) && (
+                          <div className="num mt-1 text-[13px] text-ink-2">{fmtINR(Number(plain))}</div>
                         )}
-                        <details className="mt-2">
-                          <summary className="cursor-pointer text-[12px] text-ink-3">How the agent got there</summary>
-                          <Markdown>{(t.explanation || "").replace(/ANSWER:.*$/im, "")}</Markdown>
-                        </details>
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11.5px] text-ink-3">
-                          <span className="chip num">{t.usage?.tool_calls ?? t.steps.length} tool calls</span>
-                          <span className="chip num">{t.usage?.llm_calls ?? "–"} LLM calls</span>
-                          <span className="chip num">{t.ms ? `${(t.ms / 1000).toFixed(1)} s` : ""}</span>
-                          {t.providers?.[0] && <span className="chip">{t.providers[0]}</span>}
-                          <button className="btn ml-auto !py-1 !text-[12px]" disabled={t.baselineLoading}
+                        <div className="mt-2 text-[12.5px] tabular-nums text-ink-3">{meta.join(" · ")}</div>
+
+                        {explanation && (
+                          <details className="group mt-3">
+                            <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-[13px] font-medium text-kb-ink hover:underline [&::-webkit-details-marker]:hidden">
+                              <ChevronRight size={15} strokeWidth={1.75}
+                                className="motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out group-open:rotate-90" />
+                              How it got there
+                            </summary>
+                            <div className="mt-2 [&_ol]:my-1.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol_li]:my-0.5">
+                              <Markdown>{explanation}</Markdown>
+                            </div>
+                          </details>
+                        )}
+
+                        <div className="mt-3">
+                          <Button variant="secondary" size="sm" disabled={t.baselineLoading}
                             onClick={(e) => { e.stopPropagation(); compare(i); }}>
-                            <GitCompareArrows size={13} /> {t.baselineLoading ? "Running vector RAG…" : "Compare with vector RAG"}
-                          </button>
+                            <GitCompareArrows size={15} strokeWidth={1.75} />
+                            {t.baselineLoading ? "Running vector RAG…" : "Compare with vector RAG"}
+                          </Button>
                         </div>
+
                         {t.baseline && (
-                          <div className="mt-3 rounded-lg border p-3" style={{ borderColor: "color-mix(in oklab, var(--fail) 35%, transparent)" }}>
-                            <div className="eyebrow">Vector RAG · same model · top-8 chunks</div>
-                            {t.baseline.error ? <div className="text-[12.5px] text-ink-3">{t.baseline.error}</div> : (
-                              <>
-                                <div className="num mt-0.5 text-[18px] font-bold" style={{ color: "var(--fail)" }}>{String(t.baseline.answer_text)}</div>
-                                <div className="mt-1 text-[12px] text-ink-3">
-                                  Saw {t.baseline.retrieved?.length} chunks from{" "}
-                                  {[...new Set((t.baseline.retrieved || []).map((r: any) => r.doc_id))].slice(0, 4).join(", ")}
-                                  {" "}— it can only reason over what it retrieved, never over the boundary of the set.
-                                </div>
-                              </>
-                            )}
-                          </div>
+                          <Comparison answer={t.answer} baseline={t.baseline}
+                            toolCalls={t.usage?.tool_calls ?? t.steps.length} />
                         )}
                       </>
                     )}
                   </div>
                 </div>
-              ))}
-              <div ref={endRef} />
-            </div>
-            <form className="flex items-end gap-2 border-t hairline p-3" onSubmit={(e) => { e.preventDefault(); ask(input); }}>
-              <textarea className="input min-h-[44px] resize-none" rows={2} value={input} placeholder="Ask about works, clients, people, credentials, invoices…"
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(input); } }} />
-              <button className="btn btn-primary !px-3" disabled={busy || !input.trim()} aria-label="Ask"><ArrowUp size={16} /></button>
-            </form>
-          </Panel>
-        </div>
-
-        <div className="flex flex-col gap-4 lg:col-span-7">
-          <Panel title="Evidence path" right={<span className="text-[11.5px] text-ink-3">gold = the hops behind the latest step</span>} pad={false}>
-            <div className="p-2">
-              <GraphCanvas data={cur?.graph || { nodes: [], edges: [] }} highlight={cur?.highlight} height={430}
-                emptyHint="Ask a question — the subgraph the agent traverses is drawn here." />
-            </div>
-          </Panel>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Panel title="Agent trace">
-              <div className="scroll-thin max-h-[360px] overflow-y-auto pr-1">
-                <AgentTrace steps={cur?.steps || []} running={cur?.running} />
-              </div>
-            </Panel>
-            <Panel title="Documents that prove it">
-              <div className="scroll-thin max-h-[360px] overflow-y-auto pr-1">
-                <EvidenceList items={cur?.evidence || []} />
-              </div>
-            </Panel>
+              );
+            })}
+            <div ref={endRef} />
           </div>
-        </div>
+
+          <form className="border-t border-line p-4" onSubmit={(e) => { e.preventDefault(); ask(input); }}>
+            <textarea className="field min-h-[64px] resize-none leading-snug" rows={2} value={input}
+              aria-label="Your question" placeholder="Ask about works, clients, people, credentials, invoices…"
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(input); } }} />
+            <div className="mt-3 flex items-center gap-3">
+              <span className="hidden text-[12.5px] text-ink-3 sm:inline">Enter to send, Shift+Enter for a new line</span>
+              <Button type="submit" variant="primary" size="sm" className="ml-auto" disabled={busy || !input.trim()}>
+                Ask <ArrowUp size={15} strokeWidth={1.75} />
+              </Button>
+            </div>
+          </form>
+        </Card>
+
+        {/* ------------------------------------------------------------ evidence */}
+        <Card className="overflow-hidden lg:col-span-7" pad={false}>
+          <div className="flex items-end px-5 pt-3">
+            <div className="min-w-0 flex-1"><Tabs tabs={tabs} value={tab} onChange={setTab} /></div>
+            {turns.length > 1 && (
+              <div className="num hidden border-b border-line pb-2.5 pt-1 text-[12.5px] leading-[21px] text-ink-3 sm:block">
+                Question {curIdx + 1} of {turns.length}
+              </div>
+            )}
+          </div>
+
+          {tab === "path" && (
+            <GraphCanvas data={cur?.graph || EMPTY_GRAPH} highlight={cur?.highlight} height={PANEL_H}
+              emptyHint="Ask a question to draw the subgraph the agent traverses." />
+          )}
+          {tab === "trace" && (
+            <div className="scroll-thin contain-scroll overflow-y-auto px-5 py-1" style={{ height: PANEL_H }}>
+              <Trace key={curIdx} steps={cur?.steps || []} running={cur?.running} />
+            </div>
+          )}
+          {tab === "docs" && (
+            <div className="scroll-thin contain-scroll overflow-y-auto px-5 py-3" style={{ height: PANEL_H }}>
+              <EvidenceList items={cur?.evidence || []} max={40} />
+            </div>
+          )}
+
+          <div className="border-t border-line px-5 py-3 text-[12.5px] text-ink-3">{TAB_HINT[tab]}</div>
+        </Card>
       </div>
     </div>
   );

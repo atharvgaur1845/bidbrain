@@ -1,25 +1,51 @@
 "use client";
 
 import clsx from "clsx";
-import { BookMarked, Bot, FileText, User } from "lucide-react";
+import { FileText, GitBranch } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import GraphCanvas, { GData } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/Shell";
-import { Panel, useOpenDoc } from "@/components/ui";
+import { Avatar, Badge, Card, Empty, Spinner, Tabs, useOpenDoc } from "@/components/ui";
 import { api } from "@/lib/api";
 
-const POLICY_COLOR: Record<string, string> = {
-  authority: "var(--info)", recency_same_issuer: "var(--pass)", learned_rule: "var(--violet)", human: "var(--accent)",
+const POLICIES: { id: string; label: string; tone: string }[] = [
+  { id: "authority", label: "Authority", tone: "blue" },
+  { id: "recency_same_issuer", label: "Recency", tone: "ok" },
+  { id: "learned_rule", label: "Learned rule", tone: "violet" },
+  { id: "human", label: "Human", tone: "warn" },
+];
+
+const STATUS_TONE: Record<string, string> = { active: "ok", contested: "warn" };
+
+const sentence = (s: string) => {
+  const t = String(s || "").replace(/_/g, " ");
+  return t.charAt(0).toUpperCase() + t.slice(1);
 };
+
+function PolicyBadge({ policy }: { policy: string }) {
+  const p = POLICIES.find((x) => x.id === policy);
+  return <Badge tone={p?.tone || "neutral"}>{p?.label || sentence(policy)}</Badge>;
+}
+
+function Actor({ name, kind, size = 24 }: { name?: string; kind?: string; size?: number }) {
+  if (!name) return <span className="text-ink-3">—</span>;
+  if (kind === "User") return <span title={name} className="inline-flex"><Avatar name={name} size={size} /><span className="sr-only">{name}</span></span>;
+  return <span title={name}><Badge>Policy</Badge></span>;
+}
+
+// align the first and last table columns with the card title
+const EDGE_CELLS = "[&_td:first-child]:pl-5 [&_th:first-child]:pl-5 [&_td:last-child]:pr-5 [&_th:last-child]:pr-5";
 
 export default function DecisionsPage() {
   const [conf, setConf] = useState<any>({ decisions: [], rules: [] });
+  const [loaded, setLoaded] = useState(false);
   const [filter, setFilter] = useState<string>("all");
   const [sel, setSel] = useState<string | null>(null);
   const [trace, setTrace] = useState<any>(null);
   const openDoc = useOpenDoc();
 
-  useEffect(() => { api("/api/conflicts").then(setConf); }, []);
+  useEffect(() => { api("/api/conflicts").then(setConf).finally(() => setLoaded(true)); }, []);
   useEffect(() => {
     if (!sel) return;
     api(`/api/decisions/${sel}/trace`).then(setTrace).catch(() => setTrace(null));
@@ -47,65 +73,184 @@ export default function DecisionsPage() {
     const seen = new Set(); return { nodes: nodes.filter((n) => !seen.has(n.id) && seen.add(n.id)), edges };
   }, [trace]);
 
+  const claims = (trace?.claims || []).filter((c: any) => c.claim);
+  const byPeople = counts.human || 0;
+
   return (
     <div>
-      <PageHeader eyebrow="Tracing decisions back to their source" title="Every settled fact has a reason, a decider, and a paper trail">
-        Nothing is overwritten. When sources disagree, the winning claim is selected by a Decision node that records the policy,
-        the rationale, who decided, and the documents both sides came from. Decisions supersede earlier decisions, and learned rules cite the decision they came from.
-      </PageHeader>
-      <div className="mb-4 flex flex-wrap gap-2">
-        {["all", "authority", "recency_same_issuer", "learned_rule", "human"].map((p) => (
-          <button key={p} onClick={() => setFilter(p)} className={clsx("chip !px-3 !py-1 !text-[12px]", filter === p && "!border-accent !text-ink")}>
-            <span className="h-2 w-2 rounded-full" style={{ background: POLICY_COLOR[p] || "var(--text-3)" }} />
-            {p.replace(/_/g, " ")} <span className="num text-ink-3">{p === "all" ? conf.decisions.length : counts[p] || 0}</span>
-          </button>
-        ))}
+      <PageHeader title="Decisions"
+        subtitle="Every settled fact records the policy, the decider and both source documents."
+        meta={loaded ? (
+          <>
+            <span><span className="num text-ink-2">{conf.decisions.length}</span> decisions</span>
+            <span aria-hidden>·</span>
+            <span><span className="num text-ink-2">{conf.rules.length}</span> learned rules</span>
+            <span aria-hidden>·</span>
+            <span><span className="num text-ink-2">{byPeople}</span> settled by people</span>
+          </>
+        ) : undefined} />
+
+      <div className="scroll-thin contain-scroll mb-6 overflow-x-auto [&>[role=tablist]]:w-max [&>[role=tablist]]:min-w-full">
+        <Tabs value={filter} onChange={setFilter}
+          tabs={[{ id: "all", label: "All", count: conf.decisions.length },
+            ...POLICIES.map((p) => ({ id: p.id, label: p.label, count: counts[p.id] || 0 }))]} />
       </div>
-      <div className="grid gap-5 lg:grid-cols-12">
-        <Panel title="Decision log" className="lg:col-span-5" pad={false}>
-          <div className="scroll-thin max-h-[70vh] overflow-y-auto">
-            {list.map((d: any) => (
-              <button key={d.id} onClick={() => setSel(d.id)}
-                className={clsx("flex w-full items-start gap-3 border-b hairline px-4 py-2.5 text-left hover:bg-bg-2", sel === d.id && "bg-bg-2")}>
-                {d.actor_kind === "User" ? <User size={15} className="mt-0.5 text-accent" /> : <Bot size={15} className="mt-0.5 text-ink-3" />}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium">{d.subject} <span className="num text-ink-3">· {d.predicate}</span></span>
-                  <span className="block truncate text-[12px] text-ink-3">{d.rationale}</span>
-                </span>
-                <span className="chip !py-0 !text-[10.5px]" style={{ color: POLICY_COLOR[d.policy] }}>{d.policy.replace(/_/g, " ")}</span>
-              </button>
-            ))}
-            {list.length === 0 && <div className="p-4 text-[13px] text-ink-3">No decisions of this kind yet.</div>}
+
+      <div className="grid items-start gap-5 xl:grid-cols-12">
+        {/* ---------------------------------------------------------------- decision log */}
+        <Card title="Decision log" pad={false} className="overflow-hidden xl:col-span-5"
+          action={loaded ? <span className="num text-[12.5px] text-ink-3">{list.length}</span> : undefined}>
+          <div className="scroll-thin contain-scroll max-h-[72vh] overflow-y-auto">
+            {!loaded ? (
+              <div className="px-5 py-8"><Spinner label="Loading decisions" /></div>
+            ) : list.length === 0 ? (
+              <Empty title="No decisions of this kind yet" text="Decisions appear here once conflicting claims are settled." />
+            ) : (
+              <table className={clsx("kt table-fixed", EDGE_CELLS,
+                "[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-surface [&_th]:backdrop-blur-md")}>
+                <thead>
+                  <tr>
+                    <th>Decision</th>
+                    <th className="w-[124px]">Policy</th>
+                    <th className="w-[84px]">By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.map((d: any) => {
+                    const active = sel === d.id;
+                    return (
+                      <tr key={d.id} onClick={() => setSel(d.id)}
+                        className={clsx("cursor-pointer", active && "[&>td]:bg-kb-soft")}>
+                        <td className={clsx(active && "shadow-[inset_2px_0_0_var(--kb)]")}>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setSel(d.id); }}
+                            aria-pressed={active}
+                            className="block w-full min-w-0 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-kb">
+                            <span className="block truncate text-[13.5px] font-medium text-ink">
+                              {d.subject || d.key}
+                              <span className="num ml-2 text-[12px] font-normal text-ink-3">{d.predicate}</span>
+                            </span>
+                            <span className="mt-1 block truncate text-[12.5px] text-ink-3">{d.rationale}</span>
+                          </button>
+                        </td>
+                        <td><PolicyBadge policy={d.policy} /></td>
+                        <td><Actor name={d.actor} kind={d.actor_kind} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
-        </Panel>
-        <div className="space-y-4 lg:col-span-7">
-          <Panel title="Decision trace" pad={false}>
-            <div className="p-2"><GraphCanvas data={graph} showAllLabels height={320} emptyHint="Select a decision to trace it." /></div>
-          </Panel>
-          {trace && (
-            <Panel title={trace.decision.id}>
-              <div className="text-[13.5px]"><span className="font-semibold">{trace.subject}</span> · <span className="num">{trace.decision.predicate}</span> → <span className="num font-bold text-accent">{trace.decision.chosen_value}</span></div>
-              <div className="mt-1 text-[12.5px] text-ink-2">{trace.decision.rationale}</div>
-              <div className="mt-1 text-[12px] text-ink-3">decided by <span className="font-semibold">{trace.actor}</span> ({trace.actor_kind}) · policy {trace.decision.policy}{trace.rule ? ` · applied ${trace.rule}` : ""}</div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {(trace.claims || []).filter((c: any) => c.claim).map((c: any) => (
-                  <div key={c.claim} className={clsx("panel-2 px-3 py-2", c.claim === trace.winner && "!border-accent")}>
-                    <div className="num text-[15px] font-bold">{c.value}</div>
-                    <div className="text-[12px] text-ink-3">{c.kind} · authority {c.authority} · {c.issuer}</div>
-                    <div className="text-[12px] text-ink-3">status: {c.status}</div>
-                    {c.doc && <button className="num mt-1 inline-flex items-center gap-1 text-[12px] text-accent" onClick={() => openDoc({ doc_id: c.doc, page: c.page })}><FileText size={12} />{c.doc}{c.page ? ` p.${c.page}` : ""}</button>}
+        </Card>
+
+        {/* ---------------------------------------------------------------- trace */}
+        <div className="flex min-w-0 flex-col gap-5 xl:col-span-7">
+          <Card title="Trace" pad={false} className="overflow-hidden"
+            action={trace && sel ? <span className="num truncate text-[12.5px] text-ink-3">{trace.decision.id}</span> : undefined}>
+            {!sel ? (
+              <Empty icon={<GitBranch size={20} strokeWidth={1.75} />} title="No decision selected"
+                text="Pick a row in the log to see the claims it compared and the documents behind them." />
+            ) : (
+              <>
+                <GraphCanvas data={graph} showAllLabels height={320} emptyHint="Tracing this decision" />
+                {trace && (
+                  <div className="space-y-4 border-t border-line px-5 pb-5 pt-4">
+                    <div className="flex flex-wrap items-end gap-x-6 gap-y-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[15px] font-semibold text-ink">{trace.subject}</div>
+                        <div className="num mt-1 text-[12.5px] text-ink-3">{trace.decision.predicate}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[12.5px] text-ink-3">Settled value</div>
+                        <div className="num mt-1 text-[20px] font-semibold leading-tight text-kb-ink">{trace.decision.chosen_value}</div>
+                      </div>
+                    </div>
+
+                    {claims.length > 0 && (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {claims.map((c: any) => {
+                          const won = c.claim === trace.winner;
+                          return (
+                            <div key={c.claim} className={clsx("well p-4", won && "ring-2 ring-kb")}>
+                              <div className="flex items-center gap-2">
+                                <span className={clsx("text-[12.5px] font-medium", won ? "text-kb-ink" : "text-ink-3")}>
+                                  {won ? "Selected" : "Set aside"}
+                                </span>
+                                {c.status && <span className="ml-auto"><Badge tone={STATUS_TONE[c.status] || "neutral"}>{sentence(c.status)}</Badge></span>}
+                              </div>
+                              <div className={clsx("num mt-2 truncate text-[22px] font-semibold leading-tight tracking-[-0.01em]",
+                                won ? "text-ink" : "text-ink-3")}>{c.value}</div>
+                              <div className={clsx("mt-2 text-[12.5px]", won ? "text-ink-2" : "text-ink-3")}>
+                                {[c.kind, c.authority !== null && c.authority !== undefined ? `authority ${c.authority}` : null, c.issuer]
+                                  .filter(Boolean).join(" · ")}
+                              </div>
+                              {c.doc && (
+                                <button type="button" onClick={() => openDoc({ doc_id: c.doc, page: c.page })}
+                                  className="num mt-3 inline-flex max-w-full items-center gap-2 rounded-md text-[12.5px] text-kb-ink outline-none hover:underline focus-visible:ring-2 focus-visible:ring-kb">
+                                  <FileText size={15} strokeWidth={1.75} className="shrink-0" />
+                                  <span className="truncate">{c.doc}{c.page ? ` · p.${c.page}` : ""}</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {trace.decision.rationale && (
+                      <p className="text-[13.5px] leading-relaxed text-ink-2">{trace.decision.rationale}</p>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-[12.5px] text-ink-3">
+                      {trace.actor_kind === "User" && trace.actor && <Avatar name={trace.actor} size={20} />}
+                      <span>Decided by <span className="font-medium text-ink-2">{trace.actor || "unknown"}</span>
+                        {trace.actor_kind && trace.actor_kind !== "User" ? ` (${trace.actor_kind.toLowerCase()})` : ""}</span>
+                      <span aria-hidden>·</span>
+                      <PolicyBadge policy={trace.decision.policy} />
+                      {trace.rule && (<><span aria-hidden>·</span><span>Applied <span className="num text-ink-2">{trace.rule}</span></span></>)}
+                      {(trace.supersedes || []).length > 0 && (
+                        <><span aria-hidden>·</span><span>Supersedes <span className="num text-ink-2">{trace.supersedes.join(", ")}</span></span></>
+                      )}
+                    </div>
                   </div>
-                ))}
+                )}
+              </>
+            )}
+          </Card>
+
+          {/* -------------------------------------------------------------- learned rules */}
+          <Card title="Learned rules" pad={false} className="overflow-hidden"
+            action={conf.rules.length ? <span className="num text-[12.5px] text-ink-3">{conf.rules.length}</span> : undefined}>
+            {conf.rules.length ? (
+              <div className="scroll-thin contain-scroll overflow-x-auto pb-1">
+                <table className={clsx("kt", EDGE_CELLS)}>
+                  <thead>
+                    <tr>
+                      <th>Rule</th>
+                      <th>Prefer</th>
+                      <th>Over</th>
+                      <th>Predicate</th>
+                      <th className="text-right">Applied</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {conf.rules.map((r: any) => (
+                      <tr key={r.id} title={r.rationale || undefined}>
+                        <td className="num text-[12.5px] text-ink-2">{r.id}</td>
+                        <td className="font-medium text-ink">{r.prefer}</td>
+                        <td className="text-ink-2">{r.over}</td>
+                        <td className="num text-[12.5px] text-ink-2">{r.predicate}</td>
+                        <td className="num text-right font-semibold text-ink">{r.applied}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </Panel>
-          )}
-          <Panel title="Learned rules">
-            {conf.rules.length ? conf.rules.map((r: any) => (
-              <div key={r.id} className="flex items-center gap-2 py-1 text-[12.5px]"><BookMarked size={13} className="text-violet" />
-                <span className="num">{r.id}</span> prefer <b>{r.prefer}</b> over {r.over} for <span className="num">{r.predicate}</span>
-                <span className="ml-auto text-ink-3">applied {r.applied}×</span></div>
-            )) : <div className="text-[12.5px] text-ink-3">Resolve a conflict with “Choose + learn rule” on the Live documents page.</div>}
-          </Panel>
+            ) : (
+              <Empty title="No learned rules yet"
+                text={<>Resolve a conflict with “Choose and learn rule” on <Link href="/live/" className="font-medium text-kb-ink hover:underline">Live documents</Link>.</>} />
+            )}
+          </Card>
         </div>
       </div>
     </div>
