@@ -5,7 +5,7 @@
 #
 # Safe to re-run after any interruption: eval.run skips questions it already answered, the GraphRAG-SDK
 # ingest is skipped once its graph exists, and every completion is cached. Stop it with
-#   pkill -f bench_when_ready.sh; pkill -f "ssh -N -L 8011"
+#   pkill -f bench_when_ready.sh; pkill -f "socat TCP-LISTEN:8011"
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 LOG=$ROOT/data/eval/bench_runner.log
@@ -37,22 +37,24 @@ for j in $JOBS; do
   [ "$j" != "$JOB" ] && remote "scancel $j" && log "cancelled the other pending job $j"
 done
 
-# ------------------------------------------------------------------ 2. keep a tunnel up for the rest of the run
-(
-  while :; do
-    ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
-        -L 8011:"$NODE":"$PORT" sharanga 2>/dev/null
-    sleep 5
-  done
-) &
-TUNNEL=$!
-trap 'kill $TUNNEL 2>/dev/null; pkill -f "ssh -N .* -L 8011:$NODE" 2>/dev/null' EXIT
-for i in $(seq 1 60); do
-  curl -sf http://localhost:8011/v1/models -o /dev/null && break
+# ------------------------------------------------------------------ 2. relay localhost:8011 to the GPU node
+# Sharanga's login node refuses TCP forwarding (ssh -L / -J: "administratively prohibited") but allows
+# commands, so each local connection is piped through `nc` on the login node over one multiplexed ssh.
+MUX=/tmp/bidbrain-sharanga-mux
+SHORT=${NODE%%.*}
+if ! curl -sf -m 15 http://localhost:8011/v1/models -o /dev/null; then
+  ssh -o BatchMode=yes -o ControlMaster=auto -o ControlPath=$MUX -o ControlPersist=yes -q sharanga true
+  setsid socat TCP-LISTEN:8011,bind=127.0.0.1,fork,reuseaddr \
+    EXEC:"ssh -o BatchMode=yes -o ControlMaster=auto -o ControlPath=$MUX -o ControlPersist=yes -q sharanga nc $SHORT $PORT" \
+    > /dev/null 2>&1 < /dev/null &
+  sleep 2
+fi
+for i in $(seq 1 30); do
+  curl -sf -m 15 http://localhost:8011/v1/models -o /dev/null && break
   sleep 5
 done
-curl -sf http://localhost:8011/v1/models -o /dev/null || { log "tunnel never came up"; exit 1; }
-log "tunnel up: localhost:8011 -> $NODE:$PORT"
+curl -sf -m 15 http://localhost:8011/v1/models -o /dev/null || { log "relay to $SHORT:$PORT never came up"; exit 1; }
+log "relay up: localhost:8011 -> $SHORT:$PORT"
 
 export LLM_PROVIDERS=vllm VLLM_BASE_URL=http://localhost:8011/v1 LLM_MAX_WAIT=300
 

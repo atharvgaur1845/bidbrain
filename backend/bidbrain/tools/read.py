@@ -205,8 +205,9 @@ ORDER BY w.value DESC"""
        "min_value": {"type": "integer"}, "max_value": {"type": "integer"},
        "completed_after": {"type": "string"}, "completed_before": {"type": "string"},
        "years": {"type": "array", "items": {"type": "integer"}},
-       "role": {"type": "string"}, "has_reference": {"type": "boolean"},
-       "govt_levels": {"type": "array", "items": {"type": "string"}}})
+       "role": {"type": "string", "enum": ["Prime", "JV Partner"]}, "has_reference": {"type": "boolean"},
+       "govt_levels": {"type": "array", "items": {"type": "string",
+                                                   "enum": ["central", "state", "psu", "municipal", "private"]}}})
 def find_portfolio(g: Graph, client: str | None = None, person: str | None = None,
                    via_work: str | None = None, categories: list | None = None,
                    exclude_categories: list | None = None, min_value: int | None = None,

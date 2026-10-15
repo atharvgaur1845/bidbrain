@@ -67,6 +67,13 @@ def _coerce(spec: dict, v):
             return [v]
     except (ValueError, KeyError):
         raise ValueError(f"cannot read {v!r} as {t}")
+    # enumerated values are checked too: an out-of-range filter (a client name passed as a govt level)
+    # matches nothing and would come back as a confident 0
+    allowed = spec.get("enum") or (spec.get("items") or {}).get("enum")
+    if allowed:
+        bad = [x for x in (v if isinstance(v, list) else [v]) if x not in allowed]
+        if bad:
+            raise ValueError(f"{bad} not allowed; use one of {allowed}")
     return v
 
 
