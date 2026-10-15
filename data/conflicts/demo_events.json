@@ -1,0 +1,182 @@
+[
+ {
+  "event_id": "DEMO-0",
+  "type": "demo",
+  "render_as": "revised_completion",
+  "expect": {
+   "conflict": true,
+   "route": "auto",
+   "winner": "new"
+  },
+  "doc": {
+   "doc_id": "DOC-DEMO-0",
+   "doc_type": "revised_completion_certificate",
+   "issuer": "Trishakti Power Generation Corporation",
+   "issued": "2026-05-12",
+   "title": "Revised Completion Certificate — Six-Lane Highway — West Bengal Pkg-116"
+  },
+  "claims": [
+   {
+    "subject_label": "Work",
+    "subject_key": "sixlanehighwaywestbengalpkg116",
+    "predicate": "completed",
+    "value": "2019-04-18",
+    "source_kind": "revised_certificate",
+    "issuer": "Trishakti Power Generation Corporation",
+    "observed": "2026-05-12",
+    "page": 1
+   }
+  ],
+  "narrative": "Trishakti Power Generation Corporation re-issues the certificate for Six-Lane Highway — West Bengal Pkg-116: completed 2019-04-18 (was 2020-02-11). That moves it outside the 7-year window — the NEDA bid now rests on a single ₹200 Cr work."
+ },
+ {
+  "event_id": "DEMO-1",
+  "type": "demo",
+  "render_as": "corrigendum_value",
+  "expect": {
+   "conflict": true,
+   "route": "auto",
+   "winner": "new"
+  },
+  "doc": {
+   "doc_id": "DOC-DEMO-1",
+   "doc_type": "corrigendum",
+   "issuer": "National Special Projects Office",
+   "issued": "2026-05-20",
+   "title": "Corrigendum — Ring Road — Uttar Pradesh Pkg-113"
+  },
+  "claims": [
+   {
+    "subject_label": "Work",
+    "subject_key": "ringroaduttarpradeshpkg113",
+    "predicate": "value",
+    "value": 1880000000,
+    "source_kind": "client_corrigendum",
+    "issuer": "National Special Projects Office",
+    "observed": "2026-05-20",
+    "page": 1
+   }
+  ],
+  "narrative": "National Special Projects Office revises Ring Road — Uttar Pradesh Pkg-113 from ₹200 Cr to ₹188 Cr. It is the one work left carrying the NEDA expressway tender's similar-works clause (send the revised certificate first)."
+ },
+ {
+  "event_id": "DEMO-2",
+  "type": "demo",
+  "render_as": null,
+  "expect": {
+   "conflict": true,
+   "route": "auto",
+   "winner": "new"
+  },
+  "doc": {
+   "doc_id": "DOC-DEMO-2",
+   "doc_type": "revised_financial_statement",
+   "issuer": "auditor",
+   "issued": "2026-04-28",
+   "title": "Revised audited statement — FY2024-25"
+  },
+  "claims": [
+   {
+    "subject_label": "FinancialStatement",
+    "subject_key": "FS-2024-25",
+    "predicate": "revenue_operations",
+    "value": 2415000000,
+    "source_kind": "financial_statement",
+    "issuer": "auditor",
+    "observed": "2026-04-28",
+    "page": 1
+   }
+  ],
+  "narrative": "The auditor re-issues FY2024-25 accounts: revenue from operations ₹241.5 Cr (was ₹238.92 Cr) — the year the buildings tender failed on by ₹1.08 Cr."
+ },
+ {
+  "event_id": "DEMO-3",
+  "type": "demo",
+  "render_as": "jv_role_dispute",
+  "expect": {
+   "conflict": true,
+   "route": "auto",
+   "winner": "new"
+  },
+  "doc": {
+   "doc_id": "DOC-DEMO-3",
+   "doc_type": "partner_certificate",
+   "issuer": "Vardhaman Infraprojects Ltd.",
+   "issued": "2026-05-02",
+   "title": "JV Experience Certificate — Residential Quarters — Uttar Pradesh Pkg-25"
+  },
+  "claims": [
+   {
+    "subject_label": "Work",
+    "subject_key": "residentialquartersuttarpradeshpkg25",
+    "predicate": "role",
+    "value": "JV Partner",
+    "source_kind": "partner_certificate",
+    "issuer": "Vardhaman Infraprojects Ltd.",
+    "observed": "2026-05-02",
+    "page": 1
+   }
+  ],
+  "narrative": "Vardhaman Infraprojects, as JV lead, certifies our role in Residential Quarters — Uttar Pradesh Pkg-25 as 'JV Partner' — our portfolio says 'Prime'. Close authority, different issuers: you decide (try 'Choose + learn rule')."
+ },
+ {
+  "event_id": "DEMO-4",
+  "type": "demo",
+  "render_as": "jv_role_dispute",
+  "expect": {
+   "conflict": true,
+   "route": "auto",
+   "winner": "new"
+  },
+  "doc": {
+   "doc_id": "DOC-DEMO-4",
+   "doc_type": "partner_certificate",
+   "issuer": "Konark Buildcon Pvt. Ltd.",
+   "issued": "2026-05-09",
+   "title": "JV Experience Certificate — Institutional Building — Delhi Pkg-81"
+  },
+  "claims": [
+   {
+    "subject_label": "Work",
+    "subject_key": "institutionalbuildingdelhipkg81",
+    "predicate": "role",
+    "value": "JV Partner",
+    "source_kind": "partner_certificate",
+    "issuer": "Konark Buildcon Pvt. Ltd.",
+    "observed": "2026-05-09",
+    "page": 1
+   }
+  ],
+  "narrative": "A second JV lead certifies Institutional Building — Delhi Pkg-81 as 'JV Partner'. If you taught a rule on the first one, this resolves itself and cites your decision."
+ },
+ {
+  "event_id": "DEMO-5",
+  "type": "demo",
+  "render_as": "bond_invoked",
+  "expect": {
+   "conflict": true,
+   "route": "auto",
+   "winner": "new"
+  },
+  "doc": {
+   "doc_id": "DOC-DEMO-5",
+   "doc_type": "bank_notice",
+   "issuer": "Prithvi Commercial Bank",
+   "issued": "2026-05-15",
+   "title": "Notice of Invocation — BND-00150"
+  },
+  "claims": [
+   {
+    "subject_label": "Bond",
+    "subject_key": "BND-00150",
+    "predicate": "status",
+    "value": "Invoked",
+    "source_kind": "bank_notice",
+    "issuer": "Prithvi Commercial Bank",
+    "observed": "2026-05-15",
+    "page": 1
+   }
+  ],
+  "narrative": "Prithvi Commercial Bank invokes performance bond BND-00150 — the bid security of a past bid. See what it secured."
+ }
+]

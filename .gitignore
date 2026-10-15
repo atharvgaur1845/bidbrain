@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+.next/
+backend/vendor_bidintel/dataset
+backend/eval/results/raw/
+*.log
+.DS_Store
+/data/conflicts/pdf/_tmp/
+frontend/out/
+data/llm_cache.sqlite
+data/uploads/
+data/conflicts/pdf/
+.claude/settings.local.json

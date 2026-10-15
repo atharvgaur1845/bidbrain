@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bidbrain",
+      "runtimeExecutable": "/home/atharv/Desktop/projects/GraphHacks-Team_AG_X_GOD/backend/.venv/bin/uvicorn",
+      "runtimeArgs": ["bidbrain.api.main:app", "--app-dir", "/home/atharv/Desktop/projects/GraphHacks-Team_AG_X_GOD/backend", "--port", "7860"],
+      "port": 7860
+    }
+  ]
+}

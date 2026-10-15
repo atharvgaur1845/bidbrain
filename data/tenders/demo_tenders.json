@@ -1,0 +1,249 @@
+[
+ {
+  "id": "T-NHX-2026-014",
+  "title": "4-laning of Greenfield Expressway Package-III (EPC)",
+  "authority": "National Expressway Development Authority",
+  "category": "expressways",
+  "estimated_cost": 2500000000,
+  "bid_date": "2026-06-30",
+  "story": "Clean PASS — but the auditor proves which cited works lack a client reference letter.",
+  "text": "Section 2 — Eligibility Criteria\n2.1 Similar works: The bidder should have satisfactorily completed similar works (roads, highways or expressways) during the last 7 years ending on the last date of bid submission, for Central Government / State Government / PSU clients, as under: (a) one similar completed work costing not less than 80% of the estimated cost of INR 250 Cr; or (b) two similar completed works each costing not less than 60% of the estimated cost; or (c) three similar completed works each costing not less than 40% of the estimated cost. Client reference letters shall be enclosed for each work claimed.\n2.2 Financial turnover: Average annual financial turnover during the last 3 financial years ending 31 March 2026 shall be at least INR 75 Cr.\n2.3 Key personnel: Project Manager — PMP certified with minimum 15 years of experience, having led at least one expressway or highway project.\n2.4 Certification: Valid ISO 9001:2015 and ISO 45001:2018 certificates.\n2.5 The bidder shall have been in business for at least 10 years.\n2.6 The bidder shall not have been blacklisted by any Central/State agency (declaration).",
+  "clauses": [
+   {
+    "id": "2.1",
+    "kind": "similar_works",
+    "text": "Similar works (roads/highways/expressways), last 7 years, CPWD 80/60/40% of INR 250 Cr, govt/PSU clients, reference letters enclosed",
+    "params": {
+     "categories": [
+      "roads highways",
+      "expressways"
+     ],
+     "estimated_cost": 2500000000,
+     "lookback_years": 7,
+     "govt_levels": [
+      "central",
+      "state",
+      "psu"
+     ],
+     "require_reference": false
+    }
+   },
+   {
+    "id": "2.2",
+    "kind": "turnover",
+    "text": "Average annual turnover, last 3 FY >= INR 75 Cr",
+    "params": {
+     "min_average": 750000000,
+     "years": 3
+    }
+   },
+   {
+    "id": "2.3",
+    "kind": "key_personnel",
+    "text": "PM: PMP, >= 15 yrs, led expressway/highway",
+    "params": {
+     "credential": "PMP",
+     "min_experience_years": 15,
+     "count": 1,
+     "categories": [
+      "expressways",
+      "roads highways"
+     ]
+    }
+   },
+   {
+    "id": "2.4a",
+    "kind": "certification",
+    "text": "ISO 9001:2015",
+    "params": {
+     "standard": "ISO 9001"
+    }
+   },
+   {
+    "id": "2.4b",
+    "kind": "certification",
+    "text": "ISO 45001:2018",
+    "params": {
+     "standard": "ISO 45001"
+    }
+   },
+   {
+    "id": "2.5",
+    "kind": "years_in_business",
+    "text": ">= 10 years in business",
+    "params": {
+     "min_years": 10
+    }
+   },
+   {
+    "id": "2.6",
+    "kind": "other",
+    "text": "Non-blacklisting declaration",
+    "params": {}
+   }
+  ]
+ },
+ {
+  "id": "T-PHED-WTP-2027-03",
+  "title": "Design-build of 60 MLD Water Treatment Plant with O&M",
+  "authority": "Public Health Engineering Dept, Odisha",
+  "category": "water treatment",
+  "estimated_cost": 600000000,
+  "bid_date": "2027-08-15",
+  "story": "AT_RISK — the two strongest PMs' PMP lapses 16 days after the bid date; the agent names safe alternates.",
+  "text": "Qualifying Requirements\n(i) Experience: three similar works (water treatment, water supply or sewerage & drainage) each of value not less than 40% of the estimated cost of INR 60 Cr completed in the last 7 years; or two works of 60%; or one work of 80%.\n(ii) Two Project Managers holding a valid PMP certification on the bid due date, with at least 12 years' experience each, having executed water treatment or water supply projects.\n(iii) Average annual turnover of the last three financial years not less than INR 150 Cr.\n(iv) ISO 14001:2015 environmental management certification.",
+  "clauses": [
+   {
+    "id": "i",
+    "kind": "similar_works",
+    "text": "Water treatment / supply / sewerage, CPWD 80/60/40% of INR 60 Cr, last 7 years",
+    "params": {
+     "categories": [
+      "water treatment",
+      "water supply",
+      "sewerage drainage"
+     ],
+     "estimated_cost": 600000000,
+     "lookback_years": 7
+    }
+   },
+   {
+    "id": "ii",
+    "kind": "key_personnel",
+    "text": "2 PMs with PMP valid on bid date, >= 12 yrs, water projects",
+    "params": {
+     "credential": "PMP",
+     "min_experience_years": 12,
+     "count": 2,
+     "categories": [
+      "water treatment",
+      "water supply"
+     ]
+    }
+   },
+   {
+    "id": "iii",
+    "kind": "turnover",
+    "text": "Average turnover last 3 FY >= INR 150 Cr",
+    "params": {
+     "min_average": 1500000000,
+     "years": 3
+    }
+   },
+   {
+    "id": "iv",
+    "kind": "certification",
+    "text": "ISO 14001:2015",
+    "params": {
+     "standard": "ISO 14001"
+    }
+   }
+  ]
+ },
+ {
+  "id": "T-JN-LB-2026-09",
+  "title": "Construction of Major Bridge across River (Large Bridges)",
+  "authority": "Jal Nigam, Gujarat",
+  "category": "large bridges",
+  "estimated_cost": 4500000000,
+  "bid_date": "2026-09-15",
+  "story": "FAIL on similar works — the agent shows near misses and who could lead a JV.",
+  "text": "Eligibility\n1. Similar work experience: completed bridge works (large bridges or bridges & flyovers) in the last 7 years: one work >= 80% of the estimated cost of INR 450 Cr, or two works >= 60%, or three works >= 40%.\n2. Average annual turnover over the last 3 financial years of at least INR 200 Cr.\n3. A Project Manager with PMP certification and 20 years' experience who has led bridge works.\n4. CPWD Class I registration.",
+  "clauses": [
+   {
+    "id": "1",
+    "kind": "similar_works",
+    "text": "Bridges, CPWD 80/60/40% of INR 450 Cr, last 7 years",
+    "params": {
+     "categories": [
+      "large bridges",
+      "bridges flyovers"
+     ],
+     "estimated_cost": 4500000000,
+     "lookback_years": 7
+    }
+   },
+   {
+    "id": "2",
+    "kind": "turnover",
+    "text": "Average turnover last 3 FY >= INR 200 Cr",
+    "params": {
+     "min_average": 2000000000,
+     "years": 3
+    }
+   },
+   {
+    "id": "3",
+    "kind": "key_personnel",
+    "text": "PM: PMP, 20 yrs, led bridge works",
+    "params": {
+     "credential": "PMP",
+     "min_experience_years": 20,
+     "count": 1,
+     "categories": [
+      "large bridges",
+      "bridges flyovers"
+     ]
+    }
+   },
+   {
+    "id": "4",
+    "kind": "certification",
+    "text": "CPWD Class I registration",
+    "params": {
+     "standard": "CPWD"
+    }
+   }
+  ]
+ },
+ {
+  "id": "T-CWBB-2026-21",
+  "title": "Institutional Buildings Complex (Phase II)",
+  "authority": "Central Works & Buildings Bureau",
+  "category": "buildings",
+  "estimated_cost": 900000000,
+  "bid_date": "2026-05-15",
+  "story": "FAIL by INR 1.08 Cr on turnover — in a year whose figure was restated; the conflict trail explains why.",
+  "text": "Pre-qualification\nA. Annual Turnover >= INR 240 Cr in each of the last 3 financial years (audited).\nB. Similar works (buildings or small buildings): one completed work of at least INR 72 Cr, or two of INR 54 Cr, or three of INR 36 Cr, in the last 7 years.\nC. Minimum 15 years in business.\nD. ISO 9001:2015.",
+  "clauses": [
+   {
+    "id": "A",
+    "kind": "turnover",
+    "text": "Turnover >= INR 240 Cr each of last 3 FY",
+    "params": {
+     "min_each_year": 2400000000,
+     "years": 3
+    }
+   },
+   {
+    "id": "B",
+    "kind": "similar_works",
+    "text": "Buildings, CPWD 80/60/40% of INR 90 Cr, last 7 years",
+    "params": {
+     "categories": [
+      "buildings",
+      "small buildings"
+     ],
+     "estimated_cost": 900000000,
+     "lookback_years": 7
+    }
+   },
+   {
+    "id": "C",
+    "kind": "years_in_business",
+    "text": ">= 15 years in business",
+    "params": {
+     "min_years": 15
+    }
+   },
+   {
+    "id": "D",
+    "kind": "certification",
+    "text": "ISO 9001:2015",
+    "params": {
+     "standard": "ISO 9001"
+    }
+   }
+  ]
+ }
+]

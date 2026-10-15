@@ -1,0 +1,3639 @@
+{
+ "summary": {
+  "n_events": 275,
+  "detection": {
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "tp": 200,
+   "fp": 0,
+   "fn": 0
+  },
+  "routing_accuracy": 1.0,
+  "winner_accuracy": 1.0,
+  "per_type": {
+   "bond_extended": {
+    "n": 25,
+    "correct": 25
+   },
+   "bond_invoked": {
+    "n": 25,
+    "correct": 25
+   },
+   "consistent_restatement": {
+    "n": 25,
+    "correct": 25
+   },
+   "corrigendum_value": {
+    "n": 25,
+    "correct": 25
+   },
+   "hr_experience": {
+    "n": 25,
+    "correct": 25
+   },
+   "jv_role_dispute": {
+    "n": 25,
+    "correct": 25
+   },
+   "letter_grading": {
+    "n": 25,
+    "correct": 25
+   },
+   "llm_grading": {
+    "n": 25,
+    "correct": 25
+   },
+   "revised_completion": {
+    "n": 25,
+    "correct": 25
+   },
+   "rounding_restatement": {
+    "n": 25,
+    "correct": 25
+   },
+   "unrelated_field": {
+    "n": 25,
+    "correct": 25
+   }
+  },
+  "seconds": 110.6
+ },
+ "rows": [
+  {
+   "event_id": "EV-0001",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0002",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0003",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0004",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0005",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0006",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0007",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0008",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0009",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0010",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0011",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0012",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0013",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0014",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0015",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0016",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0017",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0018",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0019",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0020",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0021",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0022",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0023",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0024",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0025",
+   "type": "corrigendum_value",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0026",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0027",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0028",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0029",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0030",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0031",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0032",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0033",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0034",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0035",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0036",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0037",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0038",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0039",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0040",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0041",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0042",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0043",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0044",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0045",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0046",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0047",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0048",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0049",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0050",
+   "type": "revised_completion",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0051",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0052",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0053",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0054",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0055",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0056",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0057",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0058",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0059",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0060",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0061",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0062",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0063",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0064",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0065",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0066",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0067",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0068",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0069",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0070",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0071",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0072",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0073",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0074",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0075",
+   "type": "bond_invoked",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0076",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0077",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0078",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0079",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0080",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0081",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0082",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0083",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0084",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0085",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0086",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0087",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0088",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0089",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0090",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0091",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0092",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0093",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0094",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0095",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0096",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0097",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0098",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0099",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0100",
+   "type": "bond_extended",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "recency_same_issuer"
+  },
+  {
+   "event_id": "EV-0101",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0102",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0103",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0104",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0105",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0106",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0107",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0108",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0109",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0110",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0111",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0112",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0113",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0114",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0115",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0116",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0117",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0118",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0119",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0120",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0121",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0122",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0123",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0124",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0125",
+   "type": "hr_experience",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0126",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0127",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0128",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0129",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0130",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0131",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0132",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0133",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0134",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0135",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0136",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0137",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0138",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0139",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0140",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0141",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0142",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0143",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0144",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0145",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0146",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0147",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0148",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0149",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0150",
+   "type": "llm_grading",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "old"
+   },
+   "detected": true,
+   "route": "auto",
+   "winner": "old",
+   "policy": "authority"
+  },
+  {
+   "event_id": "EV-0151",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0152",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0153",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0154",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0155",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0156",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0157",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0158",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0159",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0160",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0161",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0162",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0163",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0164",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0165",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0166",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0167",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0168",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0169",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0170",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0171",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0172",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0173",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0174",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0175",
+   "type": "letter_grading",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0176",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0177",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0178",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0179",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0180",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0181",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0182",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0183",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0184",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0185",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0186",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0187",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0188",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0189",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0190",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0191",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0192",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0193",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0194",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0195",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0196",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0197",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0198",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0199",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0200",
+   "type": "jv_role_dispute",
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0201",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0202",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0203",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0204",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0205",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0206",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0207",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0208",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0209",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0210",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0211",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0212",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0213",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0214",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0215",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0216",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0217",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0218",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0219",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0220",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0221",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0222",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0223",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0224",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0225",
+   "type": "rounding_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0226",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0227",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0228",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0229",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0230",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0231",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0232",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0233",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0234",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0235",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0236",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0237",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0238",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0239",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0240",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0241",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0242",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0243",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0244",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0245",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0246",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0247",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0248",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0249",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0250",
+   "type": "consistent_restatement",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0251",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0252",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0253",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0254",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0255",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0256",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0257",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0258",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0259",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0260",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0261",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0262",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0263",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0264",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0265",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0266",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0267",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0268",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0269",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0270",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0271",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0272",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0273",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0274",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  },
+  {
+   "event_id": "EV-0275",
+   "type": "unrelated_field",
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "policy": null
+  }
+ ]
+}

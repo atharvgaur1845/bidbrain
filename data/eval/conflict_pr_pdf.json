@@ -1,0 +1,891 @@
+{
+ "summary": {
+  "n_pdfs": 50,
+  "extraction": {
+   "subject_resolution": 1.0,
+   "value_extraction": 1.0
+  },
+  "detection": {
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "tp": 35,
+   "fp": 0,
+   "fn": 0
+  },
+  "routing_accuracy": 1.0,
+  "resolved_via": {
+   "bond reference": 10,
+   "exact title": 16,
+   "title (fuzzy)": 4,
+   "certificate reference CC/8/2020/151": 1,
+   "certificate reference CC/25/2015/110": 1,
+   "certificate reference CC/15/2016/067": 1,
+   "certificate reference CC/46/2019/028": 1,
+   "certificate reference CC/57/2020/006": 1,
+   "employee name": 5,
+   "certificate reference CC/44/2017/064": 1,
+   "certificate reference CC/12/2021/013": 1,
+   "certificate reference CC/47/2022/042": 1,
+   "certificate reference CC/37/2014/040": 1,
+   "certificate reference CC/56/2024/134": 1,
+   "certificate reference CC/3/2012/107": 1,
+   "certificate reference CC/48/2023/088": 1,
+   "certificate reference CC/9/2015/132": 1,
+   "certificate reference CC/29/2014/146": 1,
+   "certificate reference CC/42/2017/055": 1
+  }
+ },
+ "rows": [
+  {
+   "event_id": "EV-0090",
+   "type": "bond_extended",
+   "file": "DOC-EV-0090.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "bond reference",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0093",
+   "type": "bond_extended",
+   "file": "DOC-EV-0093.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "bond reference",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0100",
+   "type": "bond_extended",
+   "file": "DOC-EV-0100.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "bond reference",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0092",
+   "type": "bond_extended",
+   "file": "DOC-EV-0092.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "bond reference",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0094",
+   "type": "bond_extended",
+   "file": "DOC-EV-0094.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "bond reference",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0057",
+   "type": "bond_invoked",
+   "file": "DOC-EV-0057.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "bond reference",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0056",
+   "type": "bond_invoked",
+   "file": "DOC-EV-0056.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "bond reference",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0067",
+   "type": "bond_invoked",
+   "file": "DOC-EV-0067.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "bond reference",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0066",
+   "type": "bond_invoked",
+   "file": "DOC-EV-0066.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "bond reference",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0071",
+   "type": "bond_invoked",
+   "file": "DOC-EV-0071.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "bond reference",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0245",
+   "type": "consistent_restatement",
+   "file": "DOC-EV-0245.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0231",
+   "type": "consistent_restatement",
+   "file": "DOC-EV-0231.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0229",
+   "type": "consistent_restatement",
+   "file": "DOC-EV-0229.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0240",
+   "type": "consistent_restatement",
+   "file": "DOC-EV-0240.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "title (fuzzy)",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0235",
+   "type": "consistent_restatement",
+   "file": "DOC-EV-0235.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0005",
+   "type": "corrigendum_value",
+   "file": "DOC-EV-0005.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/8/2020/151",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0003",
+   "type": "corrigendum_value",
+   "file": "DOC-EV-0003.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/25/2015/110",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0018",
+   "type": "corrigendum_value",
+   "file": "DOC-EV-0018.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/15/2016/067",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0023",
+   "type": "corrigendum_value",
+   "file": "DOC-EV-0023.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/46/2019/028",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0021",
+   "type": "corrigendum_value",
+   "file": "DOC-EV-0021.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/57/2020/006",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0102",
+   "type": "hr_experience",
+   "file": "DOC-EV-0102.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "employee name",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0120",
+   "type": "hr_experience",
+   "file": "DOC-EV-0120.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "employee name",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0113",
+   "type": "hr_experience",
+   "file": "DOC-EV-0113.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "employee name",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0115",
+   "type": "hr_experience",
+   "file": "DOC-EV-0115.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "employee name",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0121",
+   "type": "hr_experience",
+   "file": "DOC-EV-0121.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "employee name",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0199",
+   "type": "jv_role_dispute",
+   "file": "DOC-EV-0199.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0195",
+   "type": "jv_role_dispute",
+   "file": "DOC-EV-0195.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0196",
+   "type": "jv_role_dispute",
+   "file": "DOC-EV-0196.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "title (fuzzy)",
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0181",
+   "type": "jv_role_dispute",
+   "file": "DOC-EV-0181.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0176",
+   "type": "jv_role_dispute",
+   "file": "DOC-EV-0176.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0167",
+   "type": "letter_grading",
+   "file": "DOC-EV-0167.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0153",
+   "type": "letter_grading",
+   "file": "DOC-EV-0153.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0152",
+   "type": "letter_grading",
+   "file": "DOC-EV-0152.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0157",
+   "type": "letter_grading",
+   "file": "DOC-EV-0157.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0158",
+   "type": "letter_grading",
+   "file": "DOC-EV-0158.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": true,
+   "route": "human",
+   "winner": null,
+   "expect": {
+    "conflict": true,
+    "route": "human",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0045",
+   "type": "revised_completion",
+   "file": "DOC-EV-0045.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/44/2017/064",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0026",
+   "type": "revised_completion",
+   "file": "DOC-EV-0026.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/12/2021/013",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0050",
+   "type": "revised_completion",
+   "file": "DOC-EV-0050.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/47/2022/042",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0040",
+   "type": "revised_completion",
+   "file": "DOC-EV-0040.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/37/2014/040",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0036",
+   "type": "revised_completion",
+   "file": "DOC-EV-0036.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/56/2024/134",
+   "detected": true,
+   "route": "auto",
+   "winner": "new",
+   "expect": {
+    "conflict": true,
+    "route": "auto",
+    "winner": "new"
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0215",
+   "type": "rounding_restatement",
+   "file": "DOC-EV-0215.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0219",
+   "type": "rounding_restatement",
+   "file": "DOC-EV-0219.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "title (fuzzy)",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0207",
+   "type": "rounding_restatement",
+   "file": "DOC-EV-0207.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0217",
+   "type": "rounding_restatement",
+   "file": "DOC-EV-0217.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "exact title",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0208",
+   "type": "rounding_restatement",
+   "file": "DOC-EV-0208.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "title (fuzzy)",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0271",
+   "type": "unrelated_field",
+   "file": "DOC-EV-0271.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/3/2012/107",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0260",
+   "type": "unrelated_field",
+   "file": "DOC-EV-0260.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/48/2023/088",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0266",
+   "type": "unrelated_field",
+   "file": "DOC-EV-0266.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/9/2015/132",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0251",
+   "type": "unrelated_field",
+   "file": "DOC-EV-0251.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/29/2014/146",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  },
+  {
+   "event_id": "EV-0272",
+   "type": "unrelated_field",
+   "file": "DOC-EV-0272.pdf",
+   "subject_ok": true,
+   "value_ok": true,
+   "resolved_via": "certificate reference CC/42/2017/055",
+   "detected": false,
+   "route": "none",
+   "winner": null,
+   "expect": {
+    "conflict": false,
+    "route": "none",
+    "winner": null
+   },
+   "error": null
+  }
+ ]
+}
