@@ -1,10 +1,13 @@
 "use client";
 
-import { ArrowRight, FileStack, GitBranch, MessageSquareText, ScrollText, ShieldQuestion } from "lucide-react";
+import { ArrowRight, Copy, FileStack, GitBranch, MessageSquareText, Plug, ScrollText, ShieldQuestion } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import GraphCanvas, { GData } from "@/components/GraphCanvas";
 import { Panel, Stat } from "@/components/ui";
-import { api } from "@/lib/api";
+import { API_BASE, api } from "@/lib/api";
+
+const HIDE = new Set(["Chunk", "Meta", "TBLine", "LedgerAccount", "Measurement", "BOQItem", "Asset", "AnnualReport", "State", "Bank", "BusinessUnit", "FiscalYear"]);
 
 const HEROES = [
   { href: "/qualify/", icon: ScrollText, title: "Tender in, bid memo out",
@@ -19,7 +22,20 @@ const HEROES = [
 
 export default function Home() {
   const [ov, setOv] = useState<any>(null);
-  useEffect(() => { api("/api/overview").then(setOv).catch(() => {}); }, []);
+  const [schema, setSchema] = useState<any[]>([]);
+  const [origin, setOrigin] = useState("");
+  useEffect(() => {
+    api("/api/overview").then(setOv).catch(() => {});
+    api("/api/schema").then((r) => setSchema(r.triples || [])).catch(() => {});
+    setOrigin(API_BASE || window.location.origin);
+  }, []);
+  const schemaGraph: GData = useMemo(() => {
+    const t = schema.filter((x) => !HIDE.has(x.src) && !HIDE.has(x.dst) && x.src !== x.dst);
+    const labels = [...new Set(t.flatMap((x) => [x.src, x.dst]))];
+    return { nodes: labels.map((l) => ({ id: `L:${l}`, label: l, name: l })),
+             edges: t.map((x) => ({ source: `L:${x.src}`, target: `L:${x.dst}`, type: x.rel })) };
+  }, [schema]);
+  const mcpConfig = JSON.stringify({ mcpServers: { bidbrain: { type: "http", url: `${origin}/mcp/` } } }, null, 2);
   const n = (l: string) => ov?.labels?.find((x: any) => x.label === l)?.n ?? "–";
   const totalNodes = ov?.labels?.reduce((a: number, l: any) => a + l.n, 0);
   const totalEdges = ov?.relationships?.reduce((a: number, l: any) => a + l.n, 0);
@@ -64,6 +80,18 @@ export default function Home() {
             <p className="mt-2.5 text-[13.5px] leading-relaxed text-ink-2">{text}</p>
           </Link>
         ))}
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-5">
+        <Panel title="The graph at a glance — labels and the relationships that join them" className="lg:col-span-3" pad={false}>
+          <div className="p-2"><GraphCanvas data={schemaGraph} height={380} showAllLabels /></div>
+        </Panel>
+        <Panel title={<span className="flex items-center gap-1.5"><Plug size={13} /> Use it from any MCP client</span>} className="lg:col-span-2">
+          <p className="text-[13px] leading-relaxed text-ink-2">The same graph tools the agents use are served over MCP (streamable HTTP), read-only against the company graph. Add this to Claude Desktop or any MCP host:</p>
+          <pre className="num mt-3 overflow-x-auto rounded-lg border hairline bg-bg-2 p-3 text-[11.5px] text-ink-2">{mcpConfig}</pre>
+          <button className="btn mt-2 !py-1.5 !text-[12px]" onClick={() => navigator.clipboard?.writeText(mcpConfig)}><Copy size={12} /> Copy</button>
+          <div className="mt-3 text-[12px] text-ink-3">Tools include <span className="num">find_portfolio</span>, <span className="num">prove_absence</span>, <span className="num">qualify_clause</span>, <span className="num">explain_path</span>, <span className="num">key_people</span> and <span className="num">cypher_readonly</span>.</div>
+        </Panel>
       </section>
 
       <Panel title="How the graph does the work">

@@ -23,9 +23,10 @@ type Props = {
   height?: number;
   onNodeClick?: (n: GNode) => void;
   emptyHint?: string;
+  showAllLabels?: boolean;
 };
 
-export default function GraphCanvas({ data, highlight, height = 460, onNodeClick, emptyHint }: Props) {
+export default function GraphCanvas({ data, highlight, height = 460, onNodeClick, emptyHint, showAllLabels }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const fg = useRef<any>(null);
   const [width, setWidth] = useState(600);
@@ -56,8 +57,16 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
     return { nodes, links };
   }, [data]);
 
+  // fit once the layout has settled for the current node set (fitting earlier zooms into a clump)
+  const fitted = useRef<number>(-1);
+  const fitNow = () => {
+    if (fitted.current !== graph.nodes.length) {
+      fitted.current = graph.nodes.length;
+      fg.current?.zoomToFit(450, 40);
+    }
+  };
   useEffect(() => {
-    const t = setTimeout(() => fg.current?.zoomToFit(500, 50), 650);
+    const t = setTimeout(() => fg.current?.zoomToFit(400, 40), 900);
     return () => clearTimeout(t);
   }, [graph.nodes.length]);
 
@@ -91,6 +100,7 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
         graphData={graph}
         backgroundColor="rgba(0,0,0,0)"
         cooldownTicks={120}
+        onEngineStop={fitNow}
         nodeRelSize={1}
         linkColor={(l: any) => (linkOnPath(l) ? "rgba(245,184,61,0.95)" : "rgba(140,155,175,0.28)")}
         linkWidth={(l: any) => (linkOnPath(l) ? 2.2 : 0.8)}
@@ -123,7 +133,7 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
             ctx.fillStyle = color; ctx.fill();
             ctx.lineWidth = 1; ctx.strokeStyle = "rgba(10,13,18,0.9)"; ctx.stroke();
           }
-          const showLabel = isHl(node.id) || hover === node.id || scale > 2.2 || ["Client", "Case"].includes(node.label);
+          const showLabel = showAllLabels || isHl(node.id) || hover === node.id || scale > 2.2 || ["Client", "Case"].includes(node.label);
           if (showLabel && node.name) {
             const fs = Math.max(3.2, 11 / scale);
             ctx.font = `${isHl(node.id) ? 600 : 500} ${fs}px Inter, sans-serif`;

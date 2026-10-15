@@ -80,7 +80,7 @@ export default function DecisionsPage() {
         </Panel>
         <div className="space-y-4 lg:col-span-7">
           <Panel title="Decision trace" pad={false}>
-            <div className="p-2"><GraphCanvas data={graph} highlight={new Set(graph.nodes.map((n) => n.id))} height={320} emptyHint="Select a decision to trace it." /></div>
+            <div className="p-2"><GraphCanvas data={graph} showAllLabels height={320} emptyHint="Select a decision to trace it." /></div>
           </Panel>
           {trace && (
             <Panel title={trace.decision.id}>
