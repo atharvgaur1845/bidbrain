@@ -5,7 +5,6 @@ frontend/.next
 frontend/out
 backend/vendor_bidintel/dataset
 backend/eval/results
-data/llm_cache.sqlite
 data/uploads
 data/conflicts/pdf
 data/eval/results

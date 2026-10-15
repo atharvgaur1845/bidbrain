@@ -1,7 +1,8 @@
 "use client";
 
 import { ArrowUp, GitCompareArrows, Sparkles } from "lucide-react";
-import { useRef, useState } from "react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import AgentTrace, { TraceStep } from "@/components/AgentTrace";
 import GraphCanvas, { GData, mergeGraph } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/Shell";
@@ -29,6 +30,8 @@ export default function AskPage() {
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [sel, setSel] = useState<number>(-1);
+  const [llm, setLlm] = useState<{ ok: boolean; replay: boolean } | null>(null);
+  useEffect(() => { api("/api/health").then((h) => setLlm({ ok: (h.llm || []).length > 0, replay: !!h.replay })).catch(() => {}); }, []);
   const busy = turns.some((t) => t.running);
   const endRef = useRef<HTMLDivElement>(null);
   const cur = sel >= 0 ? turns[sel] : turns[turns.length - 1];
@@ -84,6 +87,12 @@ export default function AskPage() {
         and every answer comes with the documents and pages that prove it. Compare it with vector RAG on the same model.
       </PageHeader>
 
+      {llm && !llm.ok && (
+        <div className="panel mb-4 px-4 py-3 text-[13px] text-ink-2">
+          {llm.replay ? "Offline replay mode: the suggested questions answer from a recorded run of the agent; new questions need a live model."
+            : <>No LLM is configured on this server, so free-text questions are off. Everything else runs on the graph alone: <Link className="text-accent underline" href="/qualify/">qualify a tender</Link>, <Link className="text-accent underline" href="/live/">live documents</Link>, <Link className="text-accent underline" href="/explore/">explore</Link>.</>}
+        </div>
+      )}
       <div className="grid gap-5 lg:grid-cols-12">
         <div className="flex flex-col gap-4 lg:col-span-5">
           <Panel title="Conversation" pad={false}>

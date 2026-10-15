@@ -2,9 +2,9 @@
 #SBATCH --job-name=bbqwen
 #SBATCH --partition=gpu_h200_8
 #SBATCH --gres=gpu:1
-#SBATCH --time=2-00:00:00
+#SBATCH --time=1-00:00:00
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=4
 #SBATCH --output=/scratch/pabitra/bidbrain/%x-%j.out
 # Serves Qwen3-32B (bf16, one H200) with tool calling for BidBrain's benchmark.
 #
@@ -48,10 +48,12 @@ echo "$(hostname) $PORT" > "$B/serve_endpoint.txt"
 # Qwen3: hermes-style tool calls; thinking is switched off per request by the
 # client (chat_template_kwargs.enable_thinking=false) -- routing turns do not
 # need a hidden chain of thought. 40k context covers the longest agent traces.
+# On 80 GB cards submit with EXTRA="--quantization fp8" MAXLEN=32768 (bf16 weights
+# alone are 64 GB and would leave almost no KV cache for concurrent agents).
 "$V/bin/vllm" serve "$M" --served-model-name Qwen/Qwen3-32B \
     --host 0.0.0.0 --port $PORT \
-    --max-model-len 40960 --tensor-parallel-size 1 \
-    --gpu-memory-utilization 0.90 --max-num-seqs 64 \
+    --max-model-len ${MAXLEN:-40960} --tensor-parallel-size 1 \
+    --gpu-memory-utilization 0.90 --max-num-seqs 64 ${EXTRA:-} \
     --enable-auto-tool-choice --tool-call-parser hermes --reasoning-parser qwen3 &
 PID=$!
 
