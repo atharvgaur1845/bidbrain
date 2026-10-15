@@ -49,7 +49,9 @@ EXTRA = {
          "  AND ($keys IS NULL OR c.subject_key IN $keys)\nRETURN c.id, c.subject_key, c.predicate, c.value, c.source_kind, c.authority, c.issuer, c.observed_day"),
         ("Record a contradiction", "MATCH (a:Claim {id:$a}), (b:Claim {id:$b}) WHERE NOT (a)-[:CONTRADICTS]-(b)\n"
          "CREATE (a)-[:CONTRADICTS {rule:'value_mismatch', detected_at:$t}]->(b)"),
-        ("Write a Decision", "MERGE (a:Agent {key:$actor})\nCREATE (d:Decision {id:$id, policy:$policy, rationale:$why, chosen_value:$val, at:timestamp()})\n"
+        ("Write a Decision (actor label is Agent or User)", "MERGE (a:Agent {key:$actor}) ON CREATE SET a.name = $actor\n"
+         "CREATE (d:Decision {id:$id, key:$id, conflict_id:$cid, subject_key:$sk, predicate:$pred,\n"
+         "                    policy:$policy, rationale:$why, at:timestamp(), chosen_value:$val})\n"
          "CREATE (d)-[:DECIDED_BY]->(a)\nWITH d MATCH (w:Claim {id:$win}) CREATE (d)-[:SELECTS]->(w)\n"
          "WITH d UNWIND $ids AS cid MATCH (c:Claim {id:cid}) CREATE (d)-[:BASED_ON]->(c)"),
         ("A newer decision supersedes older ones on the same fact", "MATCH (old:Decision {subject_key:$sk, predicate:$pred}) WHERE old.id <> $d\n"

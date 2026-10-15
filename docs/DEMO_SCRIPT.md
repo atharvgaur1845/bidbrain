@@ -1,6 +1,6 @@
 # Demo video: shot-by-shot (target 3:45)
 
-Footage: `scripts/record_demo.ts` (Playwright) drives the deployed app and records 1440×900 video. A human narrates
+Footage: `scripts/record_demo.mjs` (Playwright) drives the deployed app and records 1440×900 video. A human narrates
 over it. Each beat lists **what's on screen** and **what is said**. Keep the cursor slow, and pause about 1 s on
 every number that matters.
 
@@ -63,5 +63,5 @@ questions.] And we publish what broke: the PDF eval found two real bugs on its f
 
 ---
 
-**Before recording:** hit **Reset** (fresh session graph), make sure the LLM chip in the sidebar shows `groq`, and
+**Before recording:** hit **Reset** (fresh session graph), make sure the model line in the sidebar shows a model name (e.g. `gpt-oss-120b`), not "No model", and
 warm the Space with one request.

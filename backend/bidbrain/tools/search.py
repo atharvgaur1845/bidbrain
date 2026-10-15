@@ -75,7 +75,12 @@ def fulltext_search(g: Graph, text: str, doc_type: str | None = None, limit: int
       Escape hatch for questions no other tool covers; call graph_schema first. Max 50 rows.""",
       {"query": {"type": "string"}, "params": {"type": "object"}}, ["query"])
 def cypher_readonly(g: Graph, query: str, params: dict | None = None) -> dict:
-    rows = g.read(query, params or {})
+    # RO_QUERY blocks writes but still lets LOAD CSV fetch https:// URLs, and this tool is public (API + MCP).
+    # Keywords are checked with string literals and comments removed, so they cannot hide behind either.
+    bare = re.sub(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"|/\*.*?\*/|//[^\n]*", " ", query, flags=re.S)
+    if re.search(r"\b(LOAD|CSV)\b", bare, re.I):
+        raise ValueError("LOAD CSV is not allowed in cypher_readonly")
+    rows = Graph(g.name, timeout_ms=5_000).read(query, params or {})
     for r in rows:
         for k, v in list(r.items()):
             if isinstance(v, dict):

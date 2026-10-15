@@ -23,7 +23,8 @@ from bidbrain.graph.client import Graph
 from bidbrain.tools.registry import tool
 
 LABEL_OF = {"Work": "Work", "Person": "Person", "FinancialStatement": "FinancialStatement",
-            "Certification": "Certification", "Company": "Company", "Bond": "Bond", "Credential": "Credential"}
+            "Certification": "Certification", "Company": "Company", "Bond": "Bond", "Credential": "Credential",
+            "Contract": "Contract"}
 
 
 def _id(prefix, *parts):
@@ -168,7 +169,9 @@ def audit_bid(g: Graph, bid: str | None = None) -> dict:
       {"label": {"type": "string"}, "key": {"type": "string"}, "rerun": {"type": "boolean"}}, ["label", "key"])
 def blast_radius(g: Graph, label: str, key: str, rerun: bool = True) -> dict:
     from bidbrain.tools.proof import qualify_clause
-    label = LABEL_OF.get(label, label)
+    if label not in LABEL_OF:      # the label is interpolated into Cypher below
+        raise ValueError(f"label must be one of {sorted(LABEL_OF)}")
+    label = LABEL_OF[label]
     direct = g.read(f"""MATCH (s:{label} {{key:$k}})<-[:SATISFIED_BY]-(k:Clause)<-[:HAS_CLAUSE]-(c:Case)
                         RETURN DISTINCT c.id AS case_id, c.title AS case, k.id AS clause_id""", {"k": key})
     bids = g.read(f"""MATCH (s:{label} {{key:$k}})<-[:CITES|PROPOSES|SECURED_BY]-(b:Bid)

@@ -14,6 +14,8 @@ import json
 import os
 import pathlib
 import queue
+import re
+import secrets
 import threading
 import time
 import traceback
@@ -48,13 +50,43 @@ async def lifespan(_app):
         yield
 
 
+class _Guard:
+    """Plain ASGI middleware (no BaseHTTPMiddleware, so SSE streams are untouched).
+
+    * POST /mcp is routed to the MCP mount; Mount("/mcp") alone only matches "/mcp/...", and the request
+      would otherwise fall through to the static UI and get a 405.
+    * Uploads are refused from their Content-Length before the multipart body is spooled to disk.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            if scope["path"] == "/mcp":
+                scope = {**scope, "path": "/mcp/", "raw_path": b"/mcp/"}
+            elif scope["path"] == "/api/ingest" and scope["method"] == "POST":
+                size = dict(scope["headers"]).get(b"content-length", b"")
+                problem = (411, "Content-Length required") if not size.isdigit() else \
+                    (413, "max 5 MB") if int(size) > MAX_UPLOAD + 64_000 else None
+                if problem:
+                    await JSONResponse({"detail": problem[1]}, status_code=problem[0])(scope, receive, send)
+                    return
+        await self.app(scope, receive, send)
+
+
 app = FastAPI(title="BidBrain", version="1.0", lifespan=lifespan)
+app.add_middleware(_Guard)
 app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
                    allow_methods=["*"], allow_headers=["*"], expose_headers=["X-Session"])
 
 TENDERS = json.loads((config.DATA / "tenders" / "demo_tenders.json").read_text())
 PDF_DIR = config.DATA / "conflicts" / "pdf"
-UPLOADS = config.DATA / "uploads"
+UPLOADS = sessions.UPLOADS
+MAX_UPLOAD = 5_000_000
+DOC_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+_RUNS = threading.BoundedSemaphore(int(os.getenv("MAX_CONCURRENT_RUNS", "4")))   # agent runs across all sessions
+_SESSION_LOCKS: dict[str, threading.Lock] = {}                                   # one run at a time per session
 
 
 def G(sid: str | None) -> Graph:
@@ -64,36 +96,77 @@ def G(sid: str | None) -> Graph:
         raise HTTPException(400, "missing or invalid X-Session header (POST /api/session first)")
 
 
-def stream(work) -> StreamingResponse:
-    """Run `work(emit)` in a thread; stream every emitted event as SSE."""
+async def aG(sid: str | None) -> Graph:
+    """G() for async handlers: creating a session copies the base graph, which must not block the loop."""
+    return await asyncio.to_thread(G, sid)
+
+
+class _Cancelled(BaseException):
+    """Raised inside a run when its client has gone; BaseException so agent code's `except Exception` lets it pass."""
+
+
+def stream(work, g: Graph) -> StreamingResponse:
+    """Run `work(emit)` in a thread; stream every emitted event as SSE.
+
+    Runs are bounded (a global semaphore plus one run per session, so two clicks never write to the same
+    graph at once), the session cannot be evicted while its run is going, and a client that disconnects
+    stops the run at its next step instead of leaving it to burn LLM quota.
+    """
     q: queue.Queue = queue.Queue()
+    cancel = threading.Event()
 
     def emit(ev: dict):
+        if cancel.is_set():
+            raise _Cancelled()
         q.put(ev)
 
+    def acquire(lock) -> bool:
+        while not lock.acquire(timeout=0.5):
+            if cancel.is_set():
+                return False
+        return True
+
     def runner():
+        mine = _SESSION_LOCKS.setdefault(g.name, threading.Lock())
         try:
-            result = work(emit)
-            q.put({"type": "result", "data": result})
+            with sessions.busy(g):
+                if not _RUNS.acquire(blocking=False):
+                    q.put({"type": "status", "message": "queued behind other runs"})
+                    if not acquire(_RUNS):
+                        return
+                try:
+                    if not acquire(mine):
+                        return
+                    try:
+                        q.put({"type": "result", "data": work(emit)})
+                    finally:
+                        mine.release()
+                finally:
+                    _RUNS.release()
+        except _Cancelled:
+            pass
         except Exception as exc:
-            q.put({"type": "error", "message": f"{type(exc).__name__}: {exc}",
-                   "trace": traceback.format_exc()[-800:]})
+            traceback.print_exc()
+            q.put({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
         finally:
             q.put(None)
 
     threading.Thread(target=runner, daemon=True).start()
 
     async def gen():
-        while True:
-            try:
-                ev = q.get_nowait()
-            except queue.Empty:
-                await asyncio.sleep(0.03)
-                continue
-            if ev is None:
-                yield "event: end\ndata: {}\n\n"
-                break
-            yield f"data: {json.dumps(ev, default=str)}\n\n"
+        try:
+            while True:
+                try:
+                    ev = q.get_nowait()
+                except queue.Empty:
+                    await asyncio.sleep(0.03)
+                    continue
+                if ev is None:
+                    yield "event: end\ndata: {}\n\n"
+                    break
+                yield f"data: {json.dumps(ev, default=str)}\n\n"
+        finally:
+            cancel.set()
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -146,7 +219,7 @@ async def ask(req: Request, x_session: str | None = Header(None)):
     question = (body.get("question") or "").strip()
     if not question:
         raise HTTPException(400, "question required")
-    g = G(x_session)
+    g = await aG(x_session)
 
     def work(emit):
         from bidbrain.agents.qa import ask as qa_ask
@@ -156,13 +229,13 @@ async def ask(req: Request, x_session: str | None = Header(None)):
         sessions.remember_turn(g, "assistant", out["explanation"] or "",
                                [n["id"] for n in out["subgraph"]["nodes"]])
         return out
-    return stream(work)
+    return stream(work, g)
 
 
 @app.post("/api/baseline/{system}")
 async def baseline(system: str, req: Request, x_session: str | None = Header(None)):
     body = await req.json()
-    g = G(x_session)
+    g = await aG(x_session)
     from bidbrain.agents import baselines
     fn = {"vector_rag": baselines.vector_rag, "text2cypher": baselines.text2cypher}.get(system)
     if not fn:
@@ -194,7 +267,7 @@ def tenders():
 @app.post("/api/qualify")
 async def qualify(req: Request, x_session: str | None = Header(None)):
     body = await req.json()
-    g = G(x_session)
+    g = await aG(x_session)
     tender = next((t for t in TENDERS if t["id"] == body.get("tender_id")), None)
     if tender is None:
         if not body.get("text"):
@@ -209,7 +282,7 @@ async def qualify(req: Request, x_session: str | None = Header(None)):
     def work(emit):
         from bidbrain.agents.orchestrator import qualify_tender
         return qualify_tender(g, tender, emit=emit, prefer_llm=body.get("use_llm", True))
-    return stream(work)
+    return stream(work, g)
 
 
 @app.get("/api/cases")
@@ -257,15 +330,33 @@ def conflicts(x_session: str | None = Header(None)):
 @app.post("/api/conflicts/{card_id}/resolve")
 async def resolve(card_id: str, req: Request, x_session: str | None = Header(None)):
     body = await req.json()
-    g = G(x_session)
-    from bidbrain.conflicts import engine
-    from bidbrain.tools.case import apply_flips, blast_radius
-    out = engine.resolve_card(g, card_id, body["winner_claim"], body.get("rationale") or "resolved by bid manager",
-                              user=body.get("user") or "bid-manager", apply_to_similar=bool(body.get("apply_to_similar")))
-    card = g.read("MATCH (k:ConflictCard {id:$id}) RETURN k.subject_label AS l, k.subject_key AS k", {"id": card_id})[0]
-    ripple = blast_radius(g, card["l"], card["k"])
-    apply_flips(g, ripple["result"]["verdict_flips"], f"decision {out['decision_id']}")
-    return {"decision": out, "ripple": ripple["result"], "subgraph": ripple["subgraph"]}
+    g = await aG(x_session)
+    winner = body.get("winner_claim")
+    if not isinstance(winner, str):
+        raise HTTPException(400, "winner_claim required")
+
+    def work():
+        from bidbrain.conflicts import engine
+        from bidbrain.tools.case import apply_flips, blast_radius
+        card = g.read("""MATCH (k:ConflictCard {id:$id}) OPTIONAL MATCH (k)-[:ABOUT_CLAIM]->(c:Claim)
+                         RETURN k.status AS status, k.subject_label AS l, k.subject_key AS k, collect(c.id) AS claims""",
+                      {"id": card_id})
+        if not card:
+            raise HTTPException(404, "no such conflict card")
+        card = card[0]
+        if card["status"] != "open":
+            raise HTTPException(409, f"card is already {card['status']}")
+        if winner not in card["claims"]:
+            raise HTTPException(400, "winner_claim is not one of this card's claims")
+        out = engine.resolve_card(g, card_id, winner, body.get("rationale") or "resolved by bid manager",
+                                  user=str(body.get("user") or "bid-manager")[:64],
+                                  apply_to_similar=bool(body.get("apply_to_similar")))
+        ripple = blast_radius(g, card["l"], card["k"])
+        apply_flips(g, ripple["result"]["verdict_flips"], f"decision {out['decision_id']}")
+        return {"decision": out, "ripple": ripple["result"], "subgraph": ripple["subgraph"]}
+
+    with sessions.busy(g):
+        return await asyncio.to_thread(work)
 
 
 def _all_events() -> list[dict]:
@@ -302,7 +393,7 @@ def _ripple_after(g: Graph, emit, out: dict, cause: str) -> dict:
 
 @app.post("/api/events/{event_id}/fire")
 async def fire(event_id: str, x_session: str | None = Header(None)):
-    g = G(x_session)
+    g = await aG(x_session)
     evs = {e["event_id"]: e for e in _all_events()}
     if event_id not in evs:
         raise HTTPException(404, event_id)
@@ -318,26 +409,29 @@ async def fire(event_id: str, x_session: str | None = Header(None)):
         for c in out["cards"]:
             emit({"type": "card", **c})
         return {**out, **_ripple_after(g, emit, out, f"{ev['doc']['title']}")}
-    return stream(work)
+    return stream(work, g)
 
 
 @app.post("/api/ingest")
 async def ingest(file: UploadFile = File(...), x_session: str | None = Header(None)):
-    g = G(x_session)
-    UPLOADS.mkdir(parents=True, exist_ok=True)
+    g = await aG(x_session)
     name = pathlib.Path(file.filename or "upload.pdf").name
     if not name.lower().endswith(".pdf"):
         raise HTTPException(400, "PDF only")
-    data = await file.read()
-    if len(data) > 5_000_000:
+    data = await file.read(MAX_UPLOAD + 1)
+    if len(data) > MAX_UPLOAD:
         raise HTTPException(413, "max 5 MB")
-    path = UPLOADS / f"{x_session}_{int(time.time())}_{name}"
+    # the stored name is a random doc id, never the session id or the client's filename
+    doc_id = f"DOC-UP-{secrets.token_hex(5)}"
+    folder = sessions.upload_dir(x_session)
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{doc_id}.pdf"
     path.write_bytes(data)
 
     def work(emit):
         from bidbrain.conflicts.ingest_doc import ingest_pdf
-        emit({"type": "document", "doc": {"doc_id": path.stem, "title": name}})
-        out = ingest_pdf(g, path, doc_id=f"DOC-UP-{int(time.time()) % 1000000}")
+        emit({"type": "document", "doc": {"doc_id": doc_id, "title": name}})
+        out = ingest_pdf(g, path, doc_id=doc_id)
         emit({"type": "extracted", "kind": out.get("kind"), "subject": out.get("subject"),
               "extracted": out.get("extracted"), "error": out.get("error")})
         if out.get("error"):
@@ -347,7 +441,7 @@ async def ingest(file: UploadFile = File(...), x_session: str | None = Header(No
         for c in out.get("cards", []):
             emit({"type": "card", **c})
         return {**out, **_ripple_after(g, emit, out, f"{name}")}
-    return stream(work)
+    return stream(work, g)
 
 
 @app.get("/api/samples")
@@ -368,21 +462,37 @@ def sample(name: str):
 
 # ------------------------------------------------------------------ documents, entities, decisions
 
+_DOC_INDEX: dict[str, str] = {}
+
+
 @app.get("/api/docs/{doc_id}")
 def doc_pdf(doc_id: str):
+    """Corpus documents, rendered event PDFs, and uploads, by exact id only.
+
+    An upload's id is random (DOC-UP-<10 hex>), so its URL works like a capability link; the iframe
+    viewer cannot send the X-Session header, and nothing here globs on user input.
+    """
     import csv
-    doc_id = pathlib.Path(doc_id).name
-    with open(config.DATASET / "document_index.csv", newline="") as fh:
-        for r in csv.DictReader(fh):
-            if r["doc_id"] == doc_id:
-                p = config.DOCUMENTS / r["filename"]
-                if p.exists():
-                    return FileResponse(p, media_type="application/pdf" if p.suffix == ".pdf" else
-                                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    for p in (PDF_DIR / f"{doc_id}.pdf", *UPLOADS.glob(f"*{doc_id}*.pdf")):
+    if not DOC_ID_RE.match(doc_id):
+        raise HTTPException(404, "unknown document")
+    if not _DOC_INDEX:
+        with open(config.DATASET / "document_index.csv", newline="") as fh:
+            _DOC_INDEX.update({r["doc_id"]: r["filename"] for r in csv.DictReader(fh)})
+    if doc_id in _DOC_INDEX:
+        p = config.DOCUMENTS / _DOC_INDEX[doc_id]
         if p.exists():
-            return FileResponse(p, media_type="application/pdf")
-    raise HTTPException(404, doc_id)
+            return FileResponse(p, media_type="application/pdf" if p.suffix == ".pdf" else
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    # a fired event's document is "<rendered pdf id>-<n>", one per firing
+    for cand in (doc_id, re.sub(r"-\d+$", "", doc_id)):
+        if (PDF_DIR / f"{cand}.pdf").is_file():
+            return FileResponse(PDF_DIR / f"{cand}.pdf", media_type="application/pdf")
+    if doc_id.startswith("DOC-UP-") and UPLOADS.is_dir():
+        for folder in UPLOADS.iterdir():
+            p = folder / f"{doc_id}.pdf"
+            if p.is_file():
+                return FileResponse(p, media_type="application/pdf")
+    raise HTTPException(404, "unknown document")
 
 
 @app.get("/api/docs/{doc_id}/text")
@@ -456,7 +566,7 @@ async def tool_call(name: str, req: Request, x_session: str | None = Header(None
     if name not in TOOLS or TOOLS[name].writes:
         raise HTTPException(404, "unknown or write tool")
     args = await req.json()
-    return await asyncio.to_thread(call, G(x_session), name, args)
+    return await asyncio.to_thread(call, await aG(x_session), name, args)
 
 
 @app.get("/api/eval")

@@ -76,7 +76,8 @@ clause can explain which figure it used.
 
 ## 5. Tools (`bidbrain/tools/`): why tools instead of free Cypher
 
-* The agent gets **25 named tools** rather than raw Cypher. Each tool is a tested multi-hop traversal with exact
+* The Q&A agent gets **16 named tools** (a subset of the 25 in the registry) rather than writing Cypher; a read-only
+  `cypher_readonly` escape hatch is among them, for questions no tool covers. Each tool is a tested multi-hop traversal with exact
   arithmetic and evidence attached. Raw NL→Cypher is our *baseline* (`text2cypher`), and the benchmark shows the
   difference.
 * **`aggregate` takes work keys, not numbers.** It re-reads values from the graph, so the model can neither misadd
@@ -108,9 +109,12 @@ clause can explain which figure it used.
 ## 6. Agents
 
 * **Provider layer** (`agents/providers.py`).
-  - **Model:** Qwen3-32B everywhere, on Groq or Cerebras (free tiers) for the demo and on vLLM on our HPC cluster for
-    the benchmark. The benchmark therefore measures the deployed model.
-  - **Failover:** a 429 or error puts that provider on cooldown and the next one is tried.
+  - **Models:** the demo runs on a pool of free Groq models (openai/gpt-oss-120b, qwen/qwen3.8-27b,
+    openai/gpt-oss-20b). The benchmark runs every system on one model, Qwen3-32B on vLLM on our HPC cluster. So the
+    benchmark compares context strategies on a fixed model; it is not a measurement of the demo's models.
+  - **Rate limits:** every (provider, model) pair is its own quota bucket. A 429 parks that bucket until the reset
+    time the server reports and the next bucket is tried; when all are parked, the call waits (bounded) for the
+    earliest reset instead of failing.
   - **Cache:** every completion is stored in SQLite, and `BIDBRAIN_REPLAY=1` replays recorded runs offline.
   - **Thinking off** (`/no_think`, or `enable_thinking=false` on vLLM). Tool routing does not need hidden reasoning,
     and it burns free-tier tokens.
@@ -163,7 +167,8 @@ clause can explain which figure it used.
 * **"Why not let the LLM write Cypher?"** That is the `text2cypher` baseline, and the benchmark shows the gap.
   Curated tools also make arithmetic exact and evidence automatic.
 * **"What if the LLM is down?"** Tender qualification, live documents, decisions and exploration run without it. Only
-  free-text Q&A needs it, and it fails over Groq → Cerebras → replay cache.
+  free-text Q&A needs it, and it rotates across the Groq model pool. A recorded run can be replayed offline with
+  `BIDBRAIN_REPLAY=1`, but that is a separate mode, not a failover step.
 * **"Is the conflict F1 of 1.00 meaningful?"** On the JSON path it measures consistency, since we wrote the rules and
   the labels. The PDF path and the hard negatives are the real tests, and we publish the first-run failures.
 * **"What's new versus the earlier hackathon?"** That project was a regex question parser over a fact table, with no

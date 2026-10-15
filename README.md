@@ -9,7 +9,7 @@
 > tenders clause by clause, **prove absences**, settle conflicting documents as they arrive, ripple each change
 > to every bid that relied on it, and show the path to the PDF page behind every answer.
 
-**Live demo:** _<HF Space URL>_  ·  **Video:** _<link>_  ·  **Tracks:** 🧠 Company Brain (lead) · 🕵️ Agents That Act on Connected Data · 🤖 Agent Memory & Coordination
+**Live demo:** _to be added_ (run it locally with one `docker compose up`, below)  ·  **Video:** _<link>_  ·  **Tracks:** Company Brain (lead) · Agents That Act on Connected Data · Agent Memory & Coordination
 
 | What you'll see | Where |
 |---|---|
@@ -17,7 +17,7 @@
 | "Which works have no reference letter?" The graph returns a *proof*; vector RAG confidently says the wrong thing | **Ask** → *Compare with vector RAG* |
 | A corrigendum arrives, the conflict is settled by policy, and the open bid flips **BID → NO-BID** | **Live documents** |
 | Every settled fact traced to its policy, decider, and both source documents; your decisions become learned rules | **Decisions** |
-| Bus factor (betweenness), isolated entities (WCC), how two things connect (SPpaths), audit of past bids | **Explore graph** |
+| Bus factor (betweenness), isolated entities (WCC), how two things connect (SPpaths), audit of past bids | **Explore** |
 | Graph vs. vector RAG vs. text-to-Cypher vs. GraphRAG-SDK, same model, by hop count | **Benchmark** |
 
 ---
@@ -39,7 +39,7 @@ The questions a bid desk asks never live in one record:
 ```mermaid
 flowchart LR
   subgraph Ingest
-    PDF[687 PDFs + 9 xlsx] --> X[vendored extractors] --> F[facts.json]
+    PDF[678 PDFs + 9 xlsx] --> X[vendored extractors] --> F[facts.json]
     F --> L[load_graph.py] --> G[(FalkorDB<br/>bidbrain_base)]
     N[new PDF / event] --> CL[claims] --> CE[conflict engine<br/>detect → policy → Decision] --> G
   end
@@ -50,11 +50,11 @@ flowchart LR
   T[25 graph tools<br/>Cypher · algo.* · exact maths] --- MCP[MCP server /mcp]
   Agents --> T --> S
   UI[Next.js UI] <-- SSE --> API[FastAPI] --> Agents
-  LLM[Qwen3-32B<br/>Groq → Cerebras · vLLM for evals] --- Agents
+  LLM[demo: Groq pool<br/>gpt-oss-120b · qwen3.8-27b · gpt-oss-20b<br/>benchmark: Qwen3-32B on vLLM] --- Agents
 ```
 
 * **One registry, three consumers.** The same 25 tool functions serve the in-app agents, the MCP server
-  (`/mcp`, streamable HTTP; any MCP client can connect) and the evaluation oracle.
+  (`/mcp/`, streamable HTTP; any MCP client can connect) and the evaluation oracle.
 * **Arithmetic never happens in the LLM.** `aggregate` takes *work keys*, re-reads values from the graph, and computes
   in exact integer rupees.
 * **Each visitor gets an isolated graph**: `GRAPH.COPY bidbrain_base session_<id>` on first visit, reaped after 24 h of
@@ -171,7 +171,9 @@ conflict of the same shape then resolves itself and cites your decision.
 
 ## Evaluation
 
-All systems use **the same model (Qwen3-32B)** and **the same FalkorDB instance**; only the context strategy differs.
+All systems use **the same model (Qwen3-32B on vLLM)** and **the same FalkorDB instance**; only the context strategy
+differs. The demo app runs on a pool of free Groq models instead (Groq no longer serves Qwen3-32B), so the benchmark
+measures the strategies, not the deployed model.
 
 | Gate / set | Result |
 |---|---|
@@ -184,7 +186,7 @@ All systems use **the same model (Qwen3-32B)** and **the same FalkorDB instance*
 
 | System | S21 (true gold) | Q333 (near-gold) | ABS (absence, 164) | TND (tender, 144) |
 |---|---|---|---|---|
-| BidBrain agent | _running_ | | | |
+| BidBrain agent | _pending_ | | | |
 | LLM text-to-Cypher | | | | |
 | Vector RAG | | | | |
 | GraphRAG-SDK (auto schema) | | | | |
@@ -212,10 +214,16 @@ decisions, exploration and the benchmark page.
 
 ```bash
 docker run -d -p 6379:6379 falkordb/falkordb:latest
-cd backend && uv venv --python 3.12 .venv && uv pip install -r requirements.txt
+cd backend && uv venv --python 3.12 .venv && uv pip install -r requirements.txt && source .venv/bin/activate
+# the corpus is not vendored; fetch the pinned commit the facts were extracted from
+git clone https://github.com/satvikGIKA/BITS-Hackathon-Dataset vendor_bidintel/dataset
+git -C vendor_bidintel/dataset checkout 707c80fc7a57dad0c0f58cb4b305f4ecfba27c8a
 python -m bidbrain.ingest.load_graph          # builds bidbrain_base (~2 s)
-uvicorn bidbrain.api.main:app --port 7860
-cd ../frontend && npm ci && NEXT_PUBLIC_API_BASE=http://localhost:7860 npm run dev
+uvicorn bidbrain.api.main:app --port 7860     # keep running; open a second terminal for the UI
+```
+
+```bash
+cd frontend && npm ci && NEXT_PUBLIC_API_BASE=http://localhost:7860 npm run dev
 ```
 
 **Connect an MCP client** (Claude Desktop, etc.): point it at `https://<space>/mcp/` (streamable HTTP), or run
@@ -261,4 +269,5 @@ docs/                       CYPHER.md · EXPLAINER.md · DEMO_SCRIPT.md · BLOG.
   generation, refactoring and documentation, under the team's direction and review. The architecture, data model and
   evaluation design are explained in [docs/EXPLAINER.md](docs/EXPLAINER.md).
 * **Built on** FalkorDB (graph, vector and full-text indexes, `algo.*`, `GRAPH.COPY`), FastAPI, the MCP Python SDK,
-  fastembed (bge-small-en-v1.5), Next.js and react-force-graph. LLM: Qwen3-32B via Groq / Cerebras (demo) and vLLM (evaluation).
+  fastembed (bge-small-en-v1.5), Next.js and react-force-graph. LLMs: a pool of free Groq models for the demo
+  (openai/gpt-oss-120b, qwen/qwen3.8-27b, openai/gpt-oss-20b) and Qwen3-32B on vLLM for the evaluation.

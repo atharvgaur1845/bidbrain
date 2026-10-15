@@ -8,7 +8,7 @@ QA_TOOLS = ["resolve_entity", "find_portfolio", "aggregate", "credential_timelin
 # One-line tool descriptions for the LLM (the full descriptions are served over MCP and in docs/CYPHER.md).
 BRIEF = {
     "resolve_entity": "Map an informal name ('phed odisha', 'Pkg-59') to graph entities. kind: client|person|work|category|tender.",
-    "find_portfolio": "List completed works. Scope: client | person (works they led) | via_work (the whole portfolio of that work's client). Filters: categories, exclude_categories, min_value/max_value (rupees, inclusive), completed_after/completed_before (ISO, strict), years, role ('Prime'|'JV Partner'), has_reference, govt_levels.",
+    "find_portfolio": "List completed works. Scope: client | person (works they led) | via_work (the whole portfolio of that work's client). Filters: categories, exclude_categories, min_value/max_value (rupees, inclusive), completed_after/completed_before (ISO, strict), years, role ('Prime'|'JV Partner'), has_reference, govt_levels. For 'which/how many have NO reference letter' use prove_absence instead.",
     "aggregate": "Exact maths over work keys (never pass numbers). op: sum|count|average|median|mean_median_gap(signed)|max|min|rank_gap|top_two_sum|distinct_categories|distinct_clients|distinct_leads|category_difference(category_a,category_b)|year_difference(year_a,year_b)|gap_to_threshold(threshold)|referenced_share(absent)|absence_count.",
     "credential_timeline": "A person's credentials (PMP, Six Sigma) with issue/expiry dates.",
     "date_span": "Days from a credential's issue date (credential_id, or person+credential_kind, or from_date) to a work's completion (work) or to_date. With only `work`, uses that work's project lead.",
@@ -36,7 +36,8 @@ How to work:
 - Resolve informal names with resolve_entity (or pass names directly; tools resolve and report it).
 - NEVER do arithmetic yourself. Get work keys from find_portfolio, then call aggregate with the right op.
   Amounts are exact integer rupees.
-- "No reference letter / missing / without" questions: use prove_absence — it returns the proof.
+- Questions about something MISSING ("no reference letter", "without", "lack", "not on file"): ALWAYS call
+  prove_absence. It returns the proof (the full set checked, closure and orphan checks) — cite it in your answer.
 - Verify dates a user "remembers" against the record (credential_timeline / date_span); the graph wins.
 - Invoices are keyed by client, not by work: hop work -> client first (receivables / collection_rate /
   awarded_vs_billed accept `work`).
