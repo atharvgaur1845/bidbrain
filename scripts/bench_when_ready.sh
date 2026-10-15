@@ -57,6 +57,7 @@ log "tunnel up: localhost:8011 -> $NODE:$PORT"
 export LLM_PROVIDERS=vllm VLLM_BASE_URL=http://localhost:8011/v1 LLM_MAX_WAIT=300
 
 # ------------------------------------------------------------------ 3. smoke test before spending hours
+"$PY" -m eval.run --selfcheck >> "$LOG" 2>&1 || { log "scorer self-check failed; stopping"; exit 1; }
 "$PY" -m eval.run --system bidbrain --set S21 --limit 3 --workers 3 >> "$LOG" 2>&1
 ok=$("$PY" -c "
 import json; rs=[json.loads(l) for l in open('$ROOT/data/eval/results/bidbrain__S21.jsonl')]
@@ -78,7 +79,9 @@ done
 
 # ------------------------------------------------------------------ 5. GraphRAG-SDK baseline (needs its own venv)
 if [ -x "$SDK_PY" ]; then
-  if ! docker exec bidbrain-falkordb redis-cli GRAPH.LIST 2>/dev/null | grep -qx grsdk_bidbrain; then
+  # re-ingest unless a previous ingest finished (an interrupted one leaves finalized=false)
+  if ! "$PY" -c "import json,sys; d=json.load(open('$ROOT/data/eval/results/graphrag_sdk_ingest.json')); sys.exit(0 if d.get('finalized') else 1)" 2>/dev/null; then
+    docker exec bidbrain-falkordb redis-cli GRAPH.DELETE grsdk_bidbrain > /dev/null 2>&1
     log "GraphRAG-SDK ingest (auto schema over the corpus)"
     "$SDK_PY" -m eval.baselines.graphrag_sdk ingest >> "$LOG" 2>&1 || log "  ingest exited non-zero"
   fi

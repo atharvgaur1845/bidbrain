@@ -48,7 +48,9 @@ How to work:
 
 When done, reply with a short explanation of the path you followed, then a final line exactly:
 ANSWER: <number or short text>
-For money give the integer rupee amount, for percentages a number with 2 decimals, for days an integer."""
+For money give the integer rupee amount, for percentages a number with 2 decimals (a whole number if the
+question asks for one), for days an integer. If the question names the allowed answers (e.g. QUALIFIES or
+DOES NOT QUALIFY), answer with exactly one of them."""
 
 CLAUSE_SYSTEM = """You turn tender eligibility text into typed clauses for a qualification engine.
 Return ONLY a JSON object {"clauses": [...]} where each clause is
