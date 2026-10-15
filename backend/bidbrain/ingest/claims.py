@@ -13,7 +13,9 @@ which one the property now shows and why.
 from __future__ import annotations
 
 import hashlib
+import json
 
+from bidbrain import config
 from bidbrain.graph.client import day
 
 # Authority ladder — how much a source is trusted on a fact it states.
@@ -173,6 +175,14 @@ def from_facts(f: dict, pages) -> list[dict]:
                                 source_kind="comparative_column",
                                 page=pages.find_money(fs["source_doc"], pv), issuer="auditor",
                                 basis="comparative", observed=signed))
+    # LLM-read gradings (bidbrain/ingest/llm_grading.py), only those whose quote was verified in the document
+    llm_path = config.DATA / "llm_gradings.json"
+    if llm_path.exists():
+        for r in json.loads(llm_path.read_text()):
+            if r.get("grade") and r.get("verified_quote") and r.get("doc"):
+                out.append(make("Work", r["work_key"], "grading", r["grade"], source_doc=r["doc"],
+                                source_kind="llm_prose", page=r.get("page") or 1, issuer="llm:qwen3-32b",
+                                extracted_by="llm:qwen3-32b", basis="llm-grading"))
     for c in f["certifications"]:
         out.append(make("Certification", c["cert_no"], "valid_until", c["valid_until"],
                         source_doc=c["source_doc"], source_kind="certification_body", page=1, issuer=c["body"]))
