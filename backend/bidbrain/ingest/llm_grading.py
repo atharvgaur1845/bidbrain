@@ -55,7 +55,7 @@ def run(limit: int | None = None) -> list[dict]:
         verified = bool(grade and quote and " ".join(quote.split())[:60] in doc_text)
         out.append({"work_key": r["key"], "title": r["title"], "grade": grade if verified else None,
                     "raw_grade": ans.get("grade"), "quote": quote, "doc": ans.get("doc"), "page": ans.get("page"),
-                    "verified_quote": verified, "provider": rep.provider})
+                    "verified_quote": verified, "provider": rep.provider, "model": rep.model})
         print(f"{r['title'][:45]:45s} -> {ans.get('grade')!s:12s} verified={verified}")
     OUT.write_text(json.dumps(out, indent=1, ensure_ascii=False))
     return out

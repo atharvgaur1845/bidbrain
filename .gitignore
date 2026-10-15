@@ -15,3 +15,4 @@ data/uploads/
 data/conflicts/pdf/
 .claude/settings.local.json
 backend/.venv-sdk/
+data/eval/bench_runner.log
