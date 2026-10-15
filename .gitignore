@@ -14,3 +14,4 @@ data/llm_cache.sqlite
 data/uploads/
 data/conflicts/pdf/
 .claude/settings.local.json
+backend/.venv-sdk/

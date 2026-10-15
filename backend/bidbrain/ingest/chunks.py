@@ -40,8 +40,9 @@ def make_chunks(pages) -> list[dict]:
 
 @lru_cache(maxsize=1)
 def embedder():
+    import os
     from fastembed import TextEmbedding
-    return TextEmbedding(MODEL)
+    return TextEmbedding(MODEL, cache_dir=os.getenv("FASTEMBED_CACHE_PATH"))
 
 
 def embed(texts: list[str]) -> np.ndarray:

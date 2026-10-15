@@ -1,0 +1,13 @@
+falkordb==1.8.0
+fastapi==0.143.1
+uvicorn==0.54.0
+python-multipart==0.0.32
+openai==3.31.0
+fastembed==0.9.0
+mcp==2.3.0
+numpy==2.5.4
+pymupdf==1.28.2
+openpyxl==3.1.5
+reportlab==5.0.1
+rapidfuzz==3.14.6
+python-dotenv==1.2.4

@@ -1,0 +1,1478 @@
+[
+ {
+  "qid": "ABS-C-publicworksdepartm",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for PWD MAHARASHTRA, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-gujaratmunicipalco",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "How many of Gujarat Municipal Corporation's completed works have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-C-meridianconstructo",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "How many of Meridian Constructors & Co.'s completed works have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-C-publicworksdepartm",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for Public Works Department, Govt of West Bengal, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-megainfrastructure",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for Mega Infrastructure Authority, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-trishaktipowergene",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "For Trishakti Power Generation Corporation, count the completed works that lack a reference letter."
+ },
+ {
+  "qid": "ABS-C-jharkhandmunicipal",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for Jharkhand Municipal Corporation, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-jalnigamuttarprade",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "For Jal Nigam, Uttar Pradesh, count the completed works that lack a reference letter."
+ },
+ {
+  "qid": "ABS-C-nationalspecialpro",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for National Special Projects Office, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-publicworksdepartm",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "How many of Public Works Department, Govt of Gujarat's completed works have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-C-irrigationwaterway",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "How many of Irrigation & Waterways Dept, Govt of West Bengal's completed works have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-C-nationalexpressway",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "For National Expressway Development Authority, count the completed works that lack a reference letter."
+ },
+ {
+  "qid": "ABS-C-publichealthengine",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "For Public Health Engineering Dept, Gujarat, count the completed works that lack a reference letter."
+ },
+ {
+  "qid": "ABS-C-publicworksdepartm",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for TN PW, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-peninsularpetroleu",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "For Peninsular Petroleum Corporation, count the completed works that lack a reference letter."
+ },
+ {
+  "qid": "ABS-C-irrigationwaterway",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "For IWD RAJASTHAN, count the completed works that lack a reference letter."
+ },
+ {
+  "qid": "ABS-C-irrigationwaterway",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "For Irrigation & Waterways Dept, Govt of Uttar Pradesh, count the completed works that lack a reference letter."
+ },
+ {
+  "qid": "ABS-C-tamilnadumunicipal",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for Tamil Nadu Municipal Corporation, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-mahanadisteelcorpo",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for Mahanadi Steel Corporation, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-lakshyaengineering",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for Lakshya Engineering & Construction, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-arunodayainfrastru",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "How many of Arunodaya Infrastructure's completed works have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-C-centralworksbuildi",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for Central Works & Buildings Bureau, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-publichealthengine",
+  "answer_type": "count",
+  "gold": 3,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for Public Health Engineering Dept, Odisha, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-suvarnaprojectslim",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for Suvarna Projects Limited, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-jalnigamgujarat",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "How many of JN GUJ's completed works have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-C-subarnarekhavalley",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for Subarnarekha Valley Corporation, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-maharashtramunicip",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "Across everything we completed for Maharashtra Municipal Corporation, how many works have no client testimonial on record?"
+ },
+ {
+  "qid": "ABS-C-jalnigamjharkhand",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 3,
+  "family": "absence_client",
+  "absence": true,
+  "question": "For JHARKHAND JAL NIGAM, count the completed works that lack a reference letter."
+ },
+ {
+  "qid": "ABS-P-nehachopra",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Neha Chopra led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-poojabose",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Pooja Bose led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-lakshmighosh",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Lakshmi Ghosh led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-tanvirmalhotra",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Tanvir Malhotra led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-sunitajoshi",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Sunita Joshi led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-kavitareddy",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Kavita Reddy led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-imranjoshi",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Imran Joshi led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-pritipillai",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Priti Pillai led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-amitmukherjee",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Amit Mukherjee led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-farhanroy",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Farhan Roy led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-sureshchopra",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Suresh Chopra led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-jayadesai",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Jaya Desai led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-farhanrao",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Farhan Rao led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-chandanbanerjee",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Chandan Banerjee led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-sanjayjoshi",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Sanjay Joshi led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-meeraroy",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Meera Roy led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-priyapatel",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Priya Patel led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-sureshdas",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Suresh Das led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-manojverma",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Manoj Verma led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-rahuldas",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Rahul Das led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-ashanair",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Asha Nair led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-divyasingh",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Divya Singh led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-tanvirmenon",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Tanvir Menon led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-poojasen",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Pooja Sen led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-amitiyer",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Amit Iyer led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-deepachatterjee",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Deepa Chatterjee led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-gautamjoshi",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Gautam Joshi led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-sureshdesai",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Suresh Desai led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-umasen",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Uma Sen led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-rajeshrao",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Rajesh Rao led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-naveenroy",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Naveen Roy led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-rahulmenon",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Rahul Menon led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-rohitsingh",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Rohit Singh led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-priyagupta",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Priya Gupta led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-meerachatterjee",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Meera Chatterjee led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-P-meerabanerjee",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 3,
+  "family": "absence_person",
+  "absence": true,
+  "question": "Of the works Meera Banerjee led as project lead, how many have no client reference letter?"
+ },
+ {
+  "qid": "ABS-H-64",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Suresh Chopra's PMP and their Substation EPC \u2014 Tamil Nadu Pkg-19 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-65",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Priya Patel's PMP and their Ring Road \u2014 Uttar Pradesh Pkg-113 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-66",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Uma Sen's PMP and their Check Dam \u2014 Uttar Pradesh Pkg-83 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-67",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Asha Nair's Six Sigma Black Belt and their STP \u2014 Jharkhand Pkg-38 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-68",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Rahul Das's PMP and their Institutional Building \u2014 West Bengal Pkg-74 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-69",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Sanjay Joshi's PMP and their Sewerage Network \u2014 Rajasthan Pkg-10 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-70",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Meera Roy's PMP and their Hospital Block \u2014 Odisha Pkg-39 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-71",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Rohit Singh's PMP and their ROB \u2014 Gujarat Pkg-71 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-72",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Uma Sen's Six Sigma Black Belt and their Check Dam \u2014 Uttar Pradesh Pkg-83 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-73",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Amit Iyer's Six Sigma Black Belt and their Ring Road \u2014 West Bengal Pkg-128 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-74",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Naveen Roy's PMP and their STP \u2014 Uttar Pradesh Pkg-31 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-75",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Meera Roy's PMP and their Pumping Station \u2014 Uttar Pradesh Pkg-65 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-76",
+  "answer_type": "count",
+  "gold": 3,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Imran Joshi's PMP and their Six-Lane Highway \u2014 Odisha Pkg-122 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-77",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Sunita Joshi's Six Sigma Black Belt and their Check Dam \u2014 Delhi Pkg-76 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-78",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Asha Nair's PMP and their School Building \u2014 Madhya Pradesh Pkg-145 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-79",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Neha Chopra's PMP and their Drainage Works \u2014 Uttar Pradesh Pkg-144 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-80",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Suresh Desai's PMP and their WTP Augmentation \u2014 Jharkhand Pkg-72 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-81",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Rahul Das's PMP and their RCC Bridge \u2014 Tamil Nadu Pkg-64 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-82",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Farhan Rao's PMP and their Greenfield Expressway \u2014 West Bengal Pkg-110 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-83",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Kavita Reddy's PMP and their Flyover \u2014 Gujarat Pkg-8 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-84",
+  "answer_type": "count",
+  "gold": 3,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Rajesh Rao's Six Sigma Black Belt and their School Building \u2014 Odisha Pkg-136 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-85",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Manoj Verma's PMP and their Stormwater Drainage \u2014 Tamil Nadu Pkg-52 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-86",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Suresh Chopra's PMP and their Process Piping Package \u2014 Uttar Pradesh Pkg-40 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-87",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Imran Joshi's PMP and their Material Handling Plant \u2014 Jharkhand Pkg-12 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-88",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Amit Iyer's Six Sigma Black Belt and their Six-Lane Highway \u2014 Maharashtra Pkg-104 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-89",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Sanjay Joshi's PMP and their Material Handling Plant \u2014 Maharashtra Pkg-96 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-90",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Divya Singh's PMP and their Six-Lane Highway \u2014 Uttar Pradesh Pkg-101 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-91",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Rahul Menon's PMP and their Ring Road \u2014 Maharashtra Pkg-125 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-92",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Jaya Desai's PMP and their STP \u2014 Gujarat Pkg-66 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-93",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Meera Chatterjee's PMP and their Rigid Pavement \u2014 Jharkhand Pkg-56 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-94",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Imran Joshi's Six Sigma Black Belt and their Material Handling Plant \u2014 Jharkhand Pkg-12 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-95",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Asha Nair's PMP and their STP \u2014 Jharkhand Pkg-38 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-96",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Pooja Bose's PMP and their Hospital Block \u2014 West Bengal Pkg-46 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-97",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Tanvir Malhotra's PMP and their Check Dam \u2014 Delhi Pkg-55 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-98",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Amit Iyer's PMP and their Ring Road \u2014 West Bengal Pkg-128 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-99",
+  "answer_type": "count",
+  "gold": 3,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Naveen Roy's PMP and their STP \u2014 Odisha Pkg-45 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-100",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Pooja Sen's PMP and their Hydro Tunnel \u2014 West Bengal Pkg-105 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-101",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Imran Joshi's PMP and their Sewerage Network \u2014 Maharashtra Pkg-87 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-102",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Tanvir Menon's Six Sigma Black Belt and their Water Treatment Plant \u2014 Rajasthan Pkg-58 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-H-103",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 5,
+  "family": "absence_multihop",
+  "absence": true,
+  "question": "Starting from Rajesh Rao's PMP and their RCC Bridge \u2014 Maharashtra Pkg-50 project, how many of that client's completed works have no reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-expressw-central",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many expressways works we completed for central government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-water tr-central",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many water treatment works we completed for central government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-roads hi-state",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many roads highways works we completed for state government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-irrigati-state",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many irrigation works we completed for state government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-small bu-psu",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many small buildings works we completed for public sector undertaking clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-tunnels-state",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many tunnels works we completed for state government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-industri-central",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many industrial epc works we completed for central government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-irrigati-private",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many irrigation works we completed for private-sector clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-sewerage-state",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many sewerage drainage works we completed for state government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-bridges -private",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many bridges flyovers works we completed for private-sector clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-tunnels-psu",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many tunnels works we completed for public sector undertaking clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-industri-state",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many industrial epc works we completed for state government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-irrigati-psu",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many irrigation works we completed for public sector undertaking clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-roads ma-psu",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many roads maintenance works we completed for public sector undertaking clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-building-central",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many buildings works we completed for central government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-expressw-state",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many expressways works we completed for state government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-industri-psu",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many industrial epc works we completed for public sector undertaking clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-water tr-municipal",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many water treatment works we completed for municipal clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-sewerage-private",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many sewerage drainage works we completed for private-sector clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-large br-central",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many large bridges works we completed for central government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-small bu-central",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many small buildings works we completed for central government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-water su-psu",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many water supply works we completed for public sector undertaking clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-water tr-private",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many water treatment works we completed for private-sector clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-irrigati-central",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many irrigation works we completed for central government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-water tr-psu",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many water treatment works we completed for public sector undertaking clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-large br-state",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many large bridges works we completed for state government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-bridges -psu",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many bridges flyovers works we completed for public sector undertaking clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-tunnels-central",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many tunnels works we completed for central government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-water tr-state",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many water treatment works we completed for state government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-roads hi-private",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many roads highways works we completed for private-sector clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-expressw-psu",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many expressways works we completed for public sector undertaking clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-roads ma-municipal",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many roads maintenance works we completed for municipal clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-tunnels-private",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many tunnels works we completed for private-sector clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-water su-private",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many water supply works we completed for private-sector clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-roads ma-state",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many roads maintenance works we completed for state government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-building-private",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many buildings works we completed for private-sector clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-water su-state",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many water supply works we completed for state government clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-roads hi-psu",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many roads highways works we completed for public sector undertaking clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-sewerage-psu",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many sewerage drainage works we completed for public sector undertaking clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-building-psu",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many buildings works we completed for public sector undertaking clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-roads ma-private",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many roads maintenance works we completed for private-sector clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-K-bridges -municipal",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_category",
+  "absence": true,
+  "question": "How many bridges flyovers works we completed for municipal clients have no client reference letter on file?"
+ },
+ {
+  "qid": "ABS-V-peninsularpe-2027-06-30",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Peninsular Petroleum Corporation, how many will NOT hold a valid PMP certification on 2027-06-30?"
+ },
+ {
+  "qid": "ABS-V-lakshyaengin-2027-06-30",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Lakshya Engineering & Construction, how many will NOT hold a valid PMP certification on 2027-06-30?"
+ },
+ {
+  "qid": "ABS-V-jalnigamutta-2027-06-30",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Jal Nigam, Uttar Pradesh, how many will NOT hold a valid PMP certification on 2027-06-30?"
+ },
+ {
+  "qid": "ABS-V-centralworks-2027-06-30",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Central Works & Buildings Bureau, how many will NOT hold a valid PMP certification on 2027-06-30?"
+ },
+ {
+  "qid": "ABS-V-publichealth-2027-06-30",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Public Health Engineering Dept, Odisha, how many will NOT hold a valid PMP certification on 2027-06-30?"
+ },
+ {
+  "qid": "ABS-V-meridiancons-2027-06-30",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Meridian Constructors & Co., how many will NOT hold a valid PMP certification on 2027-06-30?"
+ },
+ {
+  "qid": "ABS-V-tamilnadumun-2027-12-31",
+  "answer_type": "count",
+  "gold": 3,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Tamil Nadu Municipal Corporation, how many will NOT hold a valid PMP certification on 2027-12-31?"
+ },
+ {
+  "qid": "ABS-V-publichealth-2027-12-31",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Public Health Engineering Dept, Gujarat, how many will NOT hold a valid PMP certification on 2027-12-31?"
+ },
+ {
+  "qid": "ABS-V-gujaratmunic-2027-12-31",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Gujarat Municipal Corporation, how many will NOT hold a valid PMP certification on 2027-12-31?"
+ },
+ {
+  "qid": "ABS-V-jharkhandmun-2027-12-31",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Jharkhand Municipal Corporation, how many will NOT hold a valid PMP certification on 2027-12-31?"
+ },
+ {
+  "qid": "ABS-V-arunodayainf-2027-12-31",
+  "answer_type": "count",
+  "gold": 4,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Arunodaya Infrastructure, how many will NOT hold a valid PMP certification on 2027-12-31?"
+ },
+ {
+  "qid": "ABS-V-trishaktipow-2027-12-31",
+  "answer_type": "count",
+  "gold": 9,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Trishakti Power Generation Corporation, how many will NOT hold a valid PMP certification on 2027-12-31?"
+ },
+ {
+  "qid": "ABS-V-gujaratmunic-2028-06-30",
+  "answer_type": "count",
+  "gold": 0,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Gujarat Municipal Corporation, how many will NOT hold a valid PMP certification on 2028-06-30?"
+ },
+ {
+  "qid": "ABS-V-arunodayainf-2028-06-30",
+  "answer_type": "count",
+  "gold": 4,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Arunodaya Infrastructure, how many will NOT hold a valid PMP certification on 2028-06-30?"
+ },
+ {
+  "qid": "ABS-V-tamilnadumun-2028-06-30",
+  "answer_type": "count",
+  "gold": 3,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Tamil Nadu Municipal Corporation, how many will NOT hold a valid PMP certification on 2028-06-30?"
+ },
+ {
+  "qid": "ABS-V-jalnigamjhar-2028-06-30",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Jal Nigam, Jharkhand, how many will NOT hold a valid PMP certification on 2028-06-30?"
+ },
+ {
+  "qid": "ABS-V-peninsularpe-2028-06-30",
+  "answer_type": "count",
+  "gold": 2,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Peninsular Petroleum Corporation, how many will NOT hold a valid PMP certification on 2028-06-30?"
+ },
+ {
+  "qid": "ABS-V-maharashtram-2028-06-30",
+  "answer_type": "count",
+  "gold": 1,
+  "hops": 4,
+  "family": "absence_credential",
+  "absence": true,
+  "question": "Of the project leads who have delivered work for Maharashtra Municipal Corporation, how many will NOT hold a valid PMP certification on 2028-06-30?"
+ }
+]

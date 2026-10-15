@@ -76,3 +76,11 @@ if __name__ == "__main__":
         if e.get("render_as"):
             render({**e, "type": e["render_as"]}, g, random.Random(e["event_id"]))
     print(len(evs), "demo events ->", out)
+    # sample PDFs for the Live page: three of each planted type (incl. hard negatives)
+    import collections
+    seen = collections.Counter()
+    for e in json.loads((config.DATA / "conflicts" / "events.json").read_text()):
+        if e["type"] != "llm_grading" and seen[e["type"]] < 3:
+            seen[e["type"]] += 1
+            render(e, g, random.Random(e["event_id"]))
+    print(sum(seen.values()), "sample PDFs rendered")
