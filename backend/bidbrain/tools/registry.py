@@ -37,7 +37,12 @@ class Tool:
 
     def __call__(self, g, **kwargs) -> dict:
         allowed = set(inspect.signature(self.fn).parameters) - {"g"}
-        clean = {k: v for k, v in kwargs.items() if k in allowed and v is not None and v != ""}
+        # a misspelt filter must fail loudly: silently dropping `category` (vs `categories`) would answer
+        # an unscoped question as if it were scoped
+        unknown = sorted(k for k in kwargs if k not in allowed)
+        if unknown:
+            raise TypeError(f"{self.name} has no argument(s) {unknown}; it takes {sorted(allowed)}")
+        clean = {k: _coerce(self.params.get(k, {}), v) for k, v in kwargs.items() if v is not None and v != ""}
         t0 = time.perf_counter()
         out = self.fn(g, **clean)
         out.setdefault("evidence", [])
@@ -45,6 +50,24 @@ class Tool:
         out.setdefault("cypher", [])
         out["ms"] = round((time.perf_counter() - t0) * 1000, 1)
         return out
+
+
+def _coerce(spec: dict, v):
+    """Convert a JSON-ish argument to the declared type: LLMs often send '2023' for an integer, and in
+    Cypher an int compared with a string is null, which empties the result instead of erroring."""
+    t = spec.get("type")
+    try:
+        if t == "integer" and not isinstance(v, bool) and isinstance(v, (str, float)):
+            return int(float(str(v).replace(",", "")))
+        if t == "number" and isinstance(v, str):
+            return float(v.replace(",", ""))
+        if t == "boolean" and isinstance(v, str):
+            return {"true": True, "false": False, "yes": True, "no": False}[v.strip().lower()]
+        if t == "array" and isinstance(v, str):
+            return [v]
+    except (ValueError, KeyError):
+        raise ValueError(f"cannot read {v!r} as {t}")
+    return v
 
 
 def tool(name: str, description: str, params: dict | None = None,

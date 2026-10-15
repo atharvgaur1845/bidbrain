@@ -8,6 +8,7 @@ Space boots without re-embedding.
 """
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 
 import numpy as np
@@ -17,6 +18,12 @@ from bidbrain import config
 MODEL = "BAAI/bge-small-en-v1.5"
 DIM = 384
 WINDOW, OVERLAP = 1400, 200
+
+
+def _ft(text: str) -> str:
+    """Full-text copy of a page: whitespace folded (RediSearch does not split on newlines) and curly
+    quotes / dashes turned into spaces, so '“Anganwadi' and '151”' index as 'anganwadi' and '151'."""
+    return " ".join(re.sub(r"[‘’‚“”„–—―…«»]", " ", text).split())
 
 
 def make_chunks(pages) -> list[dict]:
@@ -73,7 +80,7 @@ def load_chunks(g, pages) -> int:
     # RediSearch does not split tokens on newlines ("Work\nAnganwadi" indexes as
     # ONE token), which silently lost ~60% of fulltext hits. Index a
     # whitespace-folded copy; keep `text` with its line breaks for display.
-    rows = [{**c, "ft": " ".join(c["text"].split()), "emb": v.tolist()} for c, v in zip(chunks, vecs)]
+    rows = [{**c, "ft": _ft(c["text"]), "emb": v.tolist()} for c, v in zip(chunks, vecs)]
     for i in range(0, len(rows), 200):
         g.run("""UNWIND $rows AS r MATCH (d:Document {doc_id:r.doc_id})
                  CREATE (c:Chunk {key:r.id, id:r.id, doc_id:r.doc_id, page:r.page, text:r.text, ft:r.ft,

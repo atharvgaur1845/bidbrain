@@ -113,7 +113,7 @@ def resolve(text: str, candidates: dict[str, list[str]], limit: int = 5) -> list
         scored.append({"key": key, "name": forms[0], "score": round(best, 1)})
     scored.sort(key=lambda r: -r["score"])
     top = scored[:limit]
-    if len(top) > 1 and top[0]["score"] - top[1]["score"] < 3 and top[0]["score"] < 100:
+    if len(top) > 1 and top[0]["score"] - top[1]["score"] < 3 and (top[0]["score"] < 100 or top[1]["score"] == 100):
         for r in top:
             r["ambiguous"] = True
     return top

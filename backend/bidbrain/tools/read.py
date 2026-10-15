@@ -71,11 +71,13 @@ def _resolve(g: Graph, text: str | None, kind: str) -> tuple[str | None, dict | 
         if low == forms[0].lower():
             return k, None
     if kind == "work":
-        m = re.search(r"pkg[\s\-]*(\d+)", low)
+        m = re.search(r"pkg[\s\-]*0*(\d+)", low)
         if m:
-            hits = [k for k, f in cands.items() if re.search(rf"pkg-{m.group(1)}$", f[0].lower())]
+            hits = [k for k, f in cands.items() if re.search(rf"pkg-0*{m.group(1)}$", f[0].lower())]
             if len(hits) == 1:
                 return hits[0], {"via": "package number", "matched": cands[hits[0]][0]}
+            if not hits:    # never let "Pkg-999" fuzzy-match Pkg-99
+                raise LookupError(f"no work with package number {m.group(1)}")
     ranked = aliases.resolve(text, cands, limit=3)
     if ranked and ranked[0]["score"] >= 70 and not ranked[0].get("ambiguous"):
         return ranked[0]["key"], {"via": "fuzzy", "matched": ranked[0]["name"], "score": ranked[0]["score"]}
@@ -127,10 +129,12 @@ def _works_payload(rows: list[dict], scope_nodes: list[dict], scope_edges: list[
       ["text", "kind"])
 def resolve_entity(g: Graph, text: str, kind: str) -> dict:
     cands = _candidates(g, kind)
-    if kind == "work" and (m := re.search(r"pkg[\s\-]*(\d+)", text.lower())):
-        hits = [k for k, f in cands.items() if re.search(rf"pkg-{m.group(1)}$", f[0].lower())]
+    if kind == "work" and (m := re.search(r"pkg[\s\-]*0*(\d+)", text.lower())):
+        hits = [k for k, f in cands.items() if re.search(rf"pkg-0*{m.group(1)}$", f[0].lower())]
         if len(hits) == 1:
             return {"result": [{"key": hits[0], "name": cands[hits[0]][0], "score": 100.0}]}
+        if not hits:
+            return {"result": [], "note": f"no work with package number {m.group(1)}"}
     ranked = aliases.resolve(text, cands, limit=5)
     return {"result": ranked}
 

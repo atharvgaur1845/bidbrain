@@ -5,6 +5,7 @@ cd /app/backend
 
 redis-server --loadmodule /var/lib/falkordb/bin/falkordb.so \
     TIMEOUT_DEFAULT 15000 TIMEOUT_MAX 180000 MAX_QUEUED_QUERIES 200 THREAD_COUNT 4 \
+    RESULTSET_SIZE 10000 QUERY_MEM_CAPACITY 1073741824 \
   --bind 127.0.0.1 --port 6379 --dir /tmp --save "" --appendonly no --daemonize yes \
   --maxmemory 6gb --logfile /tmp/falkordb.log
 

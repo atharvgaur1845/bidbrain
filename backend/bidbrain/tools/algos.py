@@ -51,10 +51,10 @@ def who_knows(g: Graph, client: str | None = None, category: str | None = None,
     q = """MATCH (p:Person)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
            WHERE ($c IS NULL OR c.key = $c) AND ($cat IS NULL OR w.category = $cat)
              AND ($st IS NULL OR toLower(w.state) = toLower($st))
+           WITH p, count(w) AS works, sum(w.value) AS value, max(w.completed) AS latest
            OPTIONAL MATCH (p)-[:HOLDS]->(cr:Credential)
            RETURN p.key AS key, p.name AS name, p.designation AS designation,
-                  p.experience_years AS experience_years, count(DISTINCT w) AS works,
-                  sum(DISTINCT w.value) AS value, max(w.completed) AS latest,
+                  p.experience_years AS experience_years, works, value, latest,
                   collect(DISTINCT cr.kind) AS credentials
            ORDER BY works DESC, value DESC LIMIT $lim"""
     rows = g.read(q, {"c": ck, "cat": cat, "st": state, "lim": int(limit)})

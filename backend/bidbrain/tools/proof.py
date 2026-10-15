@@ -44,9 +44,20 @@ def _ft_query(title: str) -> str:
 def prove_absence(g: Graph, evidence: str, client: str | None = None, person: str | None = None,
                   via_work: str | None = None, category: str | None = None,
                   credential_kind: str | None = None, valid_on: str | None = None) -> dict:
+    given = {k for k, v in {"client": client, "person": person, "via_work": via_work, "category": category,
+                            "credential_kind": credential_kind, "valid_on": valid_on}.items() if v}
+    allowed = {"reference_letter": {"client", "person", "via_work", "category"},
+               "valid_credential": {"client", "via_work", "category", "credential_kind", "valid_on"},
+               "performance_bond": {"category"}}.get(evidence)
+    if allowed is not None and given - allowed:
+        raise ValueError(f"evidence='{evidence}' cannot be scoped by {sorted(given - allowed)}; "
+                         f"supported: {sorted(allowed)}")
     if evidence == "reference_letter":
         return _absence_reference(g, client, person, via_work, category)
     if evidence == "valid_credential":
+        if via_work and not client:     # 'the client behind that work', as find_portfolio does
+            wk = _resolve(g, via_work, "work")[0]
+            client = g.scalar("MATCH (:Work {key:$k})-[:FOR_CLIENT]->(c:Client) RETURN c.key", {"k": wk})
         return _absence_credential(g, client, category, credential_kind or "PMP", valid_on or config.AS_OF)
     if evidence == "performance_bond":
         return _absence_bond(g, category)
@@ -114,12 +125,14 @@ def _absence_credential(g, client, category, kind, valid_on) -> dict:
            WITH DISTINCT p
            OPTIONAL MATCH (p)-[:HOLDS]->(cr:Credential) WHERE toLower(cr.kind) CONTAINS toLower($kind)
            RETURN p.key AS key, p.name AS name,
-                  collect({id: cr.key, valid_through: cr.valid_through, vday: cr.valid_through_day}) AS creds"""
+                  collect({id: cr.key, valid_through: cr.valid_through, vday: cr.valid_through_day,
+                           iday: cr.issued_day}) AS creds"""
     rows = g.read(q, {"c": ck, "cat": cat, "kind": kind})
     vd = day(valid_on)
     present, absent = [], []
     for r in rows:
-        valid = [c for c in r["creds"] if c.get("id") and (c["vday"] or 0) >= vd]
+        valid = [c for c in r["creds"] if c.get("id") and (c["vday"] or 0) >= vd
+                 and (c.get("iday") is None or c["iday"] <= vd)]
         (present if valid else absent).append({"key": r["key"], "name": r["name"],
                                                "credentials": [c for c in r["creds"] if c.get("id")]})
     return {"result": {"claim": f"{len(absent)} of {len(rows)} project leads in scope hold no {kind} valid on {valid_on}",
@@ -143,6 +156,10 @@ def _absence_bond(g, category) -> dict:
 
 # --------------------------------------------------------------------------
 # tender eligibility
+
+
+def _day_before(iso: str) -> str:
+    return (dt.date.fromisoformat(iso) - dt.timedelta(days=1)).isoformat()
 
 
 def _years_before(as_of: str, years: int) -> str:
@@ -182,7 +199,10 @@ def qualify_clause(g: Graph, kind: str, params: dict, bid_date: str | None = Non
 
 def _q_similar(g, p, bid_date) -> dict:
     since = _years_before(bid_date, int(p.get("lookback_years", 7)))
-    pf = find_portfolio(g, categories=p.get("categories"), completed_after=since,
+    # CPWD: works completed in the N years ending on the bid date. find_portfolio's bounds are strict,
+    # so the lower bound is the day before `since` (inclusive) and the bid date itself caps the window.
+    pf = find_portfolio(g, categories=p.get("categories"), completed_after=_day_before(since),
+                        completed_before=bid_date,
                         govt_levels=p.get("govt_levels"),
                         role=None if p.get("include_jv", True) else "Prime",
                         has_reference=True if p.get("require_reference") else None)
@@ -225,14 +245,18 @@ def _q_similar(g, p, bid_date) -> dict:
 def _q_turnover(g, p, bid_date) -> dict:
     n = int(p.get("years", 3))
     q = """MATCH (f:FinancialStatement)-[:FOR_FY]->(y:FiscalYear)
-           WHERE f.from_comparative_only = false AND y.start_year < $by
+           WHERE f.from_comparative_only = false AND y.start_year IN $years
            OPTIONAL MATCH (c:Claim {predicate:'revenue_operations'})-[:ABOUT]->(f)
            WITH f, y, collect({value: c.value, kind: c.source_kind, doc: c.source_doc, page: c.page,
                                status: c.status}) AS claims
-           RETURN f.key AS key, f.fy AS fy, f.revenue_operations AS revenue, claims
-           ORDER BY y.start_year DESC LIMIT $n"""
-    by = int(bid_date[:4]) if bid_date[5:7] > "03" else int(bid_date[:4]) - 1
-    rows = g.read(q, {"by": by + 1, "n": n})
+           RETURN f.key AS key, f.fy AS fy, y.start_year AS start_year, f.revenue_operations AS revenue, claims
+           ORDER BY y.start_year DESC"""
+    # the FY in progress on the bid date never counts: the last N *completed* FYs (Apr-Mar) before it
+    current = int(bid_date[:4]) if bid_date[5:7] > "03" else int(bid_date[:4]) - 1
+    years = [current - i for i in range(1, n + 1)]
+    rows = g.read(q, {"years": years})
+    have = {r["start_year"] for r in rows if r["revenue"] is not None}
+    missing = [f"{y}-{str(y + 1)[2:]}" for y in years if y not in have]
     revs = [r["revenue"] for r in rows if r["revenue"] is not None]
     avg = int(sum(revs) / len(revs)) if revs else 0
     contested = [r["fy"] for r in rows if any(c.get("status") == "contested" for c in r["claims"])]
@@ -242,11 +266,14 @@ def _q_turnover(g, p, bid_date) -> dict:
     if p.get("min_each_year"):
         bar = int(p["min_each_year"])
         failing = [r["fy"] for r in rows if (r["revenue"] or 0) < bar]
-        passed, basis = not failing, f"each of last {n} FY >= {bar:,}; failing: {failing or 'none'}"
+        passed, basis = bool(revs) and not failing, f"each of last {n} FY >= {bar:,}; failing: {failing or 'none'}"
     else:
         bar = int(p.get("min_average", 0))
-        passed, basis = avg >= bar, f"average of last {n} FY = {avg:,} vs required {bar:,}"
-    verdict = "PASS" if passed and not contested else ("AT_RISK" if passed else "FAIL")
+        passed, basis = bool(revs) and avg >= bar, f"average of last {n} FY = {avg:,} vs required {bar:,}"
+    if missing:
+        basis += f"; no audited statement for FY {', '.join(missing)} (averaged over {len(revs)} of {n} years)"
+    # a missing year cannot be proven either way: a pass on the years we have is only AT_RISK
+    verdict = "PASS" if passed and not contested and not missing else ("AT_RISK" if passed else "FAIL")
     ev = [{"doc_id": c["doc"], "page": c["page"], "what": f"FY{r['fy']} revenue {c['value']:,} ({c['kind']})"}
           for r in rows for c in r["claims"] if c.get("doc")]
     return {"result": {"verdict": verdict, "basis": basis, "average": avg,
@@ -254,7 +281,8 @@ def _q_turnover(g, p, bid_date) -> dict:
                                   "competing_values": sorted({c["value"] for c in r["claims"] if c.get("value") is not None})}
                                  for r in rows],
                        "contested_years": contested, "resolved_restatements": restated,
-                       "gaps": [] if passed else [basis]},
+                       "missing_years": missing,
+                       "gaps": ([] if passed else [basis]) + [f"no audited statement for FY {m}" for m in missing]},
             "evidence": ev, "cypher": [q]}
 
 
@@ -266,7 +294,7 @@ def _q_personnel(g, p, bid_date) -> dict:
            OPTIONAL MATCH (pp)<-[:LED_BY]-(w:Work) WHERE $cats IS NULL OR w.category IN $cats
            RETURN pp.key AS key, pp.name AS name, pp.designation AS designation,
                   pp.experience_years AS experience_years, c.key AS credential_id,
-                  c.valid_through AS valid_through, c.valid_through_day AS vday,
+                  c.valid_through AS valid_through, c.valid_through_day AS vday, c.issued_day AS iday,
                   d.doc_id AS doc, e.page AS page, count(w) AS similar_led
            ORDER BY similar_led DESC, experience_years DESC"""
     cats = [_resolve(g, c, "category")[0] for c in p["categories"]] if p.get("categories") else None
@@ -274,8 +302,9 @@ def _q_personnel(g, p, bid_date) -> dict:
     bd = day(bid_date)
     if cats:
         rows = [r for r in rows if r["similar_led"] > 0]
-    valid = [r for r in rows if (r["vday"] or 0) >= bd]
-    lapsing = [r for r in rows if (r["vday"] or 0) < bd]
+    held = [r for r in rows if r["iday"] is None or r["iday"] <= bd]          # not yet issued => not held
+    valid = [r for r in held if (r["vday"] or 0) >= bd]
+    lapsing = [r for r in held if (r["vday"] or 0) < bd]
     soon = [r for r in valid if (r["vday"] or 0) < bd + 90]
     passed = len(valid) >= need
     # AT_RISK when the strongest candidates (ranked by similar work led, then experience) lapse within
@@ -304,9 +333,9 @@ def _q_personnel(g, p, bid_date) -> dict:
 def _q_cert(g, p, bid_date) -> dict:
     q = """MATCH (c:Certification)-[e:EVIDENCED_BY]->(d:Document) WHERE toLower(c.standard) CONTAINS toLower($s)
            RETURN c.key AS key, c.standard AS standard, c.body AS body, c.valid_until AS valid_until,
-                  c.valid_until_day AS vday, d.doc_id AS doc"""
+                  c.valid_until_day AS vday, c.initial_date AS initial, d.doc_id AS doc"""
     rows = g.read(q, {"s": p.get("standard", "")})
-    ok = [r for r in rows if (r["vday"] or 0) >= day(bid_date)]
+    ok = [r for r in rows if (r["vday"] or 0) >= day(bid_date) and (r["initial"] or "") <= bid_date]
     return {"result": {"verdict": "PASS" if ok else "FAIL",
                        "basis": f"{p.get('standard')} valid on {bid_date}: {bool(ok)}",
                        "satisfied_by": ok, "gaps": [] if ok else [f"no valid {p.get('standard')}"]},
