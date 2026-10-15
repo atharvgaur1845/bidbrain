@@ -79,6 +79,7 @@ def build_abs(g: Graph) -> list[dict]:
         for c in R.sample(clients, 6):
             rows = g.read("""MATCH (c:Client {key:$c})<-[:FOR_CLIENT]-(:Work)-[:LED_BY]->(p:Person)
                              WITH DISTINCT p OPTIONAL MATCH (p)-[:HOLDS]->(cr:Credential {kind:'PMP'})
+                             WHERE cr.issued_day <= $d
                              WITH p, max(cr.valid_through_day) AS v
                              RETURN count(p) AS n, sum(CASE WHEN v IS NULL OR v < $d THEN 1 ELSE 0 END) AS lacking""",
                           {"c": c["key"], "d": day(when)})
@@ -103,8 +104,9 @@ def build_tnd(g: Graph) -> list[dict]:
         for est_cr in (40, 80, 150, 250, 400):
             for years, bid in ((5, "2026-06-30"), (7, "2026-09-30")):
                 since = (dt.date.fromisoformat(bid).replace(year=int(bid[:4]) - years)).isoformat()
-                vals = [r["v"] for r in g.read("""MATCH (w:Work) WHERE w.category IN $cats AND w.completed > $since
-                                                  RETURN w.value AS v""", {"cats": cats, "since": since})]
+                vals = [r["v"] for r in g.read("""MATCH (w:Work) WHERE w.category IN $cats
+                                                    AND w.completed >= $since AND w.completed < $bid
+                                                  RETURN w.value AS v""", {"cats": cats, "since": since, "bid": bid})]
                 ok = _cpwd(vals, est_cr * 10_000_000)
                 out.append({"qid": f"TND-S-{cats[0][:6]}-{est_cr}-{years}", "answer_type": "verdict",
                             "gold": "QUALIFIES" if ok else "DOES NOT QUALIFY", "hops": 4, "family": "tender_similar",
@@ -112,23 +114,28 @@ def build_tnd(g: Graph) -> list[dict]:
                                          f"last {years} years: one work of at least 80% of the estimated cost of INR {est_cr} Cr, "
                                          f"or two works of 60%, or three works of 40%.' Do we qualify? Answer QUALIFIES or "
                                          f"DOES NOT QUALIFY.")})
-    fs = {r["fy"]: r["rev"] for r in g.read("""MATCH (f:FinancialStatement) WHERE f.from_comparative_only = false
-                                               RETURN f.fy AS fy, f.revenue_operations AS rev""")}
-    last3 = [fs[k] for k in sorted(fs)[-3:]]
+    # CPWD reads "last 3 financial years" as the 3 FYs completed before the bid date. With the bid due
+    # 2026-06-30 (inside FY 2026-27) those are FY 2023-24, 2024-25 and 2025-26.
+    turnover_bid = "2026-06-30"
+    fs = {r["y"]: r["rev"] for r in g.read("""MATCH (f:FinancialStatement)-[:FOR_FY]->(y:FiscalYear)
+                                              WHERE f.from_comparative_only = false
+                                              RETURN y.start_year AS y, f.revenue_operations AS rev""")}
+    last3 = [fs[y] for y in (2023, 2024, 2025)]
     for cr in (75, 150, 200, 230, 240, 250, 260, 300):
         bar = cr * 10_000_000
         out.append({"qid": f"TND-T-avg-{cr}", "answer_type": "verdict", "hops": 2, "family": "tender_turnover",
                     "gold": "QUALIFIES" if sum(last3) / 3 >= bar else "DOES NOT QUALIFY",
-                    "question": f"Tender clause: 'Average annual turnover of the last 3 financial years not less than "
-                                f"INR {cr} Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."})
+                    "question": f"Tender clause (bid due {turnover_bid}): 'Average annual turnover of the last 3 financial "
+                                f"years not less than INR {cr} Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."})
         out.append({"qid": f"TND-T-each-{cr}", "answer_type": "verdict", "hops": 2, "family": "tender_turnover",
                     "gold": "QUALIFIES" if min(last3) >= bar else "DOES NOT QUALIFY",
-                    "question": f"Tender clause: 'Annual turnover >= INR {cr} Cr in each of the last 3 financial years.' "
-                                f"Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."})
+                    "question": f"Tender clause (bid due {turnover_bid}): 'Annual turnover >= INR {cr} Cr in each of the "
+                                f"last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."})
     for cats in groups[:6]:
         for minx in (10, 15, 20, 25):
             for when in ("2026-06-30", "2027-09-30"):
-                n = g.read("""MATCH (p:Person)-[:HOLDS]->(c:Credential {kind:'PMP'}) WHERE c.valid_through_day >= $d
+                n = g.read("""MATCH (p:Person)-[:HOLDS]->(c:Credential {kind:'PMP'})
+                              WHERE c.valid_through_day >= $d AND c.issued_day <= $d
                                 AND p.experience_years >= $x AND (p)<-[:LED_BY]-(:Work {category: $c0})
                               RETURN count(DISTINCT p) AS n""", {"d": day(when), "x": minx, "c0": cats[0]})[0]["n"]
                 out.append({"qid": f"TND-P-{cats[0][:6]}-{minx}-{when}", "answer_type": "count", "gold": int(n), "hops": 4,

@@ -645,7 +645,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "QUALIFIES",
-  "question": "Tender clause: 'Average annual turnover of the last 3 financial years not less than INR 75 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Average annual turnover of the last 3 financial years not less than INR 75 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-each-75",
@@ -653,7 +653,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "QUALIFIES",
-  "question": "Tender clause: 'Annual turnover >= INR 75 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Annual turnover >= INR 75 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-avg-150",
@@ -661,7 +661,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "QUALIFIES",
-  "question": "Tender clause: 'Average annual turnover of the last 3 financial years not less than INR 150 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Average annual turnover of the last 3 financial years not less than INR 150 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-each-150",
@@ -669,7 +669,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "QUALIFIES",
-  "question": "Tender clause: 'Annual turnover >= INR 150 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Annual turnover >= INR 150 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-avg-200",
@@ -677,7 +677,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "QUALIFIES",
-  "question": "Tender clause: 'Average annual turnover of the last 3 financial years not less than INR 200 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Average annual turnover of the last 3 financial years not less than INR 200 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-each-200",
@@ -685,7 +685,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "QUALIFIES",
-  "question": "Tender clause: 'Annual turnover >= INR 200 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Annual turnover >= INR 200 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-avg-230",
@@ -693,7 +693,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "QUALIFIES",
-  "question": "Tender clause: 'Average annual turnover of the last 3 financial years not less than INR 230 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Average annual turnover of the last 3 financial years not less than INR 230 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-each-230",
@@ -701,7 +701,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "QUALIFIES",
-  "question": "Tender clause: 'Annual turnover >= INR 230 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Annual turnover >= INR 230 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-avg-240",
@@ -709,7 +709,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "QUALIFIES",
-  "question": "Tender clause: 'Average annual turnover of the last 3 financial years not less than INR 240 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Average annual turnover of the last 3 financial years not less than INR 240 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-each-240",
@@ -717,7 +717,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "DOES NOT QUALIFY",
-  "question": "Tender clause: 'Annual turnover >= INR 240 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Annual turnover >= INR 240 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-avg-250",
@@ -725,7 +725,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "QUALIFIES",
-  "question": "Tender clause: 'Average annual turnover of the last 3 financial years not less than INR 250 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Average annual turnover of the last 3 financial years not less than INR 250 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-each-250",
@@ -733,7 +733,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "DOES NOT QUALIFY",
-  "question": "Tender clause: 'Annual turnover >= INR 250 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Annual turnover >= INR 250 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-avg-260",
@@ -741,7 +741,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "DOES NOT QUALIFY",
-  "question": "Tender clause: 'Average annual turnover of the last 3 financial years not less than INR 260 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Average annual turnover of the last 3 financial years not less than INR 260 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-each-260",
@@ -749,7 +749,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "DOES NOT QUALIFY",
-  "question": "Tender clause: 'Annual turnover >= INR 260 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Annual turnover >= INR 260 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-avg-300",
@@ -757,7 +757,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "DOES NOT QUALIFY",
-  "question": "Tender clause: 'Average annual turnover of the last 3 financial years not less than INR 300 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Average annual turnover of the last 3 financial years not less than INR 300 Cr.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-T-each-300",
@@ -765,7 +765,7 @@
   "hops": 2,
   "family": "tender_turnover",
   "gold": "DOES NOT QUALIFY",
-  "question": "Tender clause: 'Annual turnover >= INR 300 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
+  "question": "Tender clause (bid due 2026-06-30): 'Annual turnover >= INR 300 Cr in each of the last 3 financial years.' Do we qualify? Answer QUALIFIES or DOES NOT QUALIFY."
  },
  {
   "qid": "TND-P-roads -10-2026-06-30",
