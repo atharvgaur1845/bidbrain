@@ -138,8 +138,8 @@ knowledge to the tools.
 | EvidenceHunter | no | `(:Clause)-[:SATISFIED_BY {credited}]->(Work \| Person \| FinancialStatement \| …)`, verdicts |
 | AbsenceAuditor | no | `(:Finding {kind:'absence'\|'expiry'\|'gap'})`: missing letters (with proof), PMPs lapsing before the bid, near misses |
 | ConflictSentinel | no | findings for every relied-on fact with a contested or overturned claim, citing the Decision |
-| **Verifier** | **no** | re-derives every verdict from the graph and **fails loudly** on disagreement |
-| Assembler | yes (template fallback) | the bid memo, with document and page citations and precedent past bids |
+| **Verifier** | **no** | re-runs every clause against the graph; on any disagreement the case is marked unverified and the recommendation becomes **NEEDS REVIEW** |
+| Assembler | yes (template fallback) | the bid memo: verdict per clause, an evidence table (document + page for every work, statement, person and certificate relied on), gaps, precedent past bids; downloadable as the bid pack |
 
 Each agent is an `(:AgentRun)`, and handoffs are `(:AgentRun)-[:HANDED_OFF_TO]->(:AgentRun)`. The whole team runs in about 50 ms
 plus LLM time, and a rate limit can never stop a demo because both LLM steps have deterministic fallbacks.

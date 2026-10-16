@@ -199,6 +199,7 @@ export function Badge({ tone = "neutral", children, className }: { tone?: keyof 
 
 const VERDICT_TONE: Record<string, string> = {
   PASS: "ok", BID: "ok", PROVEN: "ok", FAIL: "bad", "NO-BID": "bad", AT_RISK: "warn", "BID WITH FIXES": "warn", DECLARE: "blue",
+  "NEEDS REVIEW": "violet",
 };
 export function Verdict({ v, size = "md" }: { v?: string; size?: "sm" | "md" | "lg" }) {
   const tone = VERDICT_TONE[v || ""] || "neutral";

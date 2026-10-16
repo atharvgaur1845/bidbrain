@@ -71,6 +71,9 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
         res = out["result"]
         sat = C.satisfied_edges(c["kind"], res)
         C.set_verdict(g, kid, res["verdict"], res["basis"], sat, r2)
+        # what later agents need beyond verdict + SATISFIED_BY is written to the clause too: the handoff is the graph
+        g.run("MATCH (k:Clause {id:$k}) SET k.detail = $d", {"k": kid, "d": json.dumps(
+            {f: res.get(f) for f in ("expiring_within_90d", "safe_alternates", "near_misses") if res.get(f)}, default=str)})
         verdicts[kid] = res
         emit({"type": "verdict", "agent": "EvidenceHunter", "clause_id": kid, "ref": c["id"], "kind": c["kind"],
               "verdict": res["verdict"], "basis": res["basis"], "subgraph": out.get("subgraph"),
@@ -82,8 +85,15 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
     r3 = C.agent_run(g, case_id, "AbsenceAuditor", prev_run=r2)
     emit({"type": "agent_start", "agent": "AbsenceAuditor", "run": r3})
     n_find = 0
+    # read the EvidenceHunter's work back from the case subgraph (not from memory)
+    handed = {r["id"]: r for r in g.read(
+        """MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause) OPTIONAL MATCH (k)-[:SATISFIED_BY]->(s)
+           RETURN k.id AS id, k.verdict AS verdict, k.detail AS detail,
+                  collect(CASE WHEN s:Work THEN s.key END) AS works""", {"c": case_id})}
     for kid, c in clause_ids:
-        res = verdicts.get(kid) or {}
+        h = handed.get(kid) or {}
+        res = {"verdict": h.get("verdict"), **json.loads(h.get("detail") or "{}"),
+               "satisfied_by": [{"key": k} for k in h.get("works") or [] if k]}
         if c["kind"] == "similar_works" and res.get("satisfied_by"):
             keys = [w["key"] for w in res["satisfied_by"]]
             missing = g.read("MATCH (w:Work) WHERE w.key IN $k AND NOT (w)-[:HAS_REFERENCE]->() "
@@ -175,7 +185,7 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
     emit({"type": "agent_start", "agent": "Verifier", "run": r5})
     stored = g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause)
                        OPTIONAL MATCH (k)-[:SATISFIED_BY]->(s)
-                       RETURN k.id AS id, k.kind AS kind, k.params AS params, k.verdict AS verdict,
+                       RETURN k.id AS id, k.ref AS ref, k.kind AS kind, k.params AS params, k.verdict AS verdict,
                               collect(s.key) AS sat""", {"c": case_id})
     mismatches = []
     for s in stored:
@@ -186,7 +196,7 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
         stored_keys = sorted(k for k in s["sat"] if k and not k.startswith("FS-") and k != "company")
         ok = fresh["verdict"] == s["verdict"] and (not fresh_keys or fresh_keys == stored_keys)
         if not ok:
-            mismatches.append({"clause": s["id"], "stored": s["verdict"], "fresh": fresh["verdict"]})
+            mismatches.append({"clause": s["ref"] or s["id"], "clause_id": s["id"], "stored": s["verdict"], "fresh": fresh["verdict"]})
             C.add_finding(g, s["id"], "verification_failed",
                           f"Verifier re-derived {fresh['verdict']} but the case says {s['verdict']}", "high", [], r5)
     C.agent_done(g, r5, mismatches=len(mismatches))
@@ -202,19 +212,24 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
     for p in prec.get("result", [])[:2]:
         g.run("MATCH (c:Case {id:$c}), (b:Bid {key:$b}) MERGE (c)-[:PRECEDENT]->(b)", {"c": case_id, "b": p["bid"]})
     overall = C.overall_verdict(g, case_id)      # the same rule the ripple recomputes with
+    if mismatches:
+        # the Verifier's re-derivation disagrees with what the case recorded: never recommend on that record
+        overall = "NEEDS REVIEW"
+    evidence = _evidence(g, case_id)
     memo, how = None, "template"
-    if providers.available() or providers.REPLAY:
+    if prefer_llm and (providers.available() or providers.REPLAY):
         try:
             ctx = json.dumps({"tender": {k: tender.get(k) for k in ("id", "title", "authority", "bid_date")},
-                              "overall": overall, "clauses": rec["clauses"],
-                              "precedents": prec.get("result", [])[:2]}, default=str)[:14000]
+                              "overall": overall, "clauses": rec["clauses"], "evidence": evidence[:40],
+                              "verifier": {"ok": not mismatches, "mismatches": mismatches},
+                              "precedents": prec.get("result", [])[:2]}, default=str)[:16000]
             res = run_agent(g, "Assembler", ASSEMBLER_SYSTEM, ctx, ["who_knows", "key_people"], max_steps=4, emit=emit)
             if res.final and not res.error:
                 memo, how = res.final, "llm"
         except Exception:
             memo = None
     if not memo:
-        memo = _template_memo(tender, rec, overall, prec.get("result", []))
+        memo = _template_memo(tender, rec, overall, prec.get("result", []), evidence, mismatches)
     g.run("MATCH (c:Case {id:$c}) SET c.memo = $m, c.verdict = $v, c.status = 'open'",
           {"c": case_id, "m": memo, "v": overall})
     C.agent_done(g, r6, method=how)
@@ -225,12 +240,34 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
     return final
 
 
-def _template_memo(tender: dict, rec: dict, overall: str, precedents: list) -> str:
+def _evidence(g: Graph, case_id: str) -> list[dict]:
+    """What each clause relies on, with the document and page that prove it (the bid pack's evidence table)."""
+    return g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause)-[sb:SATISFIED_BY]->(s)
+                     OPTIONAL MATCH (s)-[e:EVIDENCED_BY]->(d:Document)
+                     WITH k, sb, s, e, d ORDER BY CASE e.kind WHEN 'completion_certificate' THEN 0 ELSE 1 END
+                     WITH k, sb, s, collect({doc: d.doc_id, page: e.page})[0] AS ev
+                     RETURN k.ref AS clause, labels(s)[0] AS kind, coalesce(s.title, s.name, s.fy, s.key) AS item,
+                            sb.credited AS credited, ev.doc AS doc, ev.page AS page
+                     ORDER BY clause, credited DESC""", {"c": case_id})
+
+
+def _template_memo(tender: dict, rec: dict, overall: str, precedents: list, evidence: list | None = None,
+                   mismatches: list | None = None) -> str:
     lines = [f"## {tender.get('title')} — recommendation: **{overall}**", "",
              f"Authority: {tender.get('authority', '—')} · bid due {tender.get('bid_date', '—')}", "",
              "| Clause | Verdict | Basis |", "|---|---|---|"]
     for c in rec["clauses"]:
         lines.append(f"| {c['ref']} {c['kind']} | {c['verdict']} | {(c.get('basis') or '').replace('|', '/')} |")
+    if mismatches:
+        lines += ["", "> **Verifier:** the re-derived verdict differs for "
+                  + ", ".join(f"{m['clause']} ({m['stored']} → {m['fresh']})" for m in mismatches)
+                  + ". Recommendation withheld until a person reviews it."]
+    if evidence:
+        lines += ["", "### Evidence", "", "| Clause | Relies on | Credited | Document | Page |", "|---|---|---|---|---|"]
+        for e in evidence:
+            credited = f"{int(e['credited']):,}" if isinstance(e.get("credited"), (int, float)) else "—"
+            lines.append(f"| {e['clause']} | {e['kind']}: {str(e['item']).replace('|', '/')} | {credited} | "
+                         f"{e.get('doc') or '—'} | {e.get('page') or '—'} |")
     risks = [(c["ref"], f) for c in rec["clauses"] for f in c["findings"] if f and f.get("severity") in ("high", "medium")]
     if risks:
         lines += ["", "### Gaps & risks"] + [f"- **{ref}** ({f['kind']}): {f['text']}" for ref, f in risks]

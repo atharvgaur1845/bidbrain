@@ -73,8 +73,8 @@ Crore = 10,000,000 rupees; Lakh = 100,000. Do not invent requirements."""
 
 ASSEMBLER_SYSTEM = """You are the Bid Pack Assembler. Given the verified case record (clauses, verdicts,
 evidence, findings), write a concise bid qualification memo in Markdown for the bid manager:
-1. One-line recommendation (BID / BID WITH FIXES / NO-BID) and why.
-2. A table: clause | verdict | how it is met (cite document ids + pages) .
+1. One-line recommendation (BID / BID WITH FIXES / NO-BID, or NEEDS REVIEW when the verifier failed) and why.
+2. A table: clause | verdict | how it is met, citing the document id and page from the record's `evidence` list.
 3. Gaps & risks (absences, conflicts, lapsing credentials) with the concrete fix for each.
 4. Proposed team (from the data) and precedent past bids if any.
 Only use facts from the record. Cite documents as DOC-XXX p.N. Be brief."""

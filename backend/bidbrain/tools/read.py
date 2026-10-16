@@ -450,9 +450,9 @@ def collection_rate(g: Graph, client: str | None = None, work: str | None = None
         client = g.scalar("MATCH (:Work {key:$k})-[:FOR_CLIENT]->(c) RETURN c.key", {"k": wk})
         hop = wk
     ck, res = _resolve(g, client, "client")
-    q = """MATCH (i:Invoice)-[:BILLED_TO]->(c:Client {key:$c})
+    q = """MATCH (c:Client {key:$c}) OPTIONAL MATCH (i:Invoice)-[:BILLED_TO]->(c)
            RETURN c.name AS client, count(i) AS n, sum(i.invoiced) AS invoiced, sum(i.received) AS received"""
-    r = g.read(q, {"c": ck})[0]
+    r = g.read(q, {"c": ck})[0]          # a client with no invoices is a real answer (n = 0), not an error
     rate = round(100 * r["received"] / r["invoiced"], 2) if r["invoiced"] else None
     sg = {"nodes": [_node("Client", ck, r["client"])] + ([_node("Work", hop, hop)] if hop else []),
           "edges": [_edge(f"Work:{hop}", f"Client:{ck}", "FOR_CLIENT")] if hop else []}

@@ -76,7 +76,7 @@ clause can explain which figure it used.
 
 ## 5. Tools (`bidbrain/tools/`): why tools instead of free Cypher
 
-* The Q&A agent gets **16 named tools** (a subset of the 25 in the registry) rather than writing Cypher; a read-only
+* The Q&A agent gets **17 named tools** (a subset of the 25 in the registry) rather than writing Cypher; a read-only
   `cypher_readonly` escape hatch is among them, for questions no tool covers. Each tool is a tested multi-hop traversal with exact
   arithmetic and evidence attached. Raw NL→Cypher is our *baseline* (`text2cypher`), and the benchmark shows the
   difference.
@@ -118,7 +118,7 @@ clause can explain which figure it used.
   - **Cache:** every completion is stored in SQLite, and `BIDBRAIN_REPLAY=1` replays recorded runs offline.
   - **Thinking off** (`/no_think`, or `enable_thinking=false` on vLLM). Tool routing does not need hidden reasoning,
     and it burns free-tier tokens.
-* **Loop** (`agents/loop.py`): about 100 lines, no framework. Every step is emitted as an event (tool, args, ms,
+* **Loop** (`agents/loop.py`): about 180 lines, no framework. Every step is emitted as an event (tool, args, ms,
   summary, Cypher, subgraph), and that event stream is what the UI animates.
 * **Tender team** (`agents/orchestrator.py`):
   - The six agents share **one case subgraph**. A handoff is a graph write the next agent reads, recorded as

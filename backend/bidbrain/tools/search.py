@@ -46,7 +46,8 @@ def vector_search(g: Graph, text: str, k: int = 6, doc_type: str | None = None) 
            MATCH (node)-[:PART_OF]->(d:Document) WHERE $dt IS NULL OR d.doc_type = $dt
            RETURN node.doc_id AS doc_id, node.page AS page, d.doc_type AS doc_type,
                   1 - score AS similarity, substring(node.text, 0, 600) AS text"""
-    kk = max(int(k) * 15, 80) if doc_type else int(k)
+    # with a doc_type filter, ask the index for every chunk (2.5k) so the filter cannot empty the top-k
+    kk = 100_000 if doc_type else int(k)
     rows = g.read(q, {"k": kk, "v": embed_query(text), "dt": doc_type})[: int(k)]
     return {"result": rows,
             "evidence": [{"doc_id": r["doc_id"], "page": r["page"], "what": f"semantic match ({r['similarity']:.2f})"} for r in rows],
