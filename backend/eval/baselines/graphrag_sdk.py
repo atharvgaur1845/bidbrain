@@ -81,21 +81,26 @@ class FastEmbedder(Embedder):
 
     def __init__(self):
         from fastembed import TextEmbedding
-        self._m = TextEmbedding("BAAI/bge-small-en-v1.5")
+        self._m = TextEmbedding("BAAI/bge-small-en-v1.5", threads=4)
 
     @property
     def model_name(self) -> str:  # abstract in the SDK
         return "bge-small-en-v1.5"
 
+    # one embedding call at a time, in small batches: the SDK embeds from several worker threads at once,
+    # and each concurrent ONNX run grows its own memory arena (10 GB at 16 documents in flight)
     def embed_query(self, text: str, **kwargs) -> list[float]:
-        return [float(x) for x in next(iter(self._m.query_embed([text])))]
+        with _EMB_RUN:
+            return [float(x) for x in next(iter(self._m.query_embed([text])))]
 
     def embed_documents(self, texts: list[str], **kwargs) -> list[list[float]]:
-        return [[float(x) for x in v] for v in self._m.embed(texts, batch_size=64)]
+        with _EMB_RUN:
+            return [[float(x) for x in v] for v in self._m.embed(texts, batch_size=8)]
 
 
 _EMBEDDER = None
 _EMB_LOCK = threading.Lock()
+_EMB_RUN = threading.Lock()
 
 
 def _embedder() -> FastEmbedder:
@@ -107,10 +112,14 @@ def _embedder() -> FastEmbedder:
     return _EMBEDDER
 
 
+def _llm() -> "CountingLiteLLM":
+    return CountingLiteLLM(model=f"openai/{MODEL}", api_base=VLLM, api_key=os.getenv("VLLM_API_KEY", "EMPTY"),
+                           temperature=0.0, max_tokens=4096,
+                           extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+
+
 def make() -> GraphRAG:
-    llm = CountingLiteLLM(model=f"openai/{MODEL}", api_base=VLLM, api_key=os.getenv("VLLM_API_KEY", "EMPTY"),
-                          temperature=0.0, max_tokens=4096,
-                          extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+    llm = _llm()
     return GraphRAG(connection=ConnectionConfig(host=os.getenv("FALKOR_HOST", "localhost"), graph_name=GRAPH,
                                                 query_timeout_ms=60000),
                     llm=llm, embedder=_embedder(), embedding_dimension=384)
@@ -129,7 +138,7 @@ def _write_marker(rec: dict) -> None:
     tmp.replace(p)
 
 
-async def ingest(limit: int | None = None, concurrency: int = int(os.getenv("SDK_INGEST_CONCURRENCY", "4"))):
+async def ingest(limit: int | None = None, concurrency: int = int(os.getenv("SDK_INGEST_CONCURRENCY", "12"))):
     # each document fans out to the SDK's own extraction workers and embeddings; 16 at once peaked at 10 GB
     corpus = json.loads(TEXT_CACHE.read_text())
     items = sorted(corpus.items())[: limit or None]
@@ -140,6 +149,12 @@ async def ingest(limit: int | None = None, concurrency: int = int(os.getenv("SDK
     ok: list[str] = []
     failed: list[dict] = []
     async with make() as rag:
+        # entity extraction by the same LLM (the SDK's default is a local GLiNER transformer on CPU, which needs
+        # several GB per worker and ~1 doc/min here); relations were always LLM-extracted
+        from graphrag_sdk.ingestion.extraction_strategies.entity_extractors import LLMExtractor
+        from graphrag_sdk.ingestion.extraction_strategies.graph_extraction import GraphExtraction
+        extractor = GraphExtraction(rag.llm if hasattr(rag, "llm") else _llm(),
+                                    entity_extractor=LLMExtractor(rag.llm if hasattr(rag, "llm") else _llm()))
         sem = asyncio.Semaphore(concurrency)
         done = 0
 
@@ -147,7 +162,7 @@ async def ingest(limit: int | None = None, concurrency: int = int(os.getenv("SDK
             nonlocal done
             async with sem:
                 try:
-                    await rag.ingest(text=text.replace("\f", "\n\n"), document_id=doc_id)
+                    await rag.ingest(text=text.replace("\f", "\n\n"), document_id=doc_id, extractor=extractor)
                     ok.append(doc_id)
                 except Exception as exc:
                     failed.append({"doc_id": doc_id, "error": f"{type(exc).__name__}: {str(exc)[:160]}"})
