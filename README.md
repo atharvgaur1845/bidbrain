@@ -53,7 +53,7 @@ flowchart LR
   LLM[demo: Groq pool<br/>gpt-oss-120b · qwen3.8-27b · gpt-oss-20b<br/>benchmark: Qwen3-32B on vLLM] --- Agents
 ```
 
-* **One registry, three consumers.** The same 25 tool functions serve the in-app agents, the MCP server
+* **One registry, three consumers.** The same 25 tool functions serve the in-app agents, the MCP server (24 of them; `case_open` writes, so MCP leaves it out)
   (`/mcp/`, streamable HTTP; any MCP client can connect) and the evaluation oracle.
 * **Arithmetic never happens in the LLM.** `aggregate` takes *work keys*, re-reads values from the graph, and computes
   in exact integer rupees.

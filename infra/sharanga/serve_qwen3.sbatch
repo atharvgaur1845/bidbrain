@@ -8,8 +8,8 @@
 #SBATCH --output=/scratch/pabitra/bidbrain/%x-%j.out
 # Serves Qwen3-32B (bf16, one H200) with tool calling for BidBrain's benchmark.
 #
-# Same model family the live demo uses on Groq / Cerebras, so benchmark numbers
-# describe the deployed agent. Toolchain setup is reused verbatim from the
+# Every benchmarked system runs on this one model, so the comparison is between context strategies (the demo
+# itself uses a Groq model pool, since Groq no longer serves Qwen3-32B). Toolchain setup is reused from the
 # Gemma-4 competition's serve_clean.sbatch (pinned CUDA 13.0 trio, venv's own
 # ninja/nvcc first on PATH) -- the root-cause fix documented there.
 set -u

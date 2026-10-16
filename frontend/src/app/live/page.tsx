@@ -18,6 +18,18 @@ const TYPE_LABEL: Record<string, string> = {
 
 type FeedItem = { kind: string; at: number; data: any };
 
+/** Why the bid manager chose a claim, in words built from the card (the learned rule cites this). */
+function rationaleFor(card: any, claim: string, similar: boolean): string {
+  const win = (card.claims || []).find((c: any) => c.id === claim);
+  const losers = (card.claims || []).filter((c: any) => c.id !== claim).map((c: any) => (c.source_kind || "").replace(/_/g, " "));
+  const what = `${(card.predicate || "this fact").replace(/_/g, " ")} of ${card.subject || card.key}`;
+  if (!win) return `bid manager decision on the ${what}`;
+  const src = `${(win.source_kind || "source").replace(/_/g, " ")} from ${win.issuer || "its issuer"}`;
+  return similar
+    ? `For ${(card.predicate || "this fact").replace(/_/g, " ")}, the ${src} is the authoritative record over the ${[...new Set(losers)].join(", ")}`
+    : `bid manager chose the ${src} for the ${what}`;
+}
+
 export default function LivePage() {
   const [events, setEvents] = useState<any[]>([]);
   const [samples, setSamples] = useState<any[]>([]);
@@ -77,7 +89,7 @@ export default function LivePage() {
     setBusy(true);
     try {
       const out = await api(`/api/conflicts/${card.id}/resolve`, { method: "POST",
-        body: JSON.stringify({ winner_claim: claim, rationale: similar ? "JV lead partner's certificate is the authoritative record of our role" : "bid manager decision", apply_to_similar: similar }) });
+        body: JSON.stringify({ winner_claim: claim, rationale: rationaleFor(card, claim, similar), apply_to_similar: similar }) });
       push("decision", { ...out.decision, conflict: { subject_key: card.key, predicate: card.predicate }, human: true });
       push("ripple", { subject: `${card.label}:${card.key}`, result: out.ripple });
       if (out.subgraph) { setGraph((g) => mergeGraph(g, out.subgraph)); setHl(new Set(out.subgraph.nodes.map((n: any) => n.id))); }

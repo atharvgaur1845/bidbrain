@@ -20,7 +20,10 @@ def key_people(g: Graph, algo: str = "betweenness", client: str | None = None,
     ck = _resolve(g, client, "client")[0] if client else None
     cat = _resolve(g, category, "category")[0] if category else None
     if algo == "betweenness":
-        q = """CALL algo.betweenness({nodeLabels:['Person','Client'], relationshipTypes:['WORKED_FOR','ENGAGED']})
+        # samplingSize above the node count makes FalkorDB use every source node: exact and repeatable
+        # (the default samples, so the ranking changed between calls)
+        q = """CALL algo.betweenness({nodeLabels:['Person','Client'], relationshipTypes:['WORKED_FOR','ENGAGED'],
+                                    samplingSize:100000, samplingSeed:7})
                YIELD node, score WITH node AS p, score WHERE p:Person
                MATCH (p)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
                WHERE ($c IS NULL OR c.key = $c) AND ($cat IS NULL OR w.category = $cat)

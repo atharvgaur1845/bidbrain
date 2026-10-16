@@ -226,7 +226,13 @@ def blast_radius(g: Graph, label: str, key: str, rerun: bool = True) -> dict:
     return {"result": {"subject": f"{label}:{key}", "cases_relying": direct, "past_bids_citing": bids,
                        "tenders_secured": tenders, "clauses_rechecked": len(clauses), "verdict_flips": flips,
                        "evidence_changed": rewired},
-            "subgraph": sg}
+            "subgraph": sg,
+            "cypher": [f"MATCH (s:{label} {{key:$k}})<-[:SATISFIED_BY]-(k:Clause)<-[:HAS_CLAUSE]-(c:Case) "
+                       "RETURN DISTINCT c.id, c.title, k.id",
+                       f"MATCH (s:{label} {{key:$k}})<-[:CITES|PROPOSES|SECURED_BY]-(b:Bid) RETURN b.key, b.submitted",
+                       f"MATCH (s:{label} {{key:$k}})-[:SECURES]->(t:Tender) RETURN t.key",
+                       "MATCH (c:Case {status:'open'})-[:HAS_CLAUSE]->(k:Clause) WHERE k.kind IN $kinds "
+                       "RETURN c.id, c.bid_date, k.id, k.kind, k.params, k.verdict   // each is re-run with qualify_clause"]}
 
 
 # finding kinds that describe the clause's *current* verdict (a gap closes, a ripple note is

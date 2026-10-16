@@ -129,7 +129,8 @@ def _write_marker(rec: dict) -> None:
     tmp.replace(p)
 
 
-async def ingest(limit: int | None = None, concurrency: int = 16):
+async def ingest(limit: int | None = None, concurrency: int = int(os.getenv("SDK_INGEST_CONCURRENCY", "4"))):
+    # each document fans out to the SDK's own extraction workers and embeddings; 16 at once peaked at 10 GB
     corpus = json.loads(TEXT_CACHE.read_text())
     items = sorted(corpus.items())[: limit or None]
     t0 = time.time()

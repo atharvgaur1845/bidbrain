@@ -7,15 +7,15 @@ every number that matters.
 ---
 
 ### 0:00 – 0:20 · Hook (Overview page)
-**Screen:** the hero headline; the stats tiles count up (7,544 nodes · 12,838 relationships · 1,648 claims · 114 decisions).
+**Screen:** Home: the header facts (687 documents · 7,544 nodes · 12,839 relationships · 114 decisions), the "Ask the company brain" panel and the Explore rows.
 **Say:** "Indian infrastructure firms win public tenders by proving their past: similar works, qualified engineers,
 valid bank guarantees. That proof lives in hundreds of documents that contradict each other. BidBrain is a company
 brain on FalkorDB that turns all of it into one graph that agents act on."
 
 ### 0:20 – 1:15 · Hero 1: tender in, bid memo out (Qualify)
-**Screen:** pick *4-laning of Greenfield Expressway, ₹250 Cr* → **Qualify this tender**. The agent column ticks
+**Screen:** pick *4-laning of Greenfield Expressway, ₹250 Cr* → **Run agents**. The agent column ticks
 through ClauseParser → EvidenceHunter → AbsenceAuditor → ConflictSentinel → **Verifier** → Assembler. Clause rows fill
-in with PASS badges, and the evidence graph grows. Click clause 2.1 to highlight Ring Road UP Pkg-113 →
+in with PASS badges, and the evidence graph grows. Open the Memo tab and **Download bid pack** later; first click clause 2.1 to highlight Ring Road UP Pkg-113 →
 DOC-CC-113 p.1, and open the PDF at that page.
 **Say:** "Six agents share one case graph. Each writes its conclusions as nodes the next one reads, so every handoff
 is an edge. The similar-works rule is the real CPWD rule: one work at 80% of the cost, or two at 60%, or three at
@@ -41,18 +41,18 @@ ripple graph lights up the case and 6 past bids that cited this work.
 authority-and-recency policy. Then BidBrain walks outward from the changed fact to every open bid that relied on it.
 Two documents later, a winnable bid is a no-bid, and we know exactly why."
 **Then:** send **"JV Experience Certificate"**. It's a close call, so it lands in *Needs your judgement*. Click
-**Choose + learn rule**. Send the second JV certificate: it **resolves itself**, citing your decision.
+**Choose and learn rule**. Send the second JV certificate: it **resolves itself**, citing your decision.
 **Say:** "When the policy can't decide, it asks. When you decide, it learns."
 
 ### 2:50 – 3:10 · Decisions & graph algorithms (Decisions → Explore)
 **Screen:** Decisions page. Click the corrigendum decision: the trace graph shows Decision → SELECTS → claim → FROM →
-DOC, and DECIDED_BY. Then Explore → **Bus factor (betweenness)**: Rahul Menon tops the list. **Audit past bids**:
+DOC, and DECIDED_BY. Then Explore → **Bus factor (betweenness)**: Rahul Menon tops the list (exact betweenness, so the ranking is stable). **Audit past bids**:
 every past dossier cited works not yet complete at submission.
 **Say:** "Every fact traces back to a decision, a decider, and two documents. FalkorDB's algorithms are tools the
 agents call: betweenness shows who the company can't afford to lose."
 
 ### 3:10 – 3:40 · Benchmark (Benchmark page)
-**Screen:** the accuracy table (same model across BidBrain, text-to-Cypher, vector RAG and GraphRAG-SDK), the hop-count
+**Screen:** the leaderboard (same Qwen3-32B for BidBrain, text-to-Cypher, vector RAG and, once its ingest finishes, GraphRAG-SDK), the hop-count
 bars, tool sufficiency 354/354, and conflict-engine P/R on 275 planted events plus 50 rendered PDFs.
 **Say:** "Same model, same database, different context. [Read the headline gap at 5–6 hops and on absence
 questions.] And we publish what broke: the PDF eval found two real bugs on its first run."

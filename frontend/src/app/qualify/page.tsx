@@ -1,6 +1,6 @@
 "use client";
 
-import { ScrollText as ScrollTextIcon } from "lucide-react";
+import { ScrollText as ScrollTextIcon, Download } from "lucide-react";
 
 import { useEffect, useState } from "react";
 import GraphCanvas, { GData, mergeGraph } from "@/components/GraphCanvas";
@@ -10,6 +10,16 @@ import { api, stream } from "@/lib/api";
 import { AgentPipeline, AgentStatus, Clause, TenderList, VerdictTable, VerifierBanner } from "./parts";
 
 type Tab = "verdicts" | "evidence" | "memo";
+
+/** The bid pack: the memo (verdict per clause, evidence with document pages, gaps, risks) as a Markdown file. */
+function downloadMemo(markdown: string, id: string) {
+  const url = URL.createObjectURL(new Blob([markdown], { type: "text/markdown;charset=utf-8" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: `bid-pack-${id}.md` });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export default function QualifyPage() {
   const [tenders, setTenders] = useState<any[]>([]);
@@ -159,7 +169,12 @@ export default function QualifyPage() {
           {tab === "memo" && (
             memo || verified ? (
               <Card title="Bid memo"
-                action={memo ? <span className="text-[12.5px] text-ink-3">{memo.method === "llm" ? "Written by the Assembler" : "Assembled from the verified record"}</span> : null}>
+                action={memo ? <>
+                  <span className="hidden text-[12.5px] text-ink-3 sm:inline">{memo.method === "llm" ? "Written by the Assembler" : "Assembled from the verified record"}</span>
+                  <Button size="sm" onClick={() => downloadMemo(memo.markdown, pick?.id || "tender")}>
+                    <Download size={14} strokeWidth={1.75} /> Download bid pack
+                  </Button>
+                </> : null}>
                 <div className="flex flex-col gap-4">
                   {verified && <VerifierBanner verified={verified} />}
                   {memo

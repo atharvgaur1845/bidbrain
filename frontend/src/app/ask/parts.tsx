@@ -88,7 +88,9 @@ export function Comparison({ answer, toolCalls, baseline }: { answer: any; toolC
             <div className="mt-1 text-[12.5px] text-ink-3">{baseline.error}</div>
           ) : (
             <>
-              <div className="num mt-1 break-words text-[16px] font-semibold leading-snug text-bad">{String(baseline.answer_text)}</div>
+              <div className={clsx("num mt-1 break-words text-[16px] font-semibold leading-snug",
+                String(baseline.answer) === String(answer) ? "text-ink" : "text-warn")}>{String(baseline.answer_text)}</div>
+              {String(baseline.answer) !== String(answer) && <div className="mt-0.5 text-[12px] text-warn">Differs from the graph answer</div>}
               <div className="mt-1 text-[12px] text-ink-3">Same model, top-8 chunks</div>
             </>
           )}
