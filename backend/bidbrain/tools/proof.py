@@ -170,6 +170,16 @@ def _years_before(as_of: str, years: int) -> str:
         return d.replace(year=d.year - years, day=28).isoformat()
 
 
+PARAMS = {"similar_works": {"categories", "estimated_cost", "min_value", "count", "lookback_years", "govt_levels",
+                           "include_jv", "require_reference"},
+          "turnover": {"years", "min_average", "min_each_year"},
+          "key_personnel": {"credential", "count", "min_experience_years", "categories"},
+          "certification": {"standard"},
+          "years_in_business": {"min_years"}}
+NEEDS = {"similar_works": ({"estimated_cost", "min_value"}, "estimated_cost or min_value"),
+         "turnover": ({"min_average", "min_each_year"}, "min_average or min_each_year")}
+
+
 @tool("qualify_clause",
       """Check one tender eligibility clause against the company's graph and return a verdict
       (PASS / FAIL / AT_RISK) with the works, people, statements or certificates that satisfy it,
@@ -188,6 +198,14 @@ def _years_before(as_of: str, years: int) -> str:
        "params": {"type": "object"}, "bid_date": {"type": "string"}},
       ["kind", "params"])
 def qualify_clause(g: Graph, kind: str, params: dict, bid_date: str | None = None) -> dict:
+    # params is a free-form object in the tool schema, so a model can invent keys ("thresholds",
+    # "min_experience"); an ignored key silently widens the check, so unknown keys are an error
+    params = {k: v for k, v in (params or {}).items() if v is not None and v != ""}
+    unknown = sorted(set(params) - PARAMS.get(kind, set()))
+    if unknown:
+        raise ValueError(f"{kind} params take {sorted(PARAMS[kind])}; unknown: {unknown}")
+    if kind in NEEDS and not (NEEDS[kind][0] & set(params)):
+        raise ValueError(f"{kind} needs {NEEDS[kind][1]}")
     bid_date = bid_date or config.AS_OF
     fn = {"similar_works": _q_similar, "turnover": _q_turnover, "key_personnel": _q_personnel,
           "certification": _q_cert, "years_in_business": _q_years}[kind]
@@ -321,7 +339,7 @@ def _q_personnel(g, p, bid_date) -> dict:
     sg = {"nodes": [_node("Person", r["key"], r["name"]) for r in valid[:8]]
           + [_node("Credential", r["credential_id"], f"{cred} {r['credential_id']}") for r in valid[:8]],
           "edges": [_edge(f"Person:{r['key']}", f"Credential:{r['credential_id']}", "HOLDS") for r in valid[:8]]}
-    return {"result": {"verdict": verdict, "basis": basis, "satisfied_by": valid[:max(need, 5)],
+    return {"result": {"verdict": verdict, "basis": basis, "n_qualified": len(valid), "satisfied_by": valid[:max(need, 5)],
                        "lapsed_before_bid": [{"name": r["name"], "valid_through": r["valid_through"]} for r in lapsing],
                        "expiring_within_90d": [{"name": r["name"], "valid_through": r["valid_through"]} for r in soon],
                        "safe_alternates": [{"name": r["name"], "valid_through": r["valid_through"],

@@ -17,7 +17,11 @@ BRIEF = {
     "collection_rate": "% of invoiced amount received from a client (or from the client of `work`).",
     "awarded_vs_billed": "Gap between a client's completed work value and what we invoiced them (client or work).",
     "prove_absence": "Which items in a scope LACK evidence, with proof. evidence: reference_letter (scope client|person|via_work|category) | valid_credential | performance_bond.",
-    "qualify_clause": "Check a tender clause. kind: similar_works|turnover|key_personnel|certification|years_in_business; params per kind; bid_date.",
+    "qualify_clause": ("Check a tender clause on bid_date. params by kind: similar_works {categories:[..], estimated_cost "
+                       "(rupees; CPWD 80/60/40 rule) or min_value+count, lookback_years, govt_levels}; turnover "
+                       "{min_average or min_each_year (rupees), years}; key_personnel {credential, min_experience_years, "
+                       "count, categories}; certification {standard}; years_in_business {min_years}. "
+                       "Answer a 'how many people' question from n_qualified."),
     "who_knows": "People who worked with a client / in a category / state, ranked by works led.",
     "key_people": "Bus factor: people ranked by betweenness over the person-client graph.",
     "explain_path": "Shortest connection paths between two entities (a, a_kind, b, b_kind).",

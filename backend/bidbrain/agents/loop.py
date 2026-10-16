@@ -13,6 +13,7 @@ shows as "the path behind this answer".
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Callable
@@ -79,6 +80,20 @@ def _count(res: RunResult, rep) -> None:
     res.providers.append(rep.provider + (" (cached)" if rep.cached else ""))
 
 
+
+def _calls_from_text(text: str) -> list[dict]:
+    calls = []
+    for i, m in enumerate(re.finditer(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", text or "", re.S)):
+        try:
+            obj = json.loads(m.group(1))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and obj.get("name"):
+            args = obj.get("arguments", {})
+            calls.append({"id": f"text-call-{i}", "name": obj["name"],
+                          "arguments": args if isinstance(args, str) else json.dumps(args)})
+    return calls
+
 def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str],
               max_steps: int = 8, emit: Emit | None = None, history: list[dict] | None = None) -> RunResult:
     emit = emit or (lambda e: None)
@@ -101,6 +116,16 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
                 res.error = None
             break
         _count(res, rep)
+        if not rep.tool_calls and "tool_call>" in (rep.content or ""):
+            # Qwen sometimes writes its call as text the server's hermes parser misses: recover the call
+            # from the text, or (once) ask for a well-formed one instead of taking "</tool_call>" as the answer
+            rep.tool_calls = _calls_from_text(rep.content)
+            if not rep.tool_calls and not res.note:
+                res.note = "re-asked after a malformed tool call"
+                messages.append({"role": "assistant", "content": rep.content})
+                messages.append({"role": "user", "content": "That tool call was malformed. Call the tool again "
+                                 "with valid JSON arguments, or give the final ANSWER line."})
+                continue
         if not rep.tool_calls:
             res.final = rep.content
             emit({"type": "final", "agent": agent, "text": rep.content, "provider": rep.provider})
