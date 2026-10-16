@@ -182,17 +182,32 @@ measures the strategies, not the deployed model.
 | Conflict engine, JSON stream: 275 events, 200 conflicts + 75 hard negatives (rounding, unchanged restatements, unrelated fields) | P = R = F1 = **1.00**, routing 1.00, winner 1.00 |
 | Conflict engine, **PDF path**: 50 rendered PDFs → extraction → entity resolution from varied titles → detection | F1 **1.00**, subject resolution 100%, value extraction 100% (first run: F1 0.976 and extraction 86.7%, which exposed 2 real bugs, both fixed) |
 
-**Q&A accuracy** (exact match; proportional score in `data/eval/qa_summary.json`):
+**Q&A accuracy** (Qwen3-32B on vLLM, temperature 0, exact match; full breakdown in `data/eval/qa_summary.json` and on
+the Benchmark page):
 
-| System | S21 (true gold) | Q333 (near-gold) | ABS (absence, 164) | TND (tender, 144) |
+| System | S21 (true gold, 21) | Q333 (near-gold, 333) | ABS (absence, 164) | TND (tender, 144) |
 |---|---|---|---|---|
-| BidBrain agent | _pending_ | | | |
-| LLM text-to-Cypher | | | | |
-| Vector RAG | | | | |
-| GraphRAG-SDK (auto schema) | | | | |
+| **BidBrain agent** | **.810** (17/21) | **.640** | **.780** | **.896** |
+| LLM text-to-Cypher | .333 | .180 | .537 | .264 |
+| Vector RAG | .190 | .075 | .268 | .389 |
+| GraphRAG-SDK (auto schema) | _ingest running_ | | | |
+| Constant answer (always 0 / majority) | .190 | .045 | .427 | .472 |
+
+By hop count on Q333 (2-3 / 4 / 5-6 hops): BidBrain .92 / .72 / .52, text-to-Cypher .32 / .18 / .14, vector RAG
+.00 / .06 / .10. The graph's advantage grows with the number of joins. Cost per Q333 question: BidBrain 3.9 LLM calls,
+~13k tokens, p50 4.2 s; text-to-Cypher 2.2 calls, ~1.3k tokens, 2.5 s; vector RAG 1 call, ~3.5k tokens, 5.3 s.
 
 Honest notes:
 
+* **Two BidBrain runs.** In the first run, BidBrain scored .313 on TND. The agent's one-line tool description for
+  `qualify_clause` named no parameters, so the model invented keys (`thresholds`, `min_experience`) that the tool
+  silently ignored. We then documented and validated the parameters. This fix applies to every question; nothing was
+  tuned to individual questions. We re-ran BidBrain on every set: TND went to .896, and Q333 moved from .646 to .640.
+  The first run is kept in `data/eval/results/run1/`. The baselines do not use these tools, so they were not re-run.
+* These are single runs. Q333 changed by about ±5% between the two BidBrain runs (19 answers right→wrong, 17
+  wrong→right).
+* Constant answers are included because they are informative. On ABS, always answering 0 beats vector RAG,
+  which confidently counts what it retrieved. On TND, the majority answer beats both baselines.
 * Q333 gold is the old deterministic engine's output, which scored 99.775 on the hidden leaderboard, so it is
   *near*-gold. True-gold results (S21) are reported separately.
 * The conflict rules and the planted labels were written by the same team, so the JSON path mostly checks

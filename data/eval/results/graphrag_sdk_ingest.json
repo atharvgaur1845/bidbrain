@@ -1,0 +1,12 @@
+{
+ "graph": "grsdk_bidbrain",
+ "n_docs": 678,
+ "attempted": 678,
+ "ok": 0,
+ "failed_n": 0,
+ "failed": [],
+ "coverage": 0.0,
+ "finalized": false,
+ "started_at": "2026-10-16 06:09:39",
+ "finished_at": null
+}
