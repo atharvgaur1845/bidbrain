@@ -9,12 +9,13 @@ export type GNode = { id: string; label: string; name?: string; [k: string]: any
 export type GEdge = { source: string; target: string; type: string };
 export type GData = { nodes: GNode[]; edges: GEdge[] };
 
+// one muted family, matching the UI's pastel tiles and result bars (deeper than the tiles so nodes read on glass)
 export const LABEL_COLORS: Record<string, string> = {
-  Work: "#1a73e8", Client: "#f29900", Person: "#8e44ec", Document: "#8a94a0", Credential: "#0f9d58",
-  Claim: "#e8467c", Decision: "#d93025", Tender: "#12a4c6", Bid: "#e37400", Case: "#7c5cff",
-  FinancialStatement: "#34a853", Bond: "#f57c00", Category: "#9aa4b0", Company: "#1f2328",
-  Certification: "#00897b", Missing: "#d93025", Clause: "#7c5cff", Finding: "#d93025", Invoice: "#5c9bf0",
-  AgentRun: "#12a4c6", Conversation: "#8a94a0", Turn: "#8a94a0",
+  Work: "#5e9aa6", Client: "#df8a5f", Person: "#8b7be0", Document: "#a39d96", Credential: "#7f9c5a",
+  Claim: "#c46f93", Decision: "#c4553d", Tender: "#4f9b98", Bid: "#d29a3c", Case: "#7c6be6",
+  FinancialStatement: "#6f9a5e", Bond: "#d6914f", Category: "#b3aca4", Company: "#3a3532",
+  Certification: "#4f8f7a", Missing: "#c4553d", Clause: "#7c6be6", Finding: "#c4553d", Invoice: "#78a2c4",
+  AgentRun: "#4f9b98", Conversation: "#a39d96", Turn: "#a39d96",
 };
 const SIZE: Record<string, number> = { Client: 7, Person: 6, Work: 5, Case: 8, Company: 8, Tender: 6, Bid: 6, Missing: 5 };
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { History as HistoryIcon } from "lucide-react";
+
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { Card, Stat, Tabs } from "@/components/ui";
@@ -59,7 +61,7 @@ export default function MemoryPage() {
 
   return (
     <div>
-      <PageHeader title="Memory"
+      <PageHeader icon={<HistoryIcon size={19} strokeWidth={1.75} />} tone="lavender" title="Memory"
         subtitle="Your session is a private GRAPH.COPY of the company graph in FalkorDB. It keeps your conversation, cases, decisions and learned rules, and persists on this browser."
         meta={ov ? (
           <>

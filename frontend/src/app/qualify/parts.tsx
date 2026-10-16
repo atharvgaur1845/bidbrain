@@ -1,9 +1,9 @@
 "use client";
 
 import clsx from "clsx";
-import { ShieldAlert, ShieldCheck } from "lucide-react";
+import { ShieldAlert, ShieldCheck, Building2, Droplets, Route, ScrollText, Waypoints } from "lucide-react";
 import type { GData } from "@/components/GraphCanvas";
-import { Badge, Empty, Spinner, Verdict } from "@/components/ui";
+import { Badge, Empty, Spinner, Verdict, IconTile, type TileTone } from "@/components/ui";
 import { fmtINR } from "@/lib/api";
 
 export const AGENTS = [
@@ -25,28 +25,37 @@ const humanize = (s: string) => (s || "").replace(/_/g, " ");
 
 // ======================================================================= tender picker
 
+const TENDER_TILE: [RegExp, TileTone, typeof Route][] = [
+  [/expressway|road|highway/i, "peach", Route], [/water|sewer|drain|irrigation/i, "teal", Droplets],
+  [/bridge|flyover/i, "lavender", Waypoints], [/building|quarters|complex/i, "sand", Building2],
+];
+function tenderTile(t: any): [TileTone, React.ReactNode] {
+  const hit = TENDER_TILE.find(([rx]) => rx.test(`${t.category || ""} ${t.title || ""}`));
+  const [tone, Icon] = hit ? [hit[1], hit[2]] : (["sage", ScrollText] as const);
+  return [tone, <Icon key="i" size={16} strokeWidth={1.75} />];
+}
+
 export function TenderList({ tenders, pickedId, onPick }:
   { tenders: any[]; pickedId?: string; onPick: (t: any) => void }) {
   if (!tenders.length) return <div className="py-2"><Spinner label="Loading tenders" /></div>;
   return (
-    <ul className="-mx-2 flex flex-col gap-1">
+    <ul className="flex flex-col gap-1.5">
       {tenders.map((t) => {
         const active = pickedId === t.id;
+        const [tone, icon] = tenderTile(t);
         return (
           <li key={t.id}>
             <button type="button" onClick={() => onPick(t)} aria-pressed={active}
-              className={clsx("relative flex w-full items-start gap-3 rounded-lg py-3 pl-4 pr-3 text-left transition-colors duration-150 ease-out",
-                active ? "bg-kb-soft" : "hover:bg-well")}>
-              <span aria-hidden className={clsx("absolute bottom-3 left-0 top-3 w-[2px] rounded-full", active ? "bg-kb" : "bg-transparent")} />
+              className={clsx("flex w-full items-start gap-3 rounded-[10px] p-2.5 text-left transition-[background-color,box-shadow] duration-150 ease-out",
+                active ? "bg-surface-solid shadow-[0_0_0_1.5px_var(--kb),var(--shadow-border)]" : "hover:bg-well")}>
+              <IconTile tone={tone} size={32}>{icon}</IconTile>
               <span className="min-w-0 flex-1">
-                <span className="block text-[13.5px] font-semibold leading-snug text-ink">{t.title}</span>
-                <span className="mt-0.5 block truncate text-[12.5px] text-ink-3">
+                <span className="block text-[13px] font-medium leading-snug text-ink">{t.title}</span>
+                <span className="mt-0.5 block truncate text-[12px] text-ink-3">
                   {t.authority} · due <span className="num">{t.bid_date}</span>
                 </span>
               </span>
-              <span className={clsx("num shrink-0 pt-px text-[12.5px]", active ? "font-semibold text-kb-ink" : "text-ink-2")}>
-                {fmtINR(t.estimated_cost)}
-              </span>
+              <span className="num shrink-0 pt-px text-[12px] text-ink-2">{fmtINR(t.estimated_cost)}</span>
             </button>
           </li>
         );

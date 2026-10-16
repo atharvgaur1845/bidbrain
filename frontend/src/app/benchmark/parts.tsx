@@ -32,11 +32,11 @@ export type Sys = { id: string; name: string; desc: string; color: string; plann
 // Color follows the system, never its rank; every bar is also labelled by name.
 // The four planned systems always render; extra runs appear only when results exist.
 export const SYSTEMS: Sys[] = [
-  { id: "bidbrain", name: "BidBrain agent", desc: "Single agent over typed graph tools", color: "var(--kb)", planned: true },
-  { id: "bidbrain_multi", name: "BidBrain multi-agent", desc: "Graph-tool workers checked by a verifier", color: "var(--kb-ink)", planned: false },
-  { id: "text2cypher", name: "LLM text-to-Cypher", desc: "Writes Cypher from the schema, answers from rows", color: "var(--violet)", planned: true },
-  { id: "vector_rag", name: "Vector RAG", desc: "Top-k chunks from the FalkorDB vector index", color: "var(--bad)", planned: true },
-  { id: "graphrag_sdk", name: "GraphRAG-SDK", desc: "FalkorDB GraphRAG-SDK with an auto-extracted schema", color: "var(--ok)", planned: true },
+  { id: "bidbrain", name: "BidBrain agent", desc: "Single agent over typed graph tools", color: "var(--bar-1)", planned: true },
+  { id: "bidbrain_multi", name: "BidBrain multi-agent", desc: "Graph-tool workers checked by a verifier", color: "var(--bar-1)", planned: false },
+  { id: "text2cypher", name: "LLM text-to-Cypher", desc: "Writes Cypher from the schema, answers from rows", color: "var(--bar-2)", planned: true },
+  { id: "vector_rag", name: "Vector RAG", desc: "Top-k chunks from the FalkorDB vector index", color: "var(--bar-3)", planned: true },
+  { id: "graphrag_sdk", name: "GraphRAG-SDK", desc: "FalkorDB GraphRAG-SDK with an auto-extracted schema", color: "var(--bar-4)", planned: true },
 ];
 
 export const SETS = ["S21", "Q333", "ABS", "TND"] as const;
@@ -234,7 +234,7 @@ export function HopBars({ qa, systems }: { qa: QA; systems: Sys[] }) {
                           ? <span className={clsx("num text-[12.5px]", top !== null && v === top ? "font-semibold text-kb-ink" : "text-ink")}>{pct(v)}</span>
                           : <Pending />}
                       </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-well" title={isNum(v) ? `${s.name}: ${pct(v)}` : `${s.name}: pending`}>
+                      <div className="h-2.5 overflow-hidden rounded-full bg-bar-track" title={isNum(v) ? `${s.name}: ${pct(v)}` : `${s.name}: pending`}>
                         {isNum(v) && <div className="h-full rounded-full" style={{ width: `${Math.max(1, v * 100)}%`, background: s.color }} />}
                       </div>
                     </li>

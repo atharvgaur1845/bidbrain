@@ -25,8 +25,8 @@ function PillLink({ href, children }: { href: string; children: React.ReactNode 
   return (
     <Link href={href}
       className={clsx(
-        "inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-full border border-transparent bg-surface-solid px-3.5",
-        "text-[13px] font-semibold whitespace-nowrap text-ink shadow-[var(--shadow-border)]",
+        "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-transparent bg-surface-solid px-3",
+        "text-[12.5px] font-medium whitespace-nowrap text-ink shadow-[var(--shadow-border)]",
         "transition-[scale,box-shadow] duration-150 ease-out hover:shadow-[var(--shadow-border-hover)] motion-safe:active:scale-[0.96]")}>
       {children}
     </Link>

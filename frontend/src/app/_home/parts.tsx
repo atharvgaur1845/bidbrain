@@ -3,11 +3,12 @@
 // Home page sections. `_home` is a private folder, so nothing here becomes a route.
 
 import clsx from "clsx";
-import { ArrowRight, Check, Copy } from "lucide-react";
+import { ArrowRight, ArrowUp, BarChart3, Check, Copy, FileStack, GitBranch, Network, ScrollText, SearchX, Sparkles, Users, Wallet } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import GraphCanvas, { GData, LABEL_COLORS } from "@/components/GraphCanvas";
-import { Button, Card, CodeCell, Spinner } from "@/components/ui";
+import { Button, Card, CodeCell, IconTile, Spinner, type TileTone } from "@/components/ui";
 
 // `.kt` is unlayered CSS, so cell padding overrides that line tables up with the card gutter need `!`.
 const EDGE_CELLS = "[&_td:first-child]:pl-5! [&_th:first-child]:pl-5! [&_td:last-child]:pr-5! [&_th:last-child]:pr-5!";
@@ -29,28 +30,95 @@ export function PillLink({ href, variant = "secondary", children }:
   return (
     <Link href={href}
       className={clsx(
-        "inline-flex h-10 items-center justify-center gap-2 rounded-full px-5 text-[14px] font-semibold whitespace-nowrap",
+        "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium whitespace-nowrap",
         "transition-[scale,background-color,box-shadow] duration-150 ease-out motion-safe:active:scale-[0.96]",
         variant === "primary"
-          ? "bg-ink text-surface-solid hover:bg-ink/85"
+          ? "bg-ink text-surface-solid shadow-[0_1px_2px_rgb(0_0_0/0.18)] hover:bg-ink/88"
           : "border border-transparent bg-surface-solid text-ink shadow-[var(--shadow-border)] hover:shadow-[var(--shadow-border-hover)]")}>
       {children}
     </Link>
   );
 }
 
-function PageCard({ href, title, text, metric }: { href: string; title: string; text: string; metric: React.ReactNode }) {
+// ======================================================================= ask panel (the AI entry point)
+
+const IDEAS: { icon: React.ReactNode; text: string; q: string }[] = [
+  { icon: <SearchX size={15} strokeWidth={1.75} />, text: "Which client works have no reference letter?",
+    q: "Which of Trishakti Power Generation Corporation's completed works have no client reference letter on file?" },
+  { icon: <Network size={15} strokeWidth={1.75} />, text: "Total value of a client's portfolio, from one credential",
+    q: "Starting from Sunita Joshi's Six Sigma Black Belt on the Ring Road — Uttar Pradesh Pkg-107 project, what is the combined value of every completed work for that client?" },
+  { icon: <Users size={15} strokeWidth={1.75} />, text: "Who knows this client, and who is our bus factor?",
+    q: "Who on the team has worked with the National Expressway Development Authority before, and who is the company's biggest single point of failure across clients?" },
+  { icon: <Wallet size={15} strokeWidth={1.75} />, text: "How much of what we invoiced has been collected?",
+    q: "What percentage of what we invoiced the client behind the Ring Road — West Bengal Pkg-128 job has actually been collected?" },
+];
+
+export function AskPanel() {
+  const router = useRouter();
+  const [q, setQ] = useState("");
+  const go = (text: string) => text.trim() && router.push(`/ask/?q=${encodeURIComponent(text.trim())}`);
   return (
-    <Link href={href} className="glass interactive-card group flex flex-col p-5">
-      <h2 className="text-[15px] font-semibold tracking-[-0.005em] text-ink">{title}</h2>
-      <p className="mt-2 text-[13.5px] leading-relaxed text-ink-2">{text}</p>
-      <div className="mt-auto flex items-center gap-3 pt-4 text-[13px]">
-        <span className="min-w-0 truncate text-ink-3">{metric}</span>
-        <span className="ml-auto inline-flex shrink-0 items-center gap-1 font-medium text-kb-ink group-hover:underline">
-          Open <ArrowRight size={15} strokeWidth={1.75} />
-        </span>
+    <section className="ai-panel px-5 py-6 sm:px-8">
+      <div className="mx-auto max-w-2xl text-center">
+        <h2 className="text-[15px] font-semibold text-ink">Ask the company brain</h2>
+        <p className="mt-1 text-[13px] text-ink-2">
+          Multi-hop questions over certificates, people, clients and invoices. Every answer shows its path and the pages behind it.
+        </p>
+        <form className="mt-4 flex gap-2" onSubmit={(e) => { e.preventDefault(); go(q); }}>
+          <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Ask a question"
+            placeholder="e.g. Which expressway works did Sunita Joshi lead?" className="field h-10 bg-surface-solid" />
+          <Button variant="primary" type="submit" className="h-10 shrink-0" disabled={!q.trim()}>
+            <Sparkles size={15} strokeWidth={1.75} /> Ask
+          </Button>
+        </form>
       </div>
-    </Link>
+      <div className="mt-5 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+        {IDEAS.map((i) => (
+          <button key={i.q} type="button" onClick={() => go(i.q)}
+            className="glass interactive-card flex items-start gap-2.5 px-3 py-3 text-left text-[12.5px] leading-snug text-ink-2 hover:text-ink">
+            <span className="mt-px shrink-0 text-kb-ink">{i.icon}</span>
+            <span>{i.text}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ======================================================================= explore rows (numbered, with a visual panel)
+
+function Visual({ tiles }: { tiles: [TileTone, React.ReactNode][] }) {
+  return (
+    <div className="grid h-full min-h-[120px] place-items-center"
+      style={{ background: `linear-gradient(135deg, var(--tile-${tiles[0][0]}), var(--tile-${tiles[tiles.length - 1][0]}))` }}>
+      <div className="flex -space-x-2">
+        {tiles.map(([tone, icon], i) => (
+          <span key={i} className="rounded-xl bg-surface-solid/70 p-1 shadow-[var(--shadow-border)]" style={{ rotate: `${(i - 1) * 6}deg` }}>
+            <IconTile tone={tone} size={34}>{icon}</IconTile>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ExploreRow({ n, href, title, text, cta, metric, tiles }:
+  { n: number; href: string; title: string; text: string; cta: string; metric?: React.ReactNode; tiles: [TileTone, React.ReactNode][] }) {
+  return (
+    <div className="glass grid overflow-hidden sm:grid-cols-[180px_minmax(0,1fr)]">
+      <Visual tiles={tiles} />
+      <div className="flex min-w-0 flex-col justify-center gap-1 px-5 py-4">
+        <div className="flex items-center gap-2.5">
+          <span className="num grid h-5 w-5 shrink-0 place-items-center rounded-full bg-well text-[11px] text-ink-2 shadow-[inset_0_0_0_1px_var(--line)]">{n}</span>
+          <h3 className="text-[14px] font-semibold text-ink">{title}</h3>
+        </div>
+        <p className="text-[13px] leading-relaxed text-ink-2">{text}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <PillLink href={href}>{cta}</PillLink>
+          {metric && <span className="text-[12.5px] text-ink-3">{metric}</span>}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -82,19 +150,31 @@ export function OverviewTab({ ov, count, onData }: { ov: Overview | null; count:
     ["Invoices", count("Invoice")],
   ];
 
+  const ic = { size: 17, strokeWidth: 1.75 };
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_280px]">
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_260px]">
       <div className="flex min-w-0 flex-col gap-6">
-        <p className="max-w-3xl text-[15px] leading-relaxed text-ink-2">
-          Construction firms win public tenders by proving past performance. The proof is scattered across{" "}
-          {docs !== undefined ? <span className="num text-ink">{fmt(docs)}</span> : "hundreds of"} documents (completion
-          certificates, reference letters, CVs, bank guarantees, audited accounts) and they contradict each other over time.
-          BidBrain joins them in one FalkorDB graph so agents can qualify tenders, prove what is missing and settle
-          conflicts, citing the page behind each answer.
-        </p>
+        <AskPanel />
 
-        <div className="grid gap-5 sm:grid-cols-2">
-          {pages.map((p) => <PageCard key={p.href} {...p} />)}
+        <div>
+          <h2 className="mb-3 text-[14.5px] font-semibold text-ink">Explore BidBrain</h2>
+          <div className="flex flex-col gap-3">
+            <ExploreRow n={1} href="/qualify/" title="Qualify a tender" cta="Qualify a tender"
+              text="Six agents read the eligibility clauses, check each against the graph and write a bid memo that cites certificate pages."
+              metric={<><span className="num text-ink-2">4</span> sample tenders{ov?.cases ? <> · <N v={ov.cases} /> cases on file</> : null}</>}
+              tiles={[["teal", <ScrollText key="a" {...ic} />], ["lavender", <Sparkles key="b" {...ic} />], ["sage", <Check key="c" {...ic} />]]} />
+            <ExploreRow n={2} href="/live/" title="Send a document that changes the facts" cta="Open live documents"
+              text={`A corrigendum or revised certificate becomes claims; conflicts are settled by policy or by you, and every bid relying on the fact is re-checked.`}
+              metric={<><N v={ov?.open_cards} /> open conflicts</>}
+              tiles={[["peach", <FileStack key="a" {...ic} />], ["rose", <GitBranch key="b" {...ic} />], ["sand", <ScrollText key="c" {...ic} />]]} />
+            <ExploreRow n={3} href="/decisions/" title="Trace any settled fact" cta="See decisions"
+              text="Each decision records its policy, the decider and both source documents; your own choices become rules for the next conflict."
+              metric={<><N v={ov?.decisions} /> decisions · <N v={ov?.rules} /> learned rules</>}
+              tiles={[["rose", <GitBranch key="a" {...ic} />], ["lavender", <Users key="b" {...ic} />], ["teal", <Check key="c" {...ic} />]]} />
+            <ExploreRow n={4} href="/benchmark/" title="Check the benchmark" cta="Open benchmark"
+              text="The same model and database with four context strategies: graph tools, text-to-Cypher, vector RAG and GraphRAG-SDK."
+              tiles={[["sage", <BarChart3 key="a" {...ic} />], ["peach", <BarChart3 key="b" {...ic} />], ["lavender", <BarChart3 key="c" {...ic} />]]} />
+          </div>
         </div>
 
         <Card title="How it works">

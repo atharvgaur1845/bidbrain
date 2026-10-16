@@ -1,6 +1,6 @@
 "use client";
 
-import { Route, Search } from "lucide-react";
+import { Route, Search, Compass as CompassIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import GraphCanvas, { GData, GNode, mergeGraph } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/Shell";
@@ -124,7 +124,7 @@ export default function ExplorePage() {
 
   return (
     <div>
-      <PageHeader title="Explore"
+      <PageHeader icon={<CompassIcon size={19} strokeWidth={1.75} />} tone="sand" title="Explore"
         subtitle="Search any entity, expand its neighbourhood, run FalkorDB's built-in algorithms." />
       <div className="grid gap-5 lg:grid-cols-12">
         <div className="flex min-w-0 flex-col gap-5 lg:col-span-4">

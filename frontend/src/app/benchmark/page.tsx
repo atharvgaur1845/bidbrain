@@ -1,5 +1,7 @@
 "use client";
 
+import { BarChart3 as BarChart3Icon } from "lucide-react";
+
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { Card, Stat, Tabs } from "@/components/ui";
@@ -27,7 +29,7 @@ export default function BenchmarkPage() {
 
   return (
     <div>
-      <PageHeader title="Benchmark"
+      <PageHeader icon={<BarChart3Icon size={19} strokeWidth={1.75} />} tone="sage" title="Benchmark"
         subtitle="Same model, same database, different context strategy."
         meta={
           <>

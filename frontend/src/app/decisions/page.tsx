@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { FileText, GitBranch } from "lucide-react";
+import { FileText, GitBranch, GitBranch as GitBranchIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import GraphCanvas, { GData } from "@/components/GraphCanvas";
@@ -78,7 +78,7 @@ export default function DecisionsPage() {
 
   return (
     <div>
-      <PageHeader title="Decisions"
+      <PageHeader icon={<GitBranchIcon size={19} strokeWidth={1.75} />} tone="rose" title="Decisions"
         subtitle="Every settled fact records the policy, the decider and both source documents."
         meta={loaded ? (
           <>

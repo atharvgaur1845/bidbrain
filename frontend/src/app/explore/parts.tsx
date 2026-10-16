@@ -31,13 +31,13 @@ const ROW = "flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left trans
 export function Segmented<T extends string>({ value, options, onChange, label }:
   { value: T; options: { id: T; label: string }[]; onChange: (v: T) => void; label: string }) {
   return (
-    <div role="radiogroup" aria-label={label} className="flex w-full rounded-full bg-well p-1">
+    <div role="radiogroup" aria-label={label} className="flex w-full rounded-lg bg-well p-0.5 shadow-[inset_0_0_0_1px_var(--line)]">
       {options.map((o) => {
         const on = o.id === value;
         return (
           <button key={o.id} type="button" role="radio" aria-checked={on} onClick={() => onChange(o.id)}
-            className={clsx("h-8 flex-1 rounded-full px-2 text-[13px] transition-[background-color,box-shadow,color] duration-150 ease-out",
-              on ? "bg-surface-solid font-semibold text-ink shadow-[var(--shadow-border)]" : "font-medium text-ink-3 hover:text-ink-2")}>
+            className={clsx("h-7 flex-1 rounded-md px-2 text-[12.5px] transition-[background-color,box-shadow,color] duration-150 ease-out",
+              on ? "bg-surface-solid font-medium text-ink shadow-[var(--shadow-border)]" : "font-medium text-ink-3 hover:text-ink-2")}>
             {o.label}
           </button>
         );

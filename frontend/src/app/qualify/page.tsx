@@ -1,5 +1,7 @@
 "use client";
 
+import { ScrollText as ScrollTextIcon } from "lucide-react";
+
 import { useEffect, useState } from "react";
 import GraphCanvas, { GData, mergeGraph } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/Shell";
@@ -78,7 +80,7 @@ export default function QualifyPage() {
 
   return (
     <div>
-      <PageHeader
+      <PageHeader icon={<ScrollTextIcon size={19} strokeWidth={1.75} />} tone="teal"
         title="Qualify a tender"
         subtitle="Six agents work on one case graph, each reading what the previous one wrote. Every verdict links back to its evidence."
         meta={meta}

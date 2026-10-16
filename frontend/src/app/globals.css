@@ -1,88 +1,114 @@
 @import "tailwindcss";
 
-/* BidBrain — Kaggle-style product language on frosted-glass surfaces.
-   Light is the default; dark mirrors every token. Pages use tokens only. */
+/* BidBrain: a calm research-tool language (warm neutrals, charcoal actions, small type, pastel category
+   tiles, soft data bars) on frosted-glass panels. Light is the default; dark mirrors every token.
+   Pages use tokens only. */
 :root {
-  --bg: #f4f7fb;
-  --tint-a: rgb(32 190 255 / 0.13);
-  --tint-b: rgb(124 92 255 / 0.08);
-  --surface: rgb(255 255 255 / 0.74);
+  --canvas: #ecebe8;
+  --blob-a: rgb(196 181 253 / 0.45);
+  --blob-b: rgb(253 196 168 / 0.40);
+  --blob-c: rgb(167 214 214 / 0.38);
+  --bg: rgb(247 246 244 / 0.55);
+  --frame: rgb(252 251 250 / 0.62);
+  --main: rgb(255 255 255 / 0.70);
+  --surface: rgb(255 255 255 / 0.80);
   --surface-solid: #ffffff;
-  --well: rgb(241 244 248 / 0.85);
-  --well-hover: rgb(232 237 243 / 0.95);
-  --line: rgb(15 23 42 / 0.09);
-  --line-strong: rgb(15 23 42 / 0.16);
-  --text: #1f2328;
-  --text-2: #4f5965;
-  --text-3: #7c8794;
-  --kb: #20beff;
-  --kb-ink: #0086c3;
-  --kb-soft: rgb(32 190 255 / 0.12);
-  --ok: #0f9d58;
-  --ok-soft: rgb(15 157 88 / 0.11);
-  --bad: #d93025;
-  --bad-soft: rgb(217 48 37 / 0.10);
-  --warn: #c26401;
-  --warn-soft: rgb(242 153 0 / 0.14);
-  --violet: #7c5cff;
-  --violet-soft: rgb(124 92 255 / 0.11);
-  --highlight: rgb(255 255 255 / 0.85);
-  --shadow-border:
-    0px 0px 0px 1px oklch(0 0 0 / 0.06),
-    0px 1px 2px -1px oklch(0 0 0 / 0.06),
-    0px 2px 4px 0px oklch(0 0 0 / 0.04);
-  --shadow-border-hover:
-    0px 0px 0px 1px oklch(0 0 0 / 0.08),
-    0px 1px 2px -1px oklch(0 0 0 / 0.08),
-    0px 2px 4px 0px oklch(0 0 0 / 0.06);
-  --shadow-pop:
-    0px 0px 0px 1px oklch(0 0 0 / 0.06),
-    0px 12px 32px -8px oklch(0 0 0 / 0.18),
-    0px 4px 10px -4px oklch(0 0 0 / 0.08);
-  --graph-edge: rgb(15 23 42 / 0.16);
-  --graph-label: #1f2328;
-  --graph-label-dim: rgb(31 35 40 / 0.45);
+  --well: rgb(244 243 241 / 0.92);
+  --well-hover: rgb(236 234 231 / 0.95);
+  --line: rgb(28 25 23 / 0.08);
+  --line-strong: rgb(28 25 23 / 0.15);
+  --text: #1c1917;
+  --text-2: #57534e;
+  --text-3: #8b857f;
+  --kb: #7c6be6;
+  --kb-ink: #5f4fcf;
+  --kb-soft: rgb(124 107 230 / 0.11);
+  --ok: #3c8a5f;
+  --ok-soft: rgb(60 138 95 / 0.11);
+  --bad: #c4553d;
+  --bad-soft: rgb(196 85 61 / 0.10);
+  --warn: #b87a1d;
+  --warn-soft: rgb(214 158 46 / 0.15);
+  --violet: #a86592;
+  --violet-soft: rgb(168 101 146 / 0.11);
+  --bar-1: #e3936c;
+  --bar-2: #7fa9b1;
+  --bar-3: #9db07c;
+  --bar-4: #a99be9;
+  --bar-track: rgb(28 25 23 / 0.06);
+  --tile-lavender: #ece8fd; --tile-lavender-ink: #6a58d6;
+  --tile-peach: #fde9dc;    --tile-peach-ink: #c26a3e;
+  --tile-teal: #dff0ef;     --tile-teal-ink: #3f8a8f;
+  --tile-sage: #e8efdc;     --tile-sage-ink: #5f7d3a;
+  --tile-rose: #f8e3ea;     --tile-rose-ink: #b44f73;
+  --tile-sand: #f5ecd7;     --tile-sand-ink: #9a7425;
+  --highlight: rgb(255 255 255 / 0.9);
+  --shadow-border: 0 0 0 1px rgb(28 25 23 / 0.07), 0 1px 2px 0 rgb(28 25 23 / 0.04);
+  --shadow-border-hover: 0 0 0 1px rgb(28 25 23 / 0.12), 0 2px 6px -1px rgb(28 25 23 / 0.07);
+  --shadow-pop: 0 0 0 1px rgb(28 25 23 / 0.06), 0 16px 40px -12px rgb(28 25 23 / 0.22), 0 4px 10px -4px rgb(28 25 23 / 0.08);
+  --shadow-frame: 0 0 0 1px rgb(28 25 23 / 0.07), 0 30px 70px -30px rgb(28 25 23 / 0.25);
+  --graph-edge: rgb(28 25 23 / 0.15);
+  --graph-label: #1c1917;
+  --graph-label-dim: rgb(28 25 23 / 0.45);
   --graph-node-stroke: #ffffff;
   color-scheme: light;
 }
 
 :root[data-theme="dark"] {
-  --bg: #0b1017;
-  --tint-a: rgb(32 190 255 / 0.10);
-  --tint-b: rgb(124 92 255 / 0.08);
-  --surface: rgb(20 27 37 / 0.66);
-  --surface-solid: #141b25;
+  --canvas: #111010;
+  --blob-a: rgb(124 107 230 / 0.22);
+  --blob-b: rgb(227 147 108 / 0.14);
+  --blob-c: rgb(127 169 177 / 0.14);
+  --bg: rgb(26 25 24 / 0.5);
+  --frame: rgb(28 27 26 / 0.62);
+  --main: rgb(34 32 31 / 0.66);
+  --surface: rgb(42 40 38 / 0.72);
+  --surface-solid: #282624;
   --well: rgb(255 255 255 / 0.045);
   --well-hover: rgb(255 255 255 / 0.075);
   --line: rgb(255 255 255 / 0.08);
   --line-strong: rgb(255 255 255 / 0.15);
-  --text: #e8edf3;
-  --text-2: #a9b4c1;
-  --text-3: #75818f;
-  --kb: #20beff;
-  --kb-ink: #5ccfff;
-  --kb-soft: rgb(32 190 255 / 0.14);
-  --ok: #34c77b;
-  --ok-soft: rgb(52 199 123 / 0.13);
-  --bad: #ff6b5e;
-  --bad-soft: rgb(255 107 94 / 0.13);
-  --warn: #f5a524;
-  --warn-soft: rgb(245 165 36 / 0.15);
-  --violet: #a48bff;
-  --violet-soft: rgb(164 139 255 / 0.14);
-  --highlight: rgb(255 255 255 / 0.06);
-  --shadow-border: 0 0 0 1px oklch(1 0 0 / 0.08);
-  --shadow-border-hover: 0 0 0 1px oklch(1 0 0 / 0.13);
-  --shadow-pop: 0 0 0 1px oklch(1 0 0 / 0.10), 0 16px 40px -8px oklch(0 0 0 / 0.6);
-  --graph-edge: rgb(255 255 255 / 0.16);
-  --graph-label: #e8edf3;
-  --graph-label-dim: rgb(232 237 243 / 0.42);
-  --graph-node-stroke: #0b1017;
+  --text: #f1efec;
+  --text-2: #b4aea7;
+  --text-3: #857f78;
+  --kb: #9d8ff2;
+  --kb-ink: #b3a8f7;
+  --kb-soft: rgb(157 143 242 / 0.15);
+  --ok: #5fbf8a;
+  --ok-soft: rgb(95 191 138 / 0.13);
+  --bad: #ec7f66;
+  --bad-soft: rgb(236 127 102 / 0.13);
+  --warn: #e3ac4c;
+  --warn-soft: rgb(227 172 76 / 0.14);
+  --violet: #d38ab9;
+  --violet-soft: rgb(211 138 185 / 0.14);
+  --bar-1: #e39a76;
+  --bar-2: #86b3bb;
+  --bar-3: #a6ba85;
+  --bar-4: #ab9ff0;
+  --bar-track: rgb(255 255 255 / 0.07);
+  --tile-lavender: rgb(157 143 242 / 0.16); --tile-lavender-ink: #b9aff8;
+  --tile-peach: rgb(227 147 108 / 0.16);    --tile-peach-ink: #efb08f;
+  --tile-teal: rgb(127 169 177 / 0.16);     --tile-teal-ink: #9fcbd0;
+  --tile-sage: rgb(157 176 124 / 0.16);     --tile-sage-ink: #bcd09a;
+  --tile-rose: rgb(211 138 185 / 0.16);     --tile-rose-ink: #e3a9cb;
+  --tile-sand: rgb(214 175 90 / 0.16);      --tile-sand-ink: #e1c27f;
+  --highlight: rgb(255 255 255 / 0.05);
+  --shadow-border: 0 0 0 1px rgb(255 255 255 / 0.07);
+  --shadow-border-hover: 0 0 0 1px rgb(255 255 255 / 0.13);
+  --shadow-pop: 0 0 0 1px rgb(255 255 255 / 0.09), 0 18px 44px -10px rgb(0 0 0 / 0.6);
+  --shadow-frame: 0 0 0 1px rgb(255 255 255 / 0.07), 0 30px 70px -30px rgb(0 0 0 / 0.7);
+  --graph-edge: rgb(255 255 255 / 0.15);
+  --graph-label: #f1efec;
+  --graph-label-dim: rgb(241 239 236 / 0.42);
+  --graph-node-stroke: #1a1918;
   color-scheme: dark;
 }
 
 @theme inline {
   --color-bg: var(--bg);
+  --color-canvas: var(--canvas);
+  --color-main: var(--main);
   --color-surface: var(--surface);
   --color-surface-solid: var(--surface-solid);
   --color-well: var(--well);
@@ -103,11 +129,29 @@
   --color-warn-soft: var(--warn-soft);
   --color-violet: var(--violet);
   --color-violet-soft: var(--violet-soft);
+  --color-bar-1: var(--bar-1);
+  --color-bar-2: var(--bar-2);
+  --color-bar-3: var(--bar-3);
+  --color-bar-4: var(--bar-4);
+  --color-bar-track: var(--bar-track);
   --font-sans: var(--font-inter);
   --font-mono: var(--font-jbm);
 }
 
-html, body { min-height: 100%; }
+html, body {
+  background-color: var(--canvas);
+  background-image:
+    radial-gradient(900px 620px at 0% 0%, var(--blob-a), transparent 62%),
+    radial-gradient(800px 560px at 100% 6%, var(--blob-b), transparent 60%),
+    radial-gradient(1000px 680px at 55% 110%, var(--blob-c), transparent 62%);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
 body {
   background-color: var(--bg);
   background-image:
@@ -125,23 +169,34 @@ body {
 ::selection { background: var(--kb-soft); }
 
 /* ---------- surfaces ---------- */
-.glass {
+.frame {                                         /* the app window */
+  background: var(--frame);
+  -webkit-backdrop-filter: blur(30px) saturate(170%);
+  backdrop-filter: blur(30px) saturate(170%);
+  border: 1px solid transparent;
+  box-shadow: inset 0 1px 0 0 var(--highlight), var(--shadow-frame);
+}
+.main-panel {                                    /* the content side of the window */
+  background: var(--main);
+  box-shadow: inset 1px 0 0 0 var(--line);
+}
+.glass {                                         /* a card */
   background: var(--surface);
-  -webkit-backdrop-filter: blur(18px) saturate(150%);
-  backdrop-filter: blur(18px) saturate(150%);
-  border: 1px solid transparent;               /* forced-colors keeps an edge */
-  border-radius: 16px;
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid transparent;                 /* forced-colors keeps an edge */
+  border-radius: 12px;
   box-shadow: inset 0 1px 0 0 var(--highlight), var(--shadow-border);
 }
 .glass-pop {
   background: var(--surface-solid);
   border: 1px solid transparent;
-  border-radius: 16px;
+  border-radius: 14px;
   box-shadow: var(--shadow-pop);
 }
 .well {
   background: var(--well);
-  border-radius: 10px;
+  border-radius: 8px;
 }
 .interactive-card {
   transition-property: box-shadow, background-color;
@@ -152,6 +207,16 @@ body {
   .interactive-card:hover { box-shadow: inset 0 1px 0 0 var(--highlight), var(--shadow-border-hover); }
 }
 
+/* soft lavender panel for AI entry points */
+.ai-panel {
+  border-radius: 12px;
+  background:
+    radial-gradient(640px 240px at 12% 0%, rgb(255 255 255 / 0.6), transparent 70%),
+    color-mix(in oklab, var(--kb) 10%, var(--surface-solid));
+  box-shadow: inset 0 1px 0 0 var(--highlight), 0 0 0 1px color-mix(in oklab, var(--kb) 16%, transparent);
+}
+:root[data-theme="dark"] .ai-panel { background: color-mix(in oklab, var(--kb) 13%, var(--surface-solid)); }
+
 .num { font-family: var(--font-jbm), ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 
 /* ---------- inputs ---------- */
@@ -159,8 +224,8 @@ body {
   width: 100%;
   background: var(--surface-solid);
   border: 1px solid var(--line-strong);
-  border-radius: 10px;
-  padding: 9px 12px;
+  border-radius: 8px;
+  padding: 8px 11px;
   color: var(--text);
   font-size: 14px;
   outline: none;
@@ -172,12 +237,12 @@ body {
 .field:focus { border-color: var(--kb); box-shadow: 0 0 0 3px var(--kb-soft); }
 
 /* ---------- leaderboard / data tables ---------- */
-.kt { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13.5px; }
+.kt { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
 .kt th {
-  text-align: left; font-weight: 600; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase;
-  color: var(--text-3); padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap;
+  text-align: left; font-weight: 500; font-size: 12px;
+  color: var(--text-3); padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap;
 }
-.kt td { padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.kt td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .kt tr:last-child td { border-bottom: none; }
 .kt tbody tr { transition: background-color 150ms ease-out; }
 @media (hover: hover) { .kt tbody tr:hover { background: var(--well); } }
@@ -192,8 +257,8 @@ body {
 .md strong { color: var(--text); font-weight: 600; }
 .md a { color: var(--kb-ink); }
 .md table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0; }
-.md th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3);
-  font-weight: 600; border-bottom: 1px solid var(--line); padding: 7px 8px; }
+.md th { text-align: left; font-size: 12px; color: var(--text-3);
+  font-weight: 500; border-bottom: 1px solid var(--line); padding: 7px 8px; }
 .md td { border-bottom: 1px solid var(--line); padding: 7px 8px; vertical-align: top; }
 .md code { font-family: var(--font-jbm); font-size: 12.5px; background: var(--well); padding: 1px 6px; border-radius: 6px; }
 

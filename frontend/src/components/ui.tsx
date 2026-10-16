@@ -80,18 +80,54 @@ export function EvidenceList({ items, max = 12 }: { items: DocRef[]; max?: numbe
 
 // ======================================================================= primitives
 
-export function Card({ title, action, children, className, pad = true }:
-  { title?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string; pad?: boolean }) {
+export function Card({ title, icon, tone = "lavender", action, children, className, pad = true }:
+  { title?: React.ReactNode; icon?: React.ReactNode; tone?: TileTone; action?: React.ReactNode; children: React.ReactNode;
+    className?: string; pad?: boolean }) {
   return (
     <section className={clsx("glass", className)}>
       {(title || action) && (
-        <header className="flex min-h-[48px] items-center gap-3 px-5 pt-3.5 pb-1">
-          {title && <h2 className="text-[15px] font-semibold tracking-[-0.005em] text-ink">{title}</h2>}
+        <header className="flex min-h-[46px] items-center gap-2.5 px-4 pt-3 pb-1">
+          {icon && <IconTile tone={tone} size={26}>{icon}</IconTile>}
+          {title && <h2 className="text-[14px] font-semibold tracking-[-0.005em] text-ink">{title}</h2>}
           {action && <div className="ml-auto flex items-center gap-2">{action}</div>}
         </header>
       )}
-      <div className={pad ? "px-5 pb-5 pt-2" : ""}>{children}</div>
+      <div className={pad ? "px-4 pb-4 pt-2" : ""}>{children}</div>
     </section>
+  );
+}
+
+// ---- pastel category tiles: a type indicator (study type, entity kind), never decoration on every title
+export type TileTone = "lavender" | "peach" | "teal" | "sage" | "rose" | "sand";
+export function IconTile({ tone = "lavender", size = 32, children }: { tone?: TileTone; size?: number; children: React.ReactNode }) {
+  return (
+    <span aria-hidden className="inline-grid shrink-0 place-items-center rounded-lg"
+      style={{ width: size, height: size, background: `var(--tile-${tone})`, color: `var(--tile-${tone}-ink)`,
+               boxShadow: `inset 0 0 0 1px color-mix(in oklab, var(--tile-${tone}-ink) 18%, transparent)` }}>
+      {children}
+    </span>
+  );
+}
+
+// ---- a result bar: "84% · Home ......... 26 responses"
+const BAR_TONES = ["var(--bar-1)", "var(--bar-2)", "var(--bar-3)", "var(--bar-4)"];
+export function ResultBar({ label, value, max = 1, right, tone = 0, display }:
+  { label: React.ReactNode; value: number | null | undefined; max?: number; right?: React.ReactNode; tone?: number | string;
+    display?: React.ReactNode }) {
+  const v = value == null ? null : Math.max(0, Math.min(1, value / (max || 1)));
+  const color = typeof tone === "number" ? BAR_TONES[tone % BAR_TONES.length] : tone;
+  return (
+    <div className="min-w-0">
+      <div className="flex items-baseline gap-2 text-[13px]">
+        <span className="num shrink-0 font-medium text-ink">{display ?? (v == null ? "—" : `${Math.round(v * 100)}%`)}</span>
+        <span className="text-ink-3">·</span>
+        <span className="min-w-0 truncate text-ink-2">{label}</span>
+        {right && <span className="ml-auto shrink-0 text-[12px] text-ink-3">{right}</span>}
+      </div>
+      <div className="mt-1.5 h-2.5 overflow-hidden rounded-full bg-bar-track">
+        {v != null && <div className="h-full rounded-full" style={{ width: `${Math.max(v * 100, 1.5)}%`, background: color }} />}
+      </div>
+    </div>
   );
 }
 /** @deprecated use Card */
@@ -101,8 +137,8 @@ export function Section({ title, subtitle, action }: { title: string; subtitle?:
   return (
     <div className="mb-3 flex items-end gap-3">
       <div>
-        <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
-        {subtitle && <p className="mt-0.5 text-[13px] text-ink-3">{subtitle}</p>}
+        <h2 className="text-[14.5px] font-semibold tracking-[-0.005em] text-ink">{title}</h2>
+        {subtitle && <p className="mt-0.5 text-[12.5px] text-ink-3">{subtitle}</p>}
       </div>
       {action && <div className="ml-auto">{action}</div>}
     </div>
@@ -110,18 +146,19 @@ export function Section({ title, subtitle, action }: { title: string; subtitle?:
 }
 
 export function Tabs({ tabs, value, onChange }:
-  { tabs: { id: string; label: string; count?: number | string }[]; value: string; onChange: (id: string) => void }) {
+  { tabs: { id: string; label: string; count?: number | string; icon?: React.ReactNode; disabled?: boolean }[];
+    value: string; onChange: (id: string) => void }) {
   return (
-    <div role="tablist" className="flex gap-6 border-b border-line">
+    <div role="tablist" className="scroll-thin -mx-1 flex gap-1 overflow-x-auto px-1 pb-0.5">
       {tabs.map((t) => {
         const active = t.id === value;
         return (
-          <button key={t.id} role="tab" aria-selected={active} onClick={() => onChange(t.id)}
-            className={clsx("relative -mb-px flex items-center gap-1.5 pb-2.5 pt-1 text-[14px] transition-colors duration-150 ease-out",
-              active ? "font-semibold text-ink" : "font-medium text-ink-3 hover:text-ink-2")}>
+          <button key={t.id} role="tab" aria-selected={active} disabled={t.disabled} onClick={() => onChange(t.id)}
+            className={clsx("flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[13px] transition-colors duration-150 ease-out disabled:opacity-40",
+              active ? "bg-well-hover font-medium text-ink shadow-[inset_0_0_0_1px_var(--line)]" : "font-normal text-ink-2 hover:bg-well hover:text-ink")}>
+            {t.icon}
             {t.label}
-            {t.count !== undefined && <span className="num rounded-full bg-well px-1.5 text-[11.5px] text-ink-3">{t.count}</span>}
-            <span className={clsx("absolute inset-x-0 bottom-0 h-[2px] rounded-full", active ? "bg-ink" : "bg-transparent")} />
+            {t.count !== undefined && <span className="num text-[11.5px] text-ink-3">{t.count}</span>}
           </button>
         );
       })}
@@ -136,12 +173,12 @@ export function Button({ variant = "secondary", size = "md", static: isStatic, c
   return (
     <button {...props}
       className={clsx(
-        "inline-flex items-center justify-center gap-2 rounded-full font-semibold whitespace-nowrap",
+        "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap",
         "transition-[scale,background-color,box-shadow,color] duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-45",
         !isStatic && "motion-safe:enabled:active:scale-[0.96]",
-        size === "sm" ? "h-8 px-3.5 text-[13px]" : "h-10 px-5 text-[14px]",
-        variant === "primary" && "bg-ink text-surface-solid enabled:hover:bg-ink/85",
-        variant === "accent" && "bg-kb text-[#062433] enabled:hover:bg-[#4fcbff]",
+        size === "sm" ? "h-8 px-3 text-[12.5px]" : "h-9 px-3.5 text-[13px]",
+        variant === "primary" && "bg-ink text-surface-solid shadow-[0_1px_2px_rgb(0_0_0/0.18)] enabled:hover:bg-ink/88",
+        variant === "accent" && "bg-kb text-white enabled:hover:bg-kb-ink",
         variant === "secondary" && "border border-transparent bg-surface-solid text-ink shadow-[var(--shadow-border)] enabled:hover:shadow-[var(--shadow-border-hover)]",
         variant === "ghost" && "text-ink-2 enabled:hover:bg-well enabled:hover:text-ink",
         className)} />
@@ -154,7 +191,7 @@ const TONES: Record<string, string> = {
 };
 export function Badge({ tone = "neutral", children, className }: { tone?: keyof typeof TONES | string; children: React.ReactNode; className?: string }) {
   return (
-    <span className={clsx("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-medium leading-5 whitespace-nowrap", TONES[tone] || TONES.neutral, className)}>
+    <span className={clsx("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] font-medium leading-[18px] whitespace-nowrap", TONES[tone] || TONES.neutral, className)}>
       {children}
     </span>
   );
@@ -167,7 +204,7 @@ export function Verdict({ v, size = "md" }: { v?: string; size?: "sm" | "md" | "
   const tone = VERDICT_TONE[v || ""] || "neutral";
   const label = (v || "pending").replace("_", " ");
   return (
-    <span className={clsx("inline-flex items-center gap-1.5 rounded-full font-semibold whitespace-nowrap", TONES[tone],
+    <span className={clsx("inline-flex items-center gap-1.5 rounded-md font-medium whitespace-nowrap", TONES[tone],
       size === "sm" ? "px-2 py-0.5 text-[11.5px]" : size === "lg" ? "px-3.5 py-1.5 text-[14px]" : "px-2.5 py-0.5 text-[12.5px]")}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
       {label.charAt(0) + label.slice(1).toLowerCase()}
@@ -178,8 +215,8 @@ export function Verdict({ v, size = "md" }: { v?: string; size?: "sm" | "md" | "
 export function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: string }) {
   return (
     <div className="min-w-0">
-      <div className="text-[12.5px] font-medium text-ink-3">{label}</div>
-      <div className="num mt-1 truncate text-[26px] font-semibold leading-none tracking-[-0.02em]" style={{ color: tone }}>{value}</div>
+      <div className="text-[12.5px] text-ink-3">{label}</div>
+      <div className="num mt-1.5 truncate text-[22px] font-medium leading-none tracking-[-0.02em]" style={{ color: tone }}>{value}</div>
       {sub && <div className="mt-1.5 text-[12.5px] leading-snug text-ink-3">{sub}</div>}
     </div>
   );

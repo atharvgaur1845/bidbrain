@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowUp, ChevronRight, GitCompareArrows } from "lucide-react";
+import { ArrowUp, ChevronRight, GitCompareArrows, MessageSquare as MessageSquareIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import GraphCanvas, { GData, mergeGraph } from "@/components/GraphCanvas";
@@ -45,6 +45,18 @@ export default function AskPage() {
   const [tab, setTab] = useState("path");
   const [llm, setLlm] = useState<{ ok: boolean; replay: boolean } | null>(null);
   useEffect(() => { api("/api/health").then((h) => setLlm({ ok: (h.llm || []).length > 0, replay: !!h.replay })).catch(() => {}); }, []);
+  // a question handed over from the home page (/ask/?q=...) is asked once on arrival
+  const handedOver = useRef(false);
+  useEffect(() => {
+    if (handedOver.current) return;
+    handedOver.current = true;
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q?.trim()) {
+      window.history.replaceState(null, "", window.location.pathname);
+      void ask(q.trim());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
+  }, []);
   const busy = turns.some((t) => t.running);
   const endRef = useRef<HTMLDivElement>(null);
   const cur = sel >= 0 ? turns[sel] : turns[turns.length - 1];
@@ -103,7 +115,7 @@ export default function AskPage() {
 
   return (
     <div>
-      <PageHeader title="Ask"
+      <PageHeader icon={<MessageSquareIcon size={19} strokeWidth={1.75} />} tone="lavender" title="Ask"
         subtitle="Multi-hop questions answered from the graph, with the documents that prove each answer." />
 
       {llm && !llm.ok && (

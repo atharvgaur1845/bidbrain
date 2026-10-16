@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowRight, Check, CircleAlert, CircleCheck, FileText, Gavel, Scale, ScanText, Upload, Waves } from "lucide-react";
+import { ArrowRight, Check, CircleAlert, CircleCheck, FileText, Gavel, Scale, ScanText, Upload, Waves, FileStack as FileStackIcon } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import GraphCanvas, { GData, mergeGraph } from "@/components/GraphCanvas";
@@ -91,7 +91,7 @@ export default function LivePage() {
 
   return (
     <div>
-      <PageHeader title="Live documents"
+      <PageHeader icon={<FileStackIcon size={19} strokeWidth={1.75} />} tone="peach" title="Live documents"
         subtitle="New paperwork becomes claims. Conflicts are settled by policy or by you, and every bid relying on the fact is re-checked."
         meta={<>
           <span><span className="num font-semibold text-ink-2">{conf.decisions?.length || 0}</span> decisions on record</span>
