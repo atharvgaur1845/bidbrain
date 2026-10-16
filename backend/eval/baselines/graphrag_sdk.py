@@ -82,7 +82,6 @@ class FastEmbedder(Embedder):
     def __init__(self):
         from fastembed import TextEmbedding
         self._m = TextEmbedding("BAAI/bge-small-en-v1.5")
-        super().__init__(model_name="bge-small-en-v1.5") if "model_name" in Embedder.__init__.__code__.co_varnames else None
 
     @property
     def model_name(self) -> str:  # abstract in the SDK
@@ -147,7 +146,7 @@ async def ingest(limit: int | None = None, concurrency: int = 16):
             nonlocal done
             async with sem:
                 try:
-                    await rag.ingest(doc_id, text=text.replace("\f", "\n\n"), document_id=doc_id)
+                    await rag.ingest(text=text.replace("\f", "\n\n"), document_id=doc_id)
                     ok.append(doc_id)
                 except Exception as exc:
                     failed.append({"doc_id": doc_id, "error": f"{type(exc).__name__}: {str(exc)[:160]}"})
