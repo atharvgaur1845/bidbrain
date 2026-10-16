@@ -122,7 +122,22 @@ not missing graph capability.
 Same model (Qwen3-32B), same FalkorDB instance, four context strategies: BidBrain's tools, text-to-Cypher, vector RAG
 over FalkorDB's own vector index, and FalkorDB's GraphRAG-SDK with automatic schema extraction.
 
-_[results table: S21 true gold · Q333 · absence set · tender set, and accuracy by hop count]_
+| System | S21 (true gold) | Q333 | Absence (ABS) | Tender (TND) | p50 latency |
+|---|---|---|---|---|---|
+| **BidBrain (graph tools)** | **.810** | **.640** | **.780** | **.896** | 4.2 s |
+| GraphRAG-SDK (auto schema) | .190 | .099 | .311 | .542 | 15.2 s |
+| LLM text-to-Cypher | .333 | .180 | .537 | .264 | 2.5 s |
+| Vector RAG | .190 | .075 | .268 | .389 | 5.3 s |
+
+The gap opens with the number of joins. On 5–6-hop questions BidBrain gets .52; the others get between .10 and .14.
+GraphRAG-SDK built a respectable 8,781-node graph from the 678 documents, but its schema is inferred one chunk at a
+time. Nothing in it knows that a certificate's value and a portfolio's value are the same fact, or what "the client
+behind Pkg-113" means. That knowledge is the data model, and it is what a domain graph buys you.
+
+Two more honest notes. First, our first run scored only .313 on the tender set: the agent's one-line tool
+description never named `qualify_clause`'s parameters, and the tool silently ignored the keys the model invented.
+We documented and validated them, re-ran, and kept the first run in the repo. Second, always answering "0" scores
+.427 on the absence set. That beats vector RAG, which confidently counts the letters it happened to retrieve.
 
 We publish what broke, too. Our conflict engine scores F1 1.00 on a stream of 275 planted events, including 75 hard
 negatives such as rounding-only restatements. We wrote the labels and the rules, though, so that mostly measures

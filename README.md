@@ -190,12 +190,14 @@ the Benchmark page):
 | **BidBrain agent** | **.810** (17/21) | **.640** | **.780** | **.896** |
 | LLM text-to-Cypher | .333 | .180 | .537 | .264 |
 | Vector RAG | .190 | .075 | .268 | .389 |
-| GraphRAG-SDK (auto schema) | _ingest running_ | | | |
+| GraphRAG-SDK (auto schema, all 678 docs) | .190 | .099 | .311 | .542 |
 | Constant answer (always 0 / majority) | .190 | .045 | .427 | .472 |
 
-By hop count on Q333 (2-3 / 4 / 5-6 hops): BidBrain .92 / .72 / .52, text-to-Cypher .32 / .18 / .14, vector RAG
-.00 / .06 / .10. The graph's advantage grows with the number of joins. Cost per Q333 question: BidBrain 3.9 LLM calls,
-~13k tokens, p50 4.2 s; text-to-Cypher 2.2 calls, ~1.3k tokens, 2.5 s; vector RAG 1 call, ~3.5k tokens, 5.3 s.
+By hop count on Q333 (2-3 / 4 / 5-6 hops): BidBrain .92 / .72 / .52, text-to-Cypher .32 / .18 / .14, GraphRAG-SDK
+.00 / .07 / .14, vector RAG .00 / .06 / .10. The graph's advantage grows with the number of joins. Cost per Q333 question: BidBrain 3.9 LLM calls,
+~13k tokens, p50 4.2 s; text-to-Cypher 2.2 calls, ~1.3k tokens, 2.5 s; vector RAG 1 call, ~3.5k tokens, 5.3 s; GraphRAG-SDK p50 15.2 s.
+GraphRAG-SDK ingested every document with its own LLM entity extractor on the same model (its default local
+GLiNER extractor needed ~6 GB of RAM per run on our machine); 6 chunk-level relation steps hit the 32k context.
 
 Honest notes:
 

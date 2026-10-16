@@ -167,6 +167,173 @@
      }
     }
    },
+   "graphrag_sdk": {
+    "ABS": {
+     "n": 164,
+     "n_set": 164,
+     "accuracy": 0.311,
+     "proportional": 0.3308,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.2188,
+      "4": 0.45,
+      "5-6": 0.25
+     },
+     "absence_accuracy": 0.311,
+     "absence_n": 164,
+     "by_family": {
+      "absence_client": 0.179,
+      "absence_person": 0.25,
+      "absence_multihop": 0.25,
+      "absence_category": 0.619,
+      "absence_credential": 0.056
+     },
+     "latency": {
+      "p50": 11843.6,
+      "p95": 42268.8,
+      "n": 164
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 2.0,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 164
+     }
+    },
+    "Q333": {
+     "n": 333,
+     "n_set": 333,
+     "accuracy": 0.0991,
+     "proportional": 0.2685,
+     "errors": 13,
+     "by_hops": {
+      "2-3": 0.0,
+      "4": 0.0745,
+      "5-6": 0.1376
+     },
+     "absence_accuracy": 0.0,
+     "absence_n": 1,
+     "by_family": {
+      "sum": 0.042,
+      "collection_rate": 0.0,
+      "awarded_vs_billed": 0.0,
+      "date_span": 0.292,
+      "average": 0.0,
+      "distinct_categories": 0.0,
+      "year_difference": 0.25,
+      "mean_median_gap": 0.0,
+      "rank_gap": 0.25,
+      "gap_to_threshold": 0.0,
+      "referenced_share": 0.0,
+      "absence_count": 0.0,
+      "invoices": 0.0,
+      "category_difference": 0.213
+     },
+     "latency": {
+      "p50": 15166.3,
+      "p95": 48184.5,
+      "n": 320
+     },
+     "latency_errored": {
+      "p50": 6326.7,
+      "p95": 7754.3,
+      "n": 13
+     },
+     "cached_rows": 0,
+     "llm_calls": 2.0,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 320
+     }
+    },
+    "latency": {
+     "p50": 15166.3,
+     "p95": 48184.5,
+     "n": 320
+    },
+    "llm_calls": 2.0,
+    "tool_calls": null,
+    "S21": {
+     "n": 21,
+     "n_set": 21,
+     "accuracy": 0.1905,
+     "proportional": 0.4797,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.0,
+      "4": 0.125,
+      "5-6": 0.2727
+     },
+     "absence_accuracy": 0.0,
+     "absence_n": 2,
+     "by_family": {
+      "absence_count": 0.0,
+      "date_span": 0.0,
+      "distinct_categories": 0.5,
+      "sum": 0.125,
+      "average": 0.0,
+      "gap_to_threshold": 0.0,
+      "rank_gap": 1.0,
+      "referenced_share": 0.0
+     },
+     "latency": {
+      "p50": 20211.9,
+      "p95": 33570.9,
+      "n": 21
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 2.0,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 21
+     }
+    },
+    "TND": {
+     "n": 144,
+     "n_set": 144,
+     "accuracy": 0.5417,
+     "proportional": 0.5933,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.8125,
+      "4": 0.5078
+     },
+     "absence_accuracy": null,
+     "absence_n": 0,
+     "by_family": {
+      "tender_similar": 0.775,
+      "tender_turnover": 0.812,
+      "tender_personnel": 0.062
+     },
+     "latency": {
+      "p50": 18687.4,
+      "p95": 34424.4,
+      "n": 144
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 2.0,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 144
+     }
+    },
+    "ingest_coverage": 1.0
+   },
    "text2cypher": {
     "ABS": {
      "n": 164,
@@ -505,6 +672,9 @@
    "bidbrain": {
     "vllm:Qwen/Qwen3-32B": 662
    },
+   "graphrag_sdk": {
+    "vllm:Qwen/Qwen3-32B": 649
+   },
    "text2cypher": {
     "vllm:Qwen/Qwen3-32B": 662
    },
@@ -525,38 +695,38 @@
     "majority_per_type": 0.045,
     "majority_answers": {
      "percent": 88.9,
-     "money": 240294737,
+     "count": 2,
      "days": 536,
-     "count": 2
+     "money": 240294737
     }
    },
    "S21": {
     "always_zero": 0.0,
     "majority_per_type": 0.1905,
     "majority_answers": {
-     "percent": 33.33,
      "days": 1569,
      "count": 1,
-     "money": 2008199999
+     "money": 2008199999,
+     "percent": 33.33
     }
    },
    "TND": {
     "always_zero": 0.0,
     "majority_per_type": 0.4722,
     "majority_answers": {
-     "verdict": "DOES NOT QUALIFY",
-     "count": 5
+     "count": 5,
+     "verdict": "DOES NOT QUALIFY"
     }
    }
   },
   "graphrag_sdk_ingest": {
    "n_docs": 678,
-   "ok": 0,
+   "ok": 678,
    "failed_n": 0,
-   "coverage": 0.0,
-   "finalized": false,
-   "finished_at": null
+   "coverage": 1.0,
+   "finalized": true,
+   "finished_at": "2026-10-16 14:59:04"
   },
-  "generated_at": "2026-10-16 05:54"
+  "generated_at": "2026-10-16 15:14"
  }
 }

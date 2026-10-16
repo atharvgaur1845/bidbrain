@@ -2,11 +2,11 @@
  "graph": "grsdk_bidbrain",
  "n_docs": 678,
  "attempted": 678,
- "ok": 0,
+ "ok": 678,
  "failed_n": 0,
  "failed": [],
- "coverage": 0.0,
- "finalized": false,
+ "coverage": 1.0,
+ "finalized": true,
  "started_at": "2026-10-16 06:09:39",
- "finished_at": null
+ "finished_at": "2026-10-16 14:59:04"
 }
