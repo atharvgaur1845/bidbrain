@@ -76,7 +76,7 @@ clause can explain which figure it used.
 
 ## 5. Tools (`bidbrain/tools/`): why tools instead of free Cypher
 
-* The Q&A agent gets **17 named tools** (a subset of the 25 in the registry) rather than writing Cypher; a read-only
+* The Q&A agent gets **18 named tools** (a subset of the 25 in the registry) rather than writing Cypher; a read-only
   `cypher_readonly` escape hatch is among them, for questions no tool covers. Each tool is a tested multi-hop traversal with exact
   arithmetic and evidence attached. Raw NL→Cypher is our *baseline* (`text2cypher`), and the benchmark shows the
   difference.

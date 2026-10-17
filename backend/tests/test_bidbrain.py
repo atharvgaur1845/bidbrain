@@ -189,3 +189,31 @@ def test_prove_absence_credential_and_bond_run_closure_checks(g):
     assert r["verdict"] == "PROVEN" and r["checks"]["credential_closure"].split("/")[0] == r["checks"]["credential_closure"].split("/")[1].split()[0]
     b = call(g, "prove_absence", {"evidence": "performance_bond"})["result"]
     assert b["verdict"] == "PROVEN" and b["checks"]["bond_closure"] == "60/60 bonds in scope secure a tender"
+
+
+def test_llm_clause_parse_is_sanitised_and_checked(monkeypatch):
+    """The live judges' crash: the LLM invented `options`, wrote 'roads' as a category, listed two ISO
+    standards in one clause, read 'in each of' as an average and 75 Cr as 750 Cr. Every clause must come
+    out runnable, with the deterministic reading of amounts."""
+    import json as _json
+    from bidbrain.agents import clauses, providers
+    bad = {"clauses": [
+        {"id": "C1", "kind": "similar_works", "text": "2.1 Similar works: roads, highways or expressways, last 7 "
+         "years, one work of 80% of the estimated cost of INR 250 Cr, or two of 60%, or three of 40%.",
+         "params": {"categories": ["roads", "highways", "expressways"], "lookback_years": 7,
+                    "options": [{"count": 1, "min_value": 2000000000}, {"count": 2, "min_value": 1500000000},
+                                {"count": 3, "min_value": 1000000000}]}},
+        {"id": "C2", "kind": "turnover", "text": "2.2 Average annual turnover of the last 3 financial years shall "
+         "be at least INR 75 Cr.", "params": {"min_average": 7500000000, "years": 3}},
+        {"id": "C3", "kind": "turnover", "text": "A. Annual turnover of at least INR 240 Cr in each of the last 3 "
+         "financial years.", "params": {"min_average": 2400000000, "years": 3}},
+        {"id": "C4", "kind": "certification", "text": "2.4 ISO 9001 and ISO 45001 certified.",
+         "params": {"standard": ["ISO 9001", "ISO 45001"]}},
+    ]}
+    monkeypatch.setattr(providers, "chat", lambda *a, **k: type("R", (), {"content": _json.dumps(bad)})())
+    out = {c["id"]: c for c in clauses.parse_llm("ignored")}
+    assert out["C1"]["params"]["estimated_cost"] == 2500000000 and "options" not in out["C1"]["params"]
+    assert set(out["C1"]["params"]["categories"]) >= {"roads highways", "expressways"}
+    assert out["C2"]["params"]["min_average"] == 750000000            # rules beat the LLM on amounts
+    assert out["C3"]["params"].get("min_each_year") == 2400000000     # "in each of" is not an average
+    assert {"C4a", "C4b"} <= set(out)                                 # one clause per standard

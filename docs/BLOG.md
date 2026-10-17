@@ -93,7 +93,7 @@ safe, and the reason is one click away.
 
 ## Tools, not text-to-Cypher
 
-We built a registry of 25 named tools (the Q&A agent is offered 17 of them) instead of handing it raw Cypher. `find_portfolio` with a `via_work` hop, `prove_absence`,
+We built a registry of 26 named tools (the Q&A agent is offered 18 of them) instead of handing it raw Cypher. `find_portfolio` with a `via_work` hop, `prove_absence`,
 `qualify_clause` and `explain_path` are each a tested traversal that returns evidence (document and page) and a
 subgraph for the UI. **Arithmetic never happens in the model.** `aggregate` takes *work keys*, re-reads values from
 the graph and computes in exact integer rupees, so the model can neither misadd nor smuggle in a number.

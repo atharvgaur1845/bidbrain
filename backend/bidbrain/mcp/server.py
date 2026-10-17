@@ -11,6 +11,7 @@ read-only (every query runs as GRAPH.RO_QUERY).
 """
 from __future__ import annotations
 
+from mcp.types import ToolAnnotations
 import inspect
 import os
 from typing import Any
@@ -46,7 +47,10 @@ def _wrap(t):
 
     def fn(**kwargs) -> dict:
         g = Graph(os.getenv("MCP_GRAPH", config.BASE_GRAPH))
-        out = t(g, **kwargs)
+        try:
+            out = t(g, **kwargs)
+        except Exception as exc:   # a client agent can only self-correct if it sees why the call failed
+            return {"error": f"{type(exc).__name__}: {exc}"}
         return {k: v for k, v in out.items() if k in ("result", "evidence", "resolved_as", "scope", "error", "ms")}
 
     fn.__signature__ = inspect.Signature(params, return_annotation=dict)
@@ -58,7 +62,8 @@ def _wrap(t):
 
 for _t in TOOLS.values():
     if not _t.writes:
-        server.add_tool(_wrap(_t), name=_t.name, description=_t.description)
+        server.add_tool(_wrap(_t), name=_t.name, description=_t.description,
+                        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=False))
 
 
 def mcp_app():

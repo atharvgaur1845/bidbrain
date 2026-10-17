@@ -276,8 +276,9 @@ async def qualify(req: Request, x_session: str | None = Header(None)):
                   "bid_date": body.get("bid_date") or config.AS_OF, "category": body.get("category")}
     else:
         tender = dict(tender)
-        if body.get("text"):
+        if body.get("text") and body["text"].strip() != (tender.get("text") or "").strip():
             tender["text"] = body["text"]
+            tender.pop("clauses", None)       # edited text: the vetted clauses no longer describe it
 
     def work(emit):
         from bidbrain.agents.orchestrator import qualify_tender

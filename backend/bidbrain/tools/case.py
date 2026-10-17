@@ -208,7 +208,10 @@ def blast_radius(g: Graph, label: str, key: str, rerun: bool = True) -> dict:
     flips, rewired = [], []
     if rerun:
         for c in clauses:
-            out = qualify_clause(g, c["kind"], json.loads(c["params"] or "{}"), c["bid_date"])
+            try:
+                out = qualify_clause(g, c["kind"], json.loads(c["params"] or "{}"), c["bid_date"])
+            except Exception:           # a clause the engine cannot re-check keeps its verdict
+                continue
             new = out["result"]["verdict"]
             sat = satisfied_edges(c["kind"], out["result"])
             entry = {"case": c["case"], "case_id": c["case_id"], "clause": c["ref"], "kind": c["kind"],

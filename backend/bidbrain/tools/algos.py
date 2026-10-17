@@ -8,6 +8,9 @@ from bidbrain.tools.registry import tool
 LABEL_KIND = {"Person": "person", "Client": "client", "Work": "work", "Tender": "tender"}
 
 
+SEEDS = 32           # seeded algo.betweenness runs averaged by key_people
+
+
 @tool("key_people",
       """Who the company depends on. algo='betweenness' (default) ranks people by how many
       shortest person<->client paths run through them — the knowledge brokers whose loss would
@@ -20,16 +23,26 @@ def key_people(g: Graph, algo: str = "betweenness", client: str | None = None,
     ck = _resolve(g, client, "client")[0] if client else None
     cat = _resolve(g, category, "category")[0] if category else None
     if algo == "betweenness":
-        # samplingSize above the node count makes FalkorDB use every source node: exact and repeatable
-        # (the default samples, so the ranking changed between calls)
-        q = """CALL algo.betweenness({nodeLabels:['Person','Client'], relationshipTypes:['WORKED_FOR','ENGAGED'],
-                                    samplingSize:100000, samplingSeed:7})
-               YIELD node, score WITH node AS p, score WHERE p:Person
+        # algo.betweenness samples source nodes even when samplingSize exceeds the node count, so one call's
+        # ranking past the top two depends on the seed. The score is the mean over SEEDS seeded runs: two disjoint
+        # seed sets give the same top 6, and the top 3 match exact Brandes on this projection.
+        bq = """CALL algo.betweenness({nodeLabels:['Person','Client'], relationshipTypes:['WORKED_FOR','ENGAGED'],
+                                     samplingSize:100000, samplingSeed:$seed})
+                YIELD node, score WITH node AS p, score WHERE p:Person RETURN p.key AS key, score"""
+        mean: dict[str, float] = {}
+        for seed in range(1, SEEDS + 1):
+            for r in g.read(bq, {"seed": seed}):
+                mean[r["key"]] = mean.get(r["key"], 0.0) + r["score"] / SEEDS
+        q = """UNWIND $scores AS s MATCH (p:Person {key:s.key})
                MATCH (p)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
                WHERE ($c IS NULL OR c.key = $c) AND ($cat IS NULL OR w.category = $cat)
-               RETURN p.key AS key, p.name AS name, p.designation AS designation, round(score) AS score,
+               RETURN p.key AS key, p.name AS name, p.designation AS designation, round(s.score) AS score,
                       count(DISTINCT c) AS clients, count(w) AS works, sum(w.value) AS value
                ORDER BY score DESC LIMIT $lim"""
+        rows = g.read(q, {"scores": [{"key": k, "score": v} for k, v in mean.items()], "c": ck, "cat": cat,
+                          "lim": int(limit)})
+        sg = {"nodes": [_node("Person", r["key"], r["name"], score=r["score"]) for r in rows], "edges": []}
+        return {"result": {"algo": algo, "runs_averaged": SEEDS, "people": rows}, "subgraph": sg, "cypher": [bq, q]}
     else:
         q = """MATCH (p:Person)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
                WHERE ($c IS NULL OR c.key = $c) AND ($cat IS NULL OR w.category = $cat)

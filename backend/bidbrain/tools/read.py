@@ -139,6 +139,45 @@ def resolve_entity(g: Graph, text: str, kind: str) -> dict:
     return {"result": ranked}
 
 
+@tool("fact_history",
+      """Why we believe a fact: every competing claim about it (value, source document + page, issuer,
+      authority, status) and the decisions that settled it (policy, rationale, who decided, any learned rule).
+      Use for 'why is X's value Y', 'what changed', 'which document do we trust'. kind: work|person|bond|
+      credential|financial_statement; predicate optional (value, completed, grading, role, valid_through, ...).""",
+      {"key": {"type": "string", "description": "entity key or name, e.g. 'Pkg-113'"},
+       "kind": {"type": "string", "enum": ["work", "person", "bond", "credential", "financial_statement"]},
+       "predicate": {"type": "string"}},
+      ["key", "kind"])
+def fact_history(g: Graph, key: str, kind: str, predicate: str | None = None) -> dict:
+    label = {"work": "Work", "person": "Person", "bond": "Bond", "credential": "Credential",
+             "financial_statement": "FinancialStatement"}[kind]
+    if kind in ("work", "person"):
+        key, res = _resolve(g, key, kind)
+    else:
+        res = None
+    q = """MATCH (c:Claim)-[:ABOUT]->(s {key:$k}) WHERE ($p IS NULL OR c.predicate = $p)
+           OPTIONAL MATCH (c)-[f:FROM]->(d:Document)
+           RETURN c.id AS claim, c.predicate AS predicate, c.value_str AS value, c.source_kind AS source,
+                  c.issuer AS issuer, c.authority AS authority, c.status AS status, d.doc_id AS doc, f.page AS page
+           ORDER BY predicate, authority DESC"""
+    claims = g.read(q, {"k": key, "p": predicate})
+    dq = """MATCH (dec:Decision {subject_key:$k}) WHERE ($p IS NULL OR dec.predicate = $p)
+            OPTIONAL MATCH (dec)-[:DECIDED_BY]->(a) OPTIONAL MATCH (dec)-[:SELECTS]->(w:Claim)
+            OPTIONAL MATCH (dec)-[:APPLIED_RULE]->(r:PolicyRule)
+            RETURN dec.id AS decision, dec.predicate AS predicate, dec.policy AS policy, dec.rationale AS rationale,
+                   dec.chosen_value AS chosen, labels(a)[0] AS decided_by_kind, a.key AS decided_by,
+                   w.source_doc AS winning_doc, r.id AS learned_rule, dec.at AS at
+            ORDER BY at DESC"""
+    decisions = g.read(dq, {"k": key, "p": predicate})
+    ev = [{"doc_id": c["doc"], "page": c["page"], "what": f"{c['predicate']} = {c['value']} ({c['source']}, {c['status']})"}
+          for c in claims if c.get("doc")]
+    sg = {"nodes": [_node(label, key, key)] + [_node("Decision", d["decision"], f"{d['policy']}") for d in decisions],
+          "edges": [_edge(f"Decision:{d['decision']}", f"{label}:{key}", "ABOUT") for d in decisions]}
+    return {"result": {"subject": f"{label}:{key}", "claims": claims, "decisions": decisions,
+                       "note": None if decisions else "no competing claims: the value comes from a single source"},
+            "resolved_as": res, "evidence": ev, "subgraph": sg, "cypher": [q, dq]}
+
+
 @tool("get_entity",
       """Fetch one entity's properties and its direct relationships (1 hop), e.g. a work's
       client, lead, documents; a person's credentials and led works; a client's works.""",

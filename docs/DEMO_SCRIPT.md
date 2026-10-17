@@ -46,7 +46,7 @@ Two documents later, a winnable bid is a no-bid, and we know exactly why."
 
 ### 2:50 – 3:10 · Decisions & graph algorithms (Decisions → Explore)
 **Screen:** Decisions page. Click the corrigendum decision: the trace graph shows Decision → SELECTS → claim → FROM →
-DOC, and DECIDED_BY. Then Explore → **Bus factor (betweenness)**: Rahul Menon tops the list (exact betweenness, so the ranking is stable). **Audit past bids**:
+DOC, and DECIDED_BY. Then Explore → **Bus factor (betweenness)**: Rahul Menon tops the list (betweenness averaged over 32 seeded FalkorDB runs, so the ranking is stable). **Audit past bids**:
 every past dossier cited works not yet complete at submission.
 **Say:** "Every fact traces back to a decision, a decider, and two documents. FalkorDB's algorithms are tools the
 agents call: betweenness shows who the company can't afford to lose."

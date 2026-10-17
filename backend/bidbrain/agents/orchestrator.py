@@ -73,7 +73,8 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
     # 1 ── ClauseParser ──────────────────────────────────────────────────────
     r1 = M.start("ClauseParser")
     emit({"type": "agent_start", "agent": "ClauseParser", "run": r1})
-    if tender.get("clauses") and not prefer_llm:
+    if tender.get("clauses"):
+        # a sample tender whose text was not edited keeps its vetted clauses; the LLM parses new or edited text
         parsed, how = tender["clauses"], "pre-parsed"
     else:
         parsed, how = clause_mod.parse(tender.get("text", ""), prefer_llm=prefer_llm)
@@ -100,7 +101,16 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
             emit({"type": "verdict", "agent": "EvidenceHunter", "clause_id": kid, "ref": c["id"],
                   "verdict": "DECLARE", "basis": "declaration — include signed undertaking"})
             continue
-        out = qualify_clause(g, c["kind"], c["params"], tender.get("bid_date"))
+        try:
+            out = qualify_clause(g, c["kind"], c["params"], tender.get("bid_date"))
+        except Exception as exc:        # one unreadable clause must not abort the whole case
+            msg = f"could not check this clause automatically ({exc}); verify by hand"
+            C.set_verdict(g, kid, "DECLARE", msg, [], r2)
+            g.run("MATCH (k:Clause {id:$k}) SET k.kind = 'other'", {"k": kid})
+            verdicts[kid] = {"verdict": "DECLARE", "satisfied_by": []}
+            emit({"type": "verdict", "agent": "EvidenceHunter", "clause_id": kid, "ref": c["id"], "kind": c["kind"],
+                  "verdict": "DECLARE", "basis": msg})
+            continue
         M.tool()
         res = out["result"]
         sat = C.satisfied_edges(c["kind"], res)

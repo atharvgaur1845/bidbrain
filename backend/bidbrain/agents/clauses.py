@@ -207,6 +207,74 @@ THRESHOLDS = {"turnover": ("min_average", "min_each_year"), "similar_works": ("e
               "years_in_business": ("min_years",)}
 
 
+_SYNONYMS = {"min_experience": "min_experience_years", "experience_years": "min_experience_years",
+             "min_years_experience": "min_experience_years", "category": "categories", "lookback": "lookback_years",
+             "years_lookback": "lookback_years", "period_years": "lookback_years", "min_turnover": "min_average",
+             "average_turnover": "min_average", "num_people": "count", "certificate": "standard",
+             "estimated_value": "estimated_cost", "cost": "estimated_cost", "value": "min_value"}
+
+
+def _sanitize(kind: str, params: dict) -> dict:
+    """Coerce an LLM's clause params onto the engine's schema. Models invent shapes ('options': [{count,
+    min_value}, ...] for the CPWD rule, 'min_experience', a bare 'category'); qualify_clause rejects unknown
+    keys, so they are mapped here, and whatever cannot be mapped is dropped rather than crashing the run."""
+    from bidbrain.tools.proof import PARAMS
+    allowed = PARAMS.get(kind)
+    if not allowed or not isinstance(params, dict):
+        return params if isinstance(params, dict) else {}
+    p = {_SYNONYMS.get(k, k): v for k, v in params.items()}
+    if kind == "similar_works" and "options" in p and not p.get("estimated_cost") and not p.get("min_value"):
+        opts = [o for o in p.get("options") or [] if isinstance(o, dict) and o.get("min_value")]
+        cpwd = sorted((int(o.get("count", 1)), int(o["min_value"])) for o in opts)
+        if len(cpwd) == 3 and [c for c, _ in cpwd] == [1, 2, 3]:      # 1 x 80% / 2 x 60% / 3 x 40% of the estimate
+            p["estimated_cost"] = round(cpwd[0][1] / 0.8)
+        elif opts:
+            p["min_value"], p["count"] = int(opts[0]["min_value"]), int(opts[0].get("count", 1))
+    if isinstance(p.get("categories"), str):
+        p["categories"] = [p["categories"]]
+    if p.get("categories"):                  # free words ("roads", "highway") -> the corpus's categories
+        p["categories"] = _cats(" ".join(map(str, p["categories"]))) or None
+    if isinstance(p.get("standard"), list):
+        p["standard"] = p["standard"][0] if p["standard"] else None
+    return {k: v for k, v in p.items() if k in allowed and v not in (None, "", [])}
+
+
+_NUMERIC = ("estimated_cost", "min_value", "min_average", "min_each_year", "min_experience_years", "min_years")
+
+
+def _checked(cl: dict) -> list[dict]:
+    """An LLM clause the engine can actually evaluate, or the rule parser's reading of the same text, or an
+    explicit 'unparsed' clause. A dry run against the graph catches what schema checks miss."""
+    from bidbrain.graph.client import Graph
+    from bidbrain.tools.proof import qualify_clause
+    cands = [cl]
+    if cl["kind"] == "certification" and isinstance(cl.get("_standards"), list):     # one clause per standard
+        cands = [{**cl, "id": f"{cl['id']}{'abcdefgh'[i]}", "params": {"standard": s}}
+                 for i, s in enumerate(cl["_standards"])]
+    out = []
+    for c in cands:
+        c.pop("_standards", None)
+        if c["kind"] in ("other",):
+            out.append(c)
+            continue
+        # numbers are where an LLM slips (75 Cr read as 750 Cr) and the rule parser is exact: when both read
+        # this clause and a threshold differs, the deterministic reading wins
+        rule = next((r for r in parse_rules(c["text"]) if r["kind"] == c["kind"]), None)
+        if rule:
+            for k in _NUMERIC:
+                rv, lv = rule["params"].get(k), c["params"].get(k)
+                if rv and lv and int(rv) != int(lv):
+                    c = {**c, "params": {**c["params"], k: rv}, "corrected": f"{k}: LLM {lv} -> rules {rv}"}
+        try:
+            qualify_clause(Graph(), c["kind"], c["params"])
+            out.append(c)
+        except Exception as exc:
+            rules = [r for r in parse_rules(c["text"]) if r["kind"] == c["kind"]]
+            out.append({**rules[0], "id": c["id"], "text": c["text"]} if rules
+                       else _unparsed(c["id"], c["text"], c["kind"], f"engine could not read it ({exc})"))
+    return out
+
+
 def parse_llm(text: str) -> list[dict]:
     rep = providers.chat([{"role": "system", "content": CLAUSE_SYSTEM},
                           {"role": "user", "content": text}], max_tokens=2000)
@@ -218,12 +286,20 @@ def parse_llm(text: str) -> list[dict]:
         if c.get("kind") not in {"similar_works", "turnover", "key_personnel", "certification",
                                  "years_in_business", "other"}:
             c["kind"] = "other"
+        raw = c.get("params") or {}
         cl = {"id": str(c.get("id", len(out) + 1)), "text": c.get("text", ""), "kind": c["kind"],
-              "params": c.get("params") or {}}
+              "params": _sanitize(c["kind"], raw)}
+        if c["kind"] == "certification" and isinstance(raw.get("standard"), list) and len(raw["standard"]) > 1:
+            cl["_standards"] = raw["standard"]
+        if c["kind"] == "turnover" and re.search(r"\beach\b", cl["text"], re.I) and cl["params"].get("min_average") \
+                and not cl["params"].get("min_each_year"):       # "≥ X in each of the last 3 years" is not an average
+            cl["params"]["min_each_year"] = cl["params"].pop("min_average")
         need = THRESHOLDS.get(cl["kind"])
         if need and not any(cl["params"].get(k) for k in need):      # no threshold: must not pass vacuously
-            cl = _unparsed(cl["id"], cl["text"], cl["kind"], " / ".join(need))
-        out.append(cl)
+            rules = [r for r in parse_rules(cl["text"]) if r["kind"] == cl["kind"]]
+            cl = {**rules[0], "id": cl["id"], "text": cl["text"]} if rules \
+                else _unparsed(cl["id"], cl["text"], cl["kind"], " / ".join(need))
+        out.extend(_checked(cl))
     return out
 
 

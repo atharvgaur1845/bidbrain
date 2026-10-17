@@ -20,7 +20,7 @@ questions vs **18%** for LLM text-to-Cypher, **10%** for GraphRAG-SDK and **8%**
 | What you'll see | Where |
 |---|---|
 | Paste a tender, and six agents produce a clause-by-clause verdict and a bid memo that cites certificate pages | **Qualify a tender** |
-| "Which works have no reference letter?" The graph returns a *proof*; vector RAG confidently says the wrong thing | **Ask** → *Compare with vector RAG* |
+| "Which works have no reference letter?" The graph returns a *proof*; vector RAG can only reason about the letters it happened to retrieve | **Ask** → *Compare with vector RAG* |
 | A corrigendum arrives, the conflict is settled by policy, and the open bid flips **BID → NO-BID** | **Live documents** |
 | Every settled fact traced to its policy, decider, and both source documents; your decisions become learned rules | **Decisions** |
 | Bus factor (betweenness), isolated entities (WCC), how two things connect (SPpaths), audit of past bids | **Explore** |
@@ -53,13 +53,13 @@ flowchart LR
   subgraph Agents
     QA[Q&A agent] & CP[ClauseParser] & EH[EvidenceHunter] & AA[AbsenceAuditor] & CS[ConflictSentinel] & V[Verifier · no LLM] & AS[Assembler]
   end
-  T[25 graph tools<br/>Cypher · algo.* · exact maths] --- MCP[MCP server /mcp]
+  T[26 graph tools<br/>Cypher · algo.* · exact maths] --- MCP[MCP server /mcp]
   Agents --> T --> S
   UI[Next.js UI] <-- SSE --> API[FastAPI] --> Agents
   LLM[demo: Groq pool<br/>gpt-oss-120b · qwen3.8-27b · gpt-oss-20b<br/>benchmark: Qwen3-32B on vLLM] --- Agents
 ```
 
-* **One registry, three consumers.** The same 25 tool functions serve the in-app agents, the MCP server (24 of them; `case_open` writes, so MCP leaves it out)
+* **One registry, three consumers.** The same 26 tool functions serve the in-app agents, the MCP server (25 of them, annotated read-only; `case_open` writes, so MCP leaves it out)
   (`/mcp/`, streamable HTTP; any MCP client can connect) and the evaluation oracle.
 * **Arithmetic never happens in the LLM.** `aggregate` takes *work keys*, re-reads values from the graph, and computes
   in exact integer rupees.
@@ -122,7 +122,8 @@ the queries it actually ran. The core ones:
 | `prove_absence` | boundary `(c:Client)<-[:FOR_CLIENT]-(w)`, partition on `(w)-[:HAS_REFERENCE]->()`, then three checks: 3-view attestation, **corpus closure** (every letter is linked to some work), and a full-text orphan search |
 | `qualify_clause` | CPWD 80/60/40% similar-works rule, turnover (conflict-aware), key personnel valid **on the bid date**, certifications, years in business from the CIN |
 | `blast_radius` | `(subject)<-[:SATISFIED_BY]-(:Clause)<-[:HAS_CLAUSE]-(:Case)`, `<-[:CITES\|PROPOSES\|SECURED_BY]-(:Bid)`, `-[:SECURES]->(:Tender)`, then re-runs the affected clauses and reports verdict flips |
-| `key_people` | `CALL algo.betweenness({nodeLabels:['Person','Client'], relationshipTypes:['WORKED_FOR','ENGAGED']})` for the bus factor |
+| `key_people` | `CALL algo.betweenness({nodeLabels:['Person','Client'], relationshipTypes:['WORKED_FOR','ENGAGED'], samplingSeed:$seed})` for the bus factor, averaged over 32 seeded runs (one call samples, so ranks past the top two depended on the seed) |
+| `fact_history` | every competing `Claim` about a fact with its document and page, and the `Decision`s (policy, decider, learned rule) that settled it: the agent's answer to "why do we believe this?" |
 | `explain_path` | `CALL algo.SPpaths({sourceNode, targetNode, relTypes, relDirection:'both', maxLen:6, pathCount:3})` |
 | `isolated_entities` | `CALL algo.WCC(...)` finds a client we invoice with no completed work, and people who never led one |
 | `communities` | `CALL algo.labelPropagation(...)` over a people-by-shared-clients projection |
@@ -275,7 +276,7 @@ python -m eval.run --summarize
 
 ```
 backend/bidbrain/ingest     graph loader, claims, page provenance, aliases, past-bid dossiers, chunks+embeddings
-backend/bidbrain/tools      the 25 graph tools (one registry → agents, MCP, eval)
+backend/bidbrain/tools      the 26 graph tools (one registry → agents, MCP, eval)
 backend/bidbrain/conflicts  conflict engine, planted events, PDF rendering + live ingestion, demo scenarios
 backend/bidbrain/agents     provider failover + cache, tool loop, Q&A agent, tender team, baselines
 backend/bidbrain/api        FastAPI + SSE, per-session graphs, conversation memory
