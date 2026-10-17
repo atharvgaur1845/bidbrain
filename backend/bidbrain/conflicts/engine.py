@@ -816,13 +816,15 @@ def _export_locked(path: str | None = None) -> str | None:
            OPTIONAL MATCH (c:Contest)-[:CONTESTS]->(o)
            WITH o, d, u, collect(c {.*}) AS contests ORDER BY o.promoted_at, o.id
            RETURN o {.*} AS rule, d {.*} AS source, u {.*} AS user, contests""")
+    facts = [] if g is None else [r["f"] for r in g.read("MATCH (f:OrgFact) RETURN f {.*} AS f ORDER BY f.published_at")]
     import json
     import pathlib
     p = pathlib.Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
     tmp.write_text(json.dumps({"format": "bidbrain-org-memory/1", "graph": ORG_GRAPH,
-                               "exported_at": int(time.time() * 1000), "rules": rows}, indent=1, default=str))
+                               "exported_at": int(time.time() * 1000), "rules": rows,
+                               "facts": facts}, indent=1, default=str))
     os.replace(tmp, p)
     return str(p)
 
@@ -870,6 +872,10 @@ def import_org(path: str | None = None) -> int:
                     org.run("MATCH (o:OrgRule {id:$id}) CREATE (c:Contest) SET c += $c CREATE (c)-[:CONTESTS]->(o)",
                             {"id": rule["id"], "c": c})
             n += 1
+        for f in data.get("facts") or []:          # the company record (published facts) rides along
+            f = clean(f)
+            if str(f.get("id", "")).startswith("OF-"):
+                org.run("MERGE (o:OrgFact {id:$id}) SET o += $f", {"id": f["id"], "f": f})
         return n
 
 

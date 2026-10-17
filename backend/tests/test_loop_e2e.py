@@ -104,3 +104,17 @@ def test_published_fact_can_only_be_retired_by_its_publisher(client):
     client.get("/api/cases", headers=h3)
     g3 = Graph(f"session_{h3['X-Session']}")
     assert g3.scalar("MATCH (d:Decision {policy:'company_record'}) RETURN count(d)") == 0
+
+
+def test_company_record_survives_a_restart_via_the_json_mirror(client, org):
+    from bidbrain.conflicts import engine
+    from bidbrain.company import record
+    h1 = client.new_session()
+    _result(client.post("/api/events/DEMO-1/fire", headers=h1))
+    pub = next(a for a in client.get("/api/actions", headers=h1).json()["actions"]
+               if a["kind"] == "publish_to_company_record")
+    client.post(f"/api/actions/{pub['id']}/approve", json={}, headers=h1)
+    of = client.post(f"/api/actions/{pub['id']}/execute", json={}, headers=h1).json()["result"]["org_fact"]
+    Graph(org).delete()                                   # the company graph is lost (e.g. ephemeral disk)
+    engine.import_org()                                   # boot: restore from the JSON mirror
+    assert [f["id"] for f in record.facts()] == [of]

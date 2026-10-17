@@ -68,6 +68,7 @@ def publish(g: Graph, decision_id: str, by: str) -> dict:
                SET old.status = 'superseded', old.superseded_by = $id, old.superseded_at = timestamp()""",
             {"sk": c["subject_key"], "p": c["predicate"], "id": fid})
     g.run("MATCH (d:Decision {id:$d}) SET d.published_as = $f", {"d": decision_id, "f": fid})
+    _mirror()
     _note_applied(g, fid)             # the publishing workspace already holds this fact
     return {"org_fact": fid, "subject_key": c["subject_key"], "predicate": c["predicate"], "value": c["value"],
             "summary": f"published {c['subject_key']} {c['predicate']} = {c['value']} to the company record as {fid}"}
@@ -88,7 +89,17 @@ def retire(fid: str, session_graph: str | None, admin: bool = False, reason: str
         return {"retired": fid, "already": True}
     org.run("""MATCH (f:OrgFact {id:$id}) SET f.status = 'retired', f.retired_at = timestamp(), f.retire_reason = $r""",
             {"id": fid, "r": reason[:300]})
+    _mirror()
     return {"retired": fid, "already": False}
+
+
+def _mirror() -> None:
+    """Keep the JSON mirror of company memory (rules and facts) current; persistence must not depend on RDB alone."""
+    try:
+        from bidbrain.conflicts import engine
+        engine.export_org(only_if_present=True)
+    except Exception:
+        pass
 
 
 def facts(status: str | None = "active") -> list[dict]:
