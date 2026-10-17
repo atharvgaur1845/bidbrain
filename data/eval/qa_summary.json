@@ -5,44 +5,44 @@
     "ABS": {
      "n": 164,
      "n_set": 164,
-     "accuracy": 0.7805,
+     "accuracy": 0.8354,
      "accuracy_ci95": [
-      0.711,
-      0.837
+      0.771,
+      0.884
      ],
      "presence_accuracy": null,
      "presence_n": 0,
-     "tokens_per_q": 12621,
+     "tokens_per_q": 18726,
      "tokens_n": 164,
-     "proportional": 0.8028,
+     "proportional": 0.8491,
      "errors": 0,
      "by_hops": {
-      "2-3": 0.7812,
+      "2-3": 0.9219,
       "4": 0.6333,
       "5-6": 1.0
      },
-     "absence_accuracy": 0.7805,
+     "absence_accuracy": 0.8354,
      "absence_n": 164,
      "by_family": {
       "absence_client": 1.0,
-      "absence_person": 0.611,
+      "absence_person": 0.861,
       "absence_multihop": 1.0,
       "absence_category": 0.524,
       "absence_credential": 0.889
      },
      "latency": {
-      "p50": 3119.6,
-      "p95": 6385.1,
-      "n": 164
+      "p50": null,
+      "p95": null,
+      "n": 0
      },
      "latency_errored": {
       "p50": null,
       "p95": null,
       "n": 0
      },
-     "cached_rows": 0,
-     "llm_calls": 3.79,
-     "tool_calls": 2.79,
+     "cached_rows": 164,
+     "llm_calls": 4.16,
+     "tool_calls": 3.16,
      "models": {
       "vllm:Qwen/Qwen3-32B": 164
      }
@@ -50,109 +50,109 @@
     "Q333": {
      "n": 333,
      "n_set": 333,
-     "accuracy": 0.6396,
+     "accuracy": 0.7027,
      "accuracy_ci95": [
-      0.587,
-      0.689
+      0.652,
+      0.749
      ],
-     "presence_accuracy": 0.6386,
+     "presence_accuracy": 0.7018,
      "presence_n": 332,
-     "tokens_per_q": 13085,
+     "tokens_per_q": 18022,
      "tokens_n": 333,
-     "proportional": 0.7777,
+     "proportional": 0.7881,
      "errors": 0,
      "by_hops": {
-      "2-3": 0.92,
-      "4": 0.7234,
-      "5-6": 0.5238
+      "2-3": 0.86,
+      "4": 0.7872,
+      "5-6": 0.619
      },
      "absence_accuracy": 1.0,
      "absence_n": 1,
      "by_family": {
-      "sum": 0.431,
+      "sum": 0.528,
       "collection_rate": 0.875,
-      "awarded_vs_billed": 0.958,
+      "awarded_vs_billed": 0.875,
       "date_span": 0.958,
-      "average": 0.917,
-      "distinct_categories": 0.667,
-      "year_difference": 0.417,
-      "mean_median_gap": 0.579,
-      "rank_gap": 0.438,
+      "average": 0.75,
+      "distinct_categories": 1.0,
+      "year_difference": 0.542,
+      "mean_median_gap": 0.789,
+      "rank_gap": 0.688,
       "gap_to_threshold": 0.333,
-      "referenced_share": 0.571,
+      "referenced_share": 0.857,
       "absence_count": 1.0,
-      "invoices": 0.88,
-      "category_difference": 0.508
+      "invoices": 0.84,
+      "category_difference": 0.59
      },
      "latency": {
-      "p50": 4215.8,
-      "p95": 9608.6,
-      "n": 327
+      "p50": 7462.1,
+      "p95": 9453.2,
+      "n": 10
      },
      "latency_errored": {
       "p50": null,
       "p95": null,
       "n": 0
      },
-     "cached_rows": 6,
-     "llm_calls": 3.9,
-     "tool_calls": 2.98,
+     "cached_rows": 323,
+     "llm_calls": 4.09,
+     "tool_calls": 3.11,
      "models": {
       "vllm:Qwen/Qwen3-32B": 333
      }
     },
     "latency": {
-     "p50": 4215.8,
-     "p95": 9608.6,
-     "n": 327
+     "p50": 7462.1,
+     "p95": 9453.2,
+     "n": 10
     },
-    "llm_calls": 3.9,
-    "tool_calls": 2.98,
-    "tokens_per_q": 13085,
+    "llm_calls": 4.09,
+    "tool_calls": 3.11,
+    "tokens_per_q": 18022,
     "S21": {
      "n": 21,
      "n_set": 21,
-     "accuracy": 0.8095,
+     "accuracy": 0.7619,
      "accuracy_ci95": [
-      0.6,
-      0.923
+      0.549,
+      0.894
      ],
-     "presence_accuracy": 0.7895,
+     "presence_accuracy": 0.7368,
      "presence_n": 19,
-     "tokens_per_q": 12945,
+     "tokens_per_q": 17600,
      "tokens_n": 21,
-     "proportional": 0.8849,
+     "proportional": 0.7792,
      "errors": 0,
      "by_hops": {
       "2-3": 1.0,
-      "4": 0.625,
-      "5-6": 0.9091
+      "4": 0.75,
+      "5-6": 0.7273
      },
      "absence_accuracy": 1.0,
      "absence_n": 2,
      "by_family": {
       "absence_count": 1.0,
-      "date_span": 1.0,
-      "distinct_categories": 0.5,
+      "date_span": 0.5,
+      "distinct_categories": 1.0,
       "sum": 0.75,
-      "average": 1.0,
+      "average": 0.5,
       "gap_to_threshold": 1.0,
-      "rank_gap": 0.5,
-      "referenced_share": 1.0
+      "rank_gap": 1.0,
+      "referenced_share": 0.5
      },
      "latency": {
-      "p50": 4177.5,
-      "p95": 9008.4,
-      "n": 21
+      "p50": null,
+      "p95": null,
+      "n": 0
      },
      "latency_errored": {
       "p50": null,
       "p95": null,
       "n": 0
      },
-     "cached_rows": 0,
-     "llm_calls": 4.0,
-     "tool_calls": 3.0,
+     "cached_rows": 21,
+     "llm_calls": 4.05,
+     "tool_calls": 3.05,
      "models": {
       "vllm:Qwen/Qwen3-32B": 21
      }
@@ -160,40 +160,40 @@
     "TND": {
      "n": 144,
      "n_set": 144,
-     "accuracy": 0.8958,
+     "accuracy": 0.9306,
      "accuracy_ci95": [
-      0.835,
-      0.936
+      0.877,
+      0.962
      ],
-     "presence_accuracy": 0.8958,
+     "presence_accuracy": 0.9306,
      "presence_n": 144,
-     "tokens_per_q": 6289,
+     "tokens_per_q": 8350,
      "tokens_n": 144,
-     "proportional": 0.8958,
+     "proportional": 0.9306,
      "errors": 0,
      "by_hops": {
       "2-3": 1.0,
-      "4": 0.8828
+      "4": 0.9219
      },
      "absence_accuracy": null,
      "absence_n": 0,
      "by_family": {
-      "tender_similar": 0.812,
+      "tender_similar": 0.875,
       "tender_turnover": 1.0,
       "tender_personnel": 1.0
      },
      "latency": {
-      "p50": 3065.6,
-      "p95": 5243.8,
-      "n": 144
+      "p50": null,
+      "p95": null,
+      "n": 0
      },
      "latency_errored": {
       "p50": null,
       "p95": null,
       "n": 0
      },
-     "cached_rows": 0,
-     "llm_calls": 2.0,
+     "cached_rows": 144,
+     "llm_calls": 2.01,
      "tool_calls": 1.0,
      "models": {
       "vllm:Qwen/Qwen3-32B": 144
@@ -289,8 +289,8 @@
       "n": 320
      },
      "latency_errored": {
-      "p50": 6326.7,
-      "p95": 7754.3,
+      "p50": 11117.5,
+      "p95": 11990.7,
       "n": 13
      },
      "cached_rows": 0,
@@ -427,8 +427,8 @@
       "tender_personnel": 1.0
      },
      "latency": {
-      "p50": 15.6,
-      "p95": 18.8,
+      "p50": 23.0,
+      "p95": 27.6,
       "n": 144
      },
      "latency_errored": {
@@ -438,7 +438,7 @@
      },
      "cached_rows": 0,
      "llm_calls": 0.0,
-     "tool_calls": 3.03,
+     "tool_calls": 3.77,
      "models": {}
     }
    },
@@ -446,43 +446,43 @@
     "ABS": {
      "n": 164,
      "n_set": 164,
-     "accuracy": 0.5366,
+     "accuracy": 0.5,
      "accuracy_ci95": [
-      0.46,
-      0.611
+      0.424,
+      0.576
      ],
      "presence_accuracy": null,
      "presence_n": 0,
-     "tokens_per_q": 1022,
+     "tokens_per_q": 1182,
      "tokens_n": 164,
-     "proportional": 0.5366,
-     "errors": 3,
+     "proportional": 0.5,
+     "errors": 0,
      "by_hops": {
       "2-3": 0.4688,
-      "4": 0.7667,
-      "5-6": 0.3
+      "4": 0.7167,
+      "5-6": 0.225
      },
-     "absence_accuracy": 0.5366,
+     "absence_accuracy": 0.5,
      "absence_n": 164,
      "by_family": {
       "absence_client": 0.464,
       "absence_person": 0.472,
-      "absence_multihop": 0.3,
-      "absence_category": 0.905,
+      "absence_multihop": 0.225,
+      "absence_category": 0.833,
       "absence_credential": 0.444
      },
      "latency": {
-      "p50": 1877.8,
-      "p95": 4642.4,
-      "n": 161
+      "p50": 2155.3,
+      "p95": 6029.9,
+      "n": 164
      },
      "latency_errored": {
-      "p50": 6257.8,
-      "p95": 6257.8,
-      "n": 3
+      "p50": null,
+      "p95": null,
+      "n": 0
      },
      "cached_rows": 0,
-     "llm_calls": 2.05,
+     "llm_calls": 2.08,
      "tool_calls": null,
      "models": {
       "vllm:Qwen/Qwen3-32B": 164
@@ -491,65 +491,65 @@
     "Q333": {
      "n": 333,
      "n_set": 333,
-     "accuracy": 0.1802,
+     "accuracy": 0.1471,
      "accuracy_ci95": [
-      0.143,
-      0.225
+      0.113,
+      0.189
      ],
-     "presence_accuracy": 0.1807,
+     "presence_accuracy": 0.1476,
      "presence_n": 332,
-     "tokens_per_q": 1279,
+     "tokens_per_q": 1444,
      "tokens_n": 333,
-     "proportional": 0.2601,
+     "proportional": 0.2146,
      "errors": 29,
      "by_hops": {
-      "2-3": 0.32,
-      "4": 0.1809,
-      "5-6": 0.1429
+      "2-3": 0.34,
+      "4": 0.0213,
+      "5-6": 0.1587
      },
      "absence_accuracy": 0.0,
      "absence_n": 1,
      "by_family": {
-      "sum": 0.236,
-      "collection_rate": 0.125,
-      "awarded_vs_billed": 0.0,
-      "date_span": 0.125,
-      "average": 0.167,
+      "sum": 0.125,
+      "collection_rate": 0.042,
+      "awarded_vs_billed": 0.042,
+      "date_span": 0.0,
+      "average": 0.125,
       "distinct_categories": 0.0,
-      "year_difference": 0.125,
+      "year_difference": 0.208,
       "mean_median_gap": 0.0,
       "rank_gap": 0.5,
       "gap_to_threshold": 0.333,
-      "referenced_share": 0.143,
+      "referenced_share": 0.0,
       "absence_count": 0.0,
       "invoices": 0.64,
-      "category_difference": 0.066
+      "category_difference": 0.082
      },
      "latency": {
-      "p50": 2486.3,
-      "p95": 5719.1,
+      "p50": 2745.5,
+      "p95": 6013.5,
       "n": 304
      },
      "latency_errored": {
-      "p50": 6633.5,
-      "p95": 12988.2,
+      "p50": 8083.1,
+      "p95": 14269.9,
       "n": 29
      },
      "cached_rows": 0,
-     "llm_calls": 2.18,
+     "llm_calls": 2.21,
      "tool_calls": null,
      "models": {
       "vllm:Qwen/Qwen3-32B": 333
      }
     },
     "latency": {
-     "p50": 2486.3,
-     "p95": 5719.1,
+     "p50": 2745.5,
+     "p95": 6013.5,
      "n": 304
     },
-    "llm_calls": 2.18,
+    "llm_calls": 2.21,
     "tool_calls": null,
-    "tokens_per_q": 1279,
+    "tokens_per_q": 1444,
     "S21": {
      "n": 21,
      "n_set": 21,
@@ -558,41 +558,41 @@
       0.172,
       0.546
      ],
-     "presence_accuracy": 0.3158,
+     "presence_accuracy": 0.2632,
      "presence_n": 19,
-     "tokens_per_q": 1135,
+     "tokens_per_q": 1401,
      "tokens_n": 21,
-     "proportional": 0.3791,
-     "errors": 0,
+     "proportional": 0.3329,
+     "errors": 2,
      "by_hops": {
-      "2-3": 0.5,
-      "4": 0.25,
-      "5-6": 0.3636
+      "2-3": 1.0,
+      "4": 0.0,
+      "5-6": 0.4545
      },
-     "absence_accuracy": 0.5,
+     "absence_accuracy": 1.0,
      "absence_n": 2,
      "by_family": {
-      "absence_count": 0.5,
+      "absence_count": 1.0,
       "date_span": 0.0,
-      "distinct_categories": 1.0,
-      "sum": 0.0,
-      "average": 0.5,
+      "distinct_categories": 0.0,
+      "sum": 0.25,
+      "average": 0.0,
       "gap_to_threshold": 1.0,
-      "rank_gap": 0.5,
-      "referenced_share": 0.5
+      "rank_gap": 0.0,
+      "referenced_share": 1.0
      },
      "latency": {
-      "p50": null,
-      "p95": null,
-      "n": 0
+      "p50": 6270.5,
+      "p95": 8226.0,
+      "n": 19
      },
      "latency_errored": {
-      "p50": null,
-      "p95": null,
-      "n": 0
+      "p50": 8520.6,
+      "p95": 5352.1,
+      "n": 2
      },
-     "cached_rows": 21,
-     "llm_calls": 2.14,
+     "cached_rows": 0,
+     "llm_calls": 2.24,
      "tool_calls": null,
      "models": {
       "vllm:Qwen/Qwen3-32B": 21
@@ -601,40 +601,40 @@
     "TND": {
      "n": 144,
      "n_set": 144,
-     "accuracy": 0.2639,
+     "accuracy": 0.3611,
      "accuracy_ci95": [
-      0.199,
-      0.341
+      0.287,
+      0.442
      ],
-     "presence_accuracy": 0.2639,
+     "presence_accuracy": 0.3611,
      "presence_n": 144,
-     "tokens_per_q": 1461,
+     "tokens_per_q": 1559,
      "tokens_n": 144,
-     "proportional": 0.2639,
-     "errors": 8,
+     "proportional": 0.3611,
+     "errors": 2,
      "by_hops": {
       "2-3": 0.375,
-      "4": 0.25
+      "4": 0.3594
      },
      "absence_accuracy": null,
      "absence_n": 0,
      "by_family": {
-      "tender_similar": 0.4,
+      "tender_similar": 0.575,
       "tender_turnover": 0.375,
       "tender_personnel": 0.0
      },
      "latency": {
-      "p50": 4622.9,
-      "p95": 9958.9,
-      "n": 136
+      "p50": 4931.8,
+      "p95": 10443.5,
+      "n": 142
      },
      "latency_errored": {
-      "p50": 11111.2,
-      "p95": 16379.3,
-      "n": 8
+      "p50": 10504.7,
+      "p95": 10456.4,
+      "n": 2
      },
      "cached_rows": 0,
-     "llm_calls": 2.1,
+     "llm_calls": 2.06,
      "tool_calls": null,
      "models": {
       "vllm:Qwen/Qwen3-32B": 144
@@ -652,27 +652,27 @@
      ],
      "presence_accuracy": null,
      "presence_n": 0,
-     "tokens_per_q": 2500,
+     "tokens_per_q": 2498,
      "tokens_n": 164,
-     "proportional": 0.2927,
+     "proportional": 0.2856,
      "errors": 0,
      "by_hops": {
-      "2-3": 0.2812,
-      "4": 0.2667,
-      "5-6": 0.25
+      "2-3": 0.2656,
+      "4": 0.3,
+      "5-6": 0.225
      },
      "absence_accuracy": 0.2683,
      "absence_n": 164,
      "by_family": {
       "absence_client": 0.071,
-      "absence_person": 0.444,
-      "absence_multihop": 0.25,
-      "absence_category": 0.333,
-      "absence_credential": 0.111
+      "absence_person": 0.417,
+      "absence_multihop": 0.225,
+      "absence_category": 0.429,
+      "absence_credential": 0.0
      },
      "latency": {
-      "p50": 4158.6,
-      "p95": 10893.1,
+      "p50": 5010.5,
+      "p95": 13388.9,
       "n": 164
      },
      "latency_errored": {
@@ -690,26 +690,26 @@
     "Q333": {
      "n": 333,
      "n_set": 333,
-     "accuracy": 0.0751,
+     "accuracy": 0.0691,
      "accuracy_ci95": [
-      0.051,
-      0.108
+      0.046,
+      0.102
      ],
-     "presence_accuracy": 0.0753,
+     "presence_accuracy": 0.0693,
      "presence_n": 332,
-     "tokens_per_q": 3549,
+     "tokens_per_q": 3552,
      "tokens_n": 333,
-     "proportional": 0.2576,
+     "proportional": 0.2441,
      "errors": 0,
      "by_hops": {
       "2-3": 0.0,
       "4": 0.0638,
-      "5-6": 0.1005
+      "5-6": 0.0899
      },
      "absence_accuracy": 0.0,
      "absence_n": 1,
      "by_family": {
-      "sum": 0.056,
+      "sum": 0.028,
       "collection_rate": 0.0,
       "awarded_vs_billed": 0.0,
       "date_span": 0.25,
@@ -725,8 +725,8 @@
       "category_difference": 0.115
      },
      "latency": {
-      "p50": 5344.9,
-      "p95": 13226.5,
+      "p50": 6690.5,
+      "p95": 15961.7,
       "n": 333
      },
      "latency_errored": {
@@ -742,55 +742,55 @@
      }
     },
     "latency": {
-     "p50": 5344.9,
-     "p95": 13226.5,
+     "p50": 6690.5,
+     "p95": 15961.7,
      "n": 333
     },
     "llm_calls": 1.0,
     "tool_calls": null,
-    "tokens_per_q": 3549,
+    "tokens_per_q": 3552,
     "S21": {
      "n": 21,
      "n_set": 21,
-     "accuracy": 0.1905,
+     "accuracy": 0.2381,
      "accuracy_ci95": [
-      0.077,
-      0.4
+      0.106,
+      0.451
      ],
-     "presence_accuracy": 0.2105,
+     "presence_accuracy": 0.2632,
      "presence_n": 19,
-     "tokens_per_q": 2700,
+     "tokens_per_q": 2692,
      "tokens_n": 21,
-     "proportional": 0.4414,
+     "proportional": 0.4395,
      "errors": 0,
      "by_hops": {
       "2-3": 0.0,
-      "4": 0.125,
+      "4": 0.25,
       "5-6": 0.2727
      },
      "absence_accuracy": 0.0,
      "absence_n": 2,
      "by_family": {
       "absence_count": 0.0,
-      "date_span": 0.5,
+      "date_span": 1.0,
       "distinct_categories": 0.0,
-      "sum": 0.375,
+      "sum": 0.25,
       "average": 0.0,
       "gap_to_threshold": 0.0,
-      "rank_gap": 0.0,
+      "rank_gap": 0.5,
       "referenced_share": 0.0
      },
      "latency": {
-      "p50": 5816.7,
-      "p95": 5816.7,
-      "n": 3
+      "p50": 10216.5,
+      "p95": 14983.2,
+      "n": 21
      },
      "latency_errored": {
       "p50": null,
       "p95": null,
       "n": 0
      },
-     "cached_rows": 18,
+     "cached_rows": 0,
      "llm_calls": 1.0,
      "tool_calls": null,
      "models": {
@@ -800,31 +800,31 @@
     "TND": {
      "n": 144,
      "n_set": 144,
-     "accuracy": 0.3889,
+     "accuracy": 0.4028,
      "accuracy_ci95": [
-      0.313,
-      0.47
+      0.326,
+      0.484
      ],
-     "presence_accuracy": 0.3889,
+     "presence_accuracy": 0.4028,
      "presence_n": 144,
-     "tokens_per_q": 3511,
+     "tokens_per_q": 3544,
      "tokens_n": 144,
-     "proportional": 0.4061,
+     "proportional": 0.4239,
      "errors": 0,
      "by_hops": {
-      "2-3": 0.625,
-      "4": 0.3594
+      "2-3": 0.5625,
+      "4": 0.3828
      },
      "absence_accuracy": null,
      "absence_n": 0,
      "by_family": {
-      "tender_similar": 0.537,
-      "tender_turnover": 0.625,
+      "tender_similar": 0.575,
+      "tender_turnover": 0.562,
       "tender_personnel": 0.062
      },
      "latency": {
-      "p50": 9592.0,
-      "p95": 16343.2,
+      "p50": 10599.0,
+      "p95": 20009.4,
       "n": 144
      },
      "latency_errored": {
@@ -842,6 +842,122 @@
    }
   },
   "model": "Qwen/Qwen3-32B",
+  "repeat_run": {
+   "bidbrain": {
+    "ABS": {
+     "run2_accuracy": 0.8841,
+     "run2_ci95": [
+      0.826,
+      0.925
+     ],
+     "run2_n": 164,
+     "mean_of_runs": 0.8598
+    },
+    "Q333": {
+     "run2_accuracy": 0.7027,
+     "run2_ci95": [
+      0.652,
+      0.749
+     ],
+     "run2_n": 333,
+     "mean_of_runs": 0.7027
+    },
+    "S21": {
+     "run2_accuracy": 0.8095,
+     "run2_ci95": [
+      0.6,
+      0.923
+     ],
+     "run2_n": 21,
+     "mean_of_runs": 0.7857
+    },
+    "TND": {
+     "run2_accuracy": 0.9236,
+     "run2_ci95": [
+      0.868,
+      0.957
+     ],
+     "run2_n": 144,
+     "mean_of_runs": 0.9271
+    }
+   },
+   "text2cypher": {
+    "ABS": {
+     "run2_accuracy": 0.4817,
+     "run2_ci95": [
+      0.407,
+      0.558
+     ],
+     "run2_n": 164,
+     "mean_of_runs": 0.4909
+    },
+    "Q333": {
+     "run2_accuracy": 0.1532,
+     "run2_ci95": [
+      0.118,
+      0.196
+     ],
+     "run2_n": 333,
+     "mean_of_runs": 0.1502
+    },
+    "S21": {
+     "run2_accuracy": 0.4286,
+     "run2_ci95": [
+      0.245,
+      0.635
+     ],
+     "run2_n": 21,
+     "mean_of_runs": 0.381
+    },
+    "TND": {
+     "run2_accuracy": 0.4097,
+     "run2_ci95": [
+      0.333,
+      0.491
+     ],
+     "run2_n": 144,
+     "mean_of_runs": 0.3854
+    }
+   },
+   "vector_rag": {
+    "ABS": {
+     "run2_accuracy": 0.2622,
+     "run2_ci95": [
+      0.201,
+      0.334
+     ],
+     "run2_n": 164,
+     "mean_of_runs": 0.2652
+    },
+    "Q333": {
+     "run2_accuracy": 0.0661,
+     "run2_ci95": [
+      0.044,
+      0.098
+     ],
+     "run2_n": 333,
+     "mean_of_runs": 0.0676
+    },
+    "S21": {
+     "run2_accuracy": 0.2381,
+     "run2_ci95": [
+      0.106,
+      0.451
+     ],
+     "run2_n": 21,
+     "mean_of_runs": 0.2381
+    },
+    "TND": {
+     "run2_accuracy": 0.3958,
+     "run2_ci95": [
+      0.32,
+      0.477
+     ],
+     "run2_n": 144,
+     "mean_of_runs": 0.3993
+    }
+   }
+  },
   "models_by_system": {
    "bidbrain": {
     "vllm:Qwen/Qwen3-32B": 662
@@ -868,28 +984,28 @@
     "always_zero": 0.0,
     "majority_per_type": 0.045,
     "majority_answers": {
-     "money": 240294737,
-     "percent": 88.9,
      "count": 2,
-     "days": 536
+     "days": 536,
+     "percent": 88.9,
+     "money": 240294737
     }
    },
    "S21": {
     "always_zero": 0.0,
     "majority_per_type": 0.1905,
     "majority_answers": {
-     "money": 2008199999,
-     "percent": 33.33,
      "count": 1,
-     "days": 1569
+     "days": 1569,
+     "percent": 33.33,
+     "money": 2008199999
     }
    },
    "TND": {
     "always_zero": 0.0,
     "majority_per_type": 0.4722,
     "majority_answers": {
-     "verdict": "DOES NOT QUALIFY",
-     "count": 5
+     "count": 5,
+     "verdict": "DOES NOT QUALIFY"
     }
    }
   },
@@ -901,6 +1017,6 @@
    "finalized": true,
    "finished_at": "2026-10-16 14:59:04"
   },
-  "generated_at": "2026-10-17 07:33"
+  "generated_at": "2026-10-17 17:48"
  }
 }

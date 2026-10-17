@@ -91,7 +91,7 @@ resolves itself, citing the promoted rule.
 ---
 
 **Notes for the editor**
-* The benchmark numbers on screen are from the pre-final run until the re-run lands; do not read them aloud as final.
+* The benchmark numbers on screen are the final run 1; say "about .79 on independent gold across two runs" rather than a single point.
 * If the runner was already used in this workspace, the page shows the document list instead of the button: press
   **Reset graph** first.
 * The absence beat can be shown live only with an LLM key (**Ask** → *Which of Trishakti Power's completed works have

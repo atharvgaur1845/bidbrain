@@ -378,10 +378,10 @@ complete on the scenarios we designed, not that it generalises.
 ### Answer-accuracy benchmark (LLM)
 
 <a id="benchmark-status"></a>
-> **⚠ BENCHMARK STATUS — pre-final run; final re-run pending.** The LLM numbers in this subsection (and the
-> headline numbers quoted in docs/BLOG.md) come from single runs on the pre-final code (`qa_summary.json` of 17 Oct
-> 07:33). They predate the Planner, the hand-backs, the unasked-filter guard and the newest tools. A re-run on the
-> final code is in progress; this note will be replaced with its date and results.
+> **Benchmark status: final (17 Oct 2026, 17:50 IST).** The numbers below are from the final code (commit
+> `80b5356`), two independent runs per system with fresh LLM caches, on Qwen3-32B (FP8, one H100, vLLM). GraphRAG-SDK
+> is the exception: one run, from 17 Oct 07:33 on the bf16 model (its ingest takes hours). Run 1 is the headline;
+> run 2 and the mean are in `qa_summary.json` under `repeat_run`.
 
 All systems use **the same model (Qwen3-32B on vLLM)** and **the same FalkorDB instance**; only the context strategy
 differs. **The benchmark model is not the demo model**: the demo app runs on a pool of free Groq models
@@ -390,16 +390,20 @@ measures the strategies, not the deployed model.
 
 | System | S21 (independent gold, 21) | ABS (absence, 164) | TND (tender, 144) | Q333 (engine-derived near-gold, 333) |
 |---|---|---|---|---|
-| **BidBrain agent** | **.810** [.600, .923] | **.780** [.711, .837] | **.896** [.835, .936] | **.640** [.587, .689] |
-| LLM text-to-Cypher | .333 [.172, .546] | .537 [.460, .611] | .264 [.199, .341] | .180 [.143, .225] |
-| GraphRAG-SDK (auto schema, all 678 docs) | .190 [.077, .400] | .311 [.245, .385] | .542 [.460, .621] | .099 [.071, .136] |
-| Vector RAG | .190 [.077, .400] | .268 [.206, .341] | .389 [.313, .470] | .075 [.051, .108] |
+| **BidBrain agent**, run 1 | **.762** [.549, .894] | **.835** [.771, .884] | **.931** [.877, .962] | **.703** [.652, .749] |
+| BidBrain agent, run 2 · mean | .810 · .786 | .884 · .860 | .924 · .927 | .703 · .703 |
+| LLM text-to-Cypher, run 1 | .333 [.172, .546] | .500 [.424, .576] | .361 [.287, .442] | .147 [.113, .189] |
+| text-to-Cypher, run 2 · mean | .429 · .381 | .482 · .491 | .410 · .385 | .153 · .150 |
+| GraphRAG-SDK (auto schema, all 678 docs; one run, bf16) | .190 [.077, .400] | .311 [.245, .385] | .542 [.460, .621] | .099 [.071, .136] |
+| Vector RAG, run 1 | .238 [.106, .451] | .268 [.206, .341] | .403 [.326, .484] | .069 [.046, .102] |
+| vector RAG, run 2 · mean | .238 · .238 | .262 · .265 | .396 · .399 | .066 · .068 |
 | Constant answer (always 0 / majority) | .190 | .427 | .472 | .045 |
 
 Exact match, temperature 0; brackets are 95% Wilson intervals (`accuracy_ci95` in `data/eval/qa_summary.json`).
-By hop count on Q333 (2-3 / 4 / 5-6 hops): BidBrain .92 / .72 / .52, text-to-Cypher .32 / .18 / .14, GraphRAG-SDK
-.00 / .07 / .14, vector RAG .00 / .06 / .10. Cost per Q333 question: BidBrain 3.9 LLM calls, ~13k tokens, p50 4.2 s;
-text-to-Cypher 2.2 calls, ~1.3k tokens, 2.5 s; vector RAG 1 call, ~3.5k tokens, 5.3 s; GraphRAG-SDK p50 15.2 s.
+By hop count on Q333 (2-3 / 4 / 5-6 hops): BidBrain .86 / .79 / .62, text-to-Cypher .34 / .02 / .16, GraphRAG-SDK
+.00 / .07 / .14, vector RAG .00 / .06 / .09. Cost per Q333 question (run 2, all live): BidBrain 4.1 LLM calls, ~18k
+tokens, p50 5.5 s; text-to-Cypher 2.2 calls, ~1.4k tokens, 2.7 s; vector RAG 1 call, ~3.6k tokens, 6.7 s;
+GraphRAG-SDK p50 15.2 s.
 
 ![Benchmark page: accuracy by system and set, with the gold source of each set](docs/img/benchmark.png)
 
@@ -412,16 +416,23 @@ Caveats:
 * **Six-agent team on TND: 136/144 before a fix, 144/144 after; 144/144 on the final code; 0 LLM calls.** This
   measures the deterministic graph pipeline, not an LLM. All 8 first-run misses were one parser bug ("buildings" also
   matched "small buildings"), and **the fix was found on the test set**, so treat 144/144 as tuned on it.
-* **Two BidBrain runs.** In the first, BidBrain scored .313 on TND: the tool description for `qualify_clause` named
-  no parameters, so the model invented keys that the tool ignored. We documented and validated the parameters (a fix
-  for every question, nothing tuned per question) and re-ran BidBrain on every set: TND .896, Q333 .646 → .640. The
-  first run is kept in `data/eval/results/run1/`. The baselines do not use these tools, so they were not re-run.
-* **Single runs.** Between the two BidBrain runs, 19 Q333 answers went right→wrong and 17 wrong→right.
+* **Two runs on the final code, and what changed before them.** A first final run (kept in
+  `data/eval/results/final_v1/`) scored BidBrain .714 / .872 / .944 / .694 (S21 / ABS / TND / Q333). Reading its S21
+  misses, we found two regressions we had introduced the same day and fixed them before the two reported runs: the
+  agent misused the newly offered `trace_from_credential` tool (now MCP and Explore only), and the unasked-filter guard
+  ignored amounts written in words ("the six crore line"). Both are general fixes, but they were found on S21, so S21
+  is not a clean held-out set for them. Run 1's rows were replayed from run 1's own completion cache after a file
+  mix-up (identical by construction; 10 of 333 Q333 completions were re-requested live), which is why
+  `cached_rows` is non-zero for it; run 2 is fully live. Earlier pre-final runs are in `run1/` and `run2_prefinal/`.
+* **Run-to-run variance is real.** BidBrain moved by up to 2 of 21 questions on S21 (.762 vs .810) and 8 of 164 on
+  ABS between two runs at temperature 0. Read the mean and the intervals, not the point.
+* **Model.** The final runs used Qwen3-32B in FP8 on one H100 (the cluster's H200 allowance was taken); the pre-final
+  runs and GraphRAG-SDK used bf16 on an H200.
 * **Constant answers are informative.** On ABS, always answering 0 (.427) beats vector RAG and GraphRAG-SDK; on TND,
   the majority verdict (.472) beats text-to-Cypher and vector RAG.
 * **GraphRAG-SDK** chose its own schema with no hand-written ontology, which would likely raise its score. It ingested
   every document with its own LLM extractor on the same model; 6 chunk-level relation steps hit the 32k context.
-* **Cost:** BidBrain spends about 10× the tokens of text-to-Cypher per question.
+* **Cost:** BidBrain spends about 12× the tokens of text-to-Cypher per question.
 * **Not modelled:** JV works are credited at full value (the corpus has no share %); there is no bank-guarantee clause.
 * The conflict rules and the planted labels were written by the same team, so the JSON path mostly checks
   consistency; the PDF path adds parts that can genuinely fail, and its first-run numbers are reported.

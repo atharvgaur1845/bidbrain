@@ -445,7 +445,16 @@ def summarize_all() -> dict:
     sdk = sdk_ingest_status()
     if sdk and "graphrag_sdk" in systems:
         systems["graphrag_sdk"]["ingest_coverage"] = sdk.get("coverage") if sdk.get("finalized") else 0.0
-    out = {"summary": {"systems": systems, "model": model,
+    # a repeat run of the same code (fresh LLM cache) for run-to-run variance: accuracy per run and the mean
+    repeat: dict = {}
+    for p in sorted((OUT / "run2_final").glob("*__*.jsonl")):
+        sys_, set_ = p.stem.split("__")
+        r2 = summarize_file(p, set_)
+        r1 = systems.get(sys_, {}).get(set_)
+        repeat.setdefault(sys_, {})[set_] = {
+            "run2_accuracy": r2["accuracy"], "run2_ci95": r2["accuracy_ci95"], "run2_n": r2["n"],
+            "mean_of_runs": round((r1["accuracy"] + r2["accuracy"]) / 2, 4) if r1 else None}
+    out = {"summary": {"systems": systems, "model": model, "repeat_run": repeat,
                        "models_by_system": {k: dict(v) for k, v in models.items()},
                        "constant_baselines": consts,
                        "graphrag_sdk_ingest": None if sdk is None else

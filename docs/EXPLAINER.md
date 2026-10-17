@@ -97,7 +97,7 @@ clause can explain which figure it used.
 
 ## 5. Tools (`bidbrain/tools/`): why tools instead of free Cypher
 
-* The Q&A agent gets **24 named tools** (a subset of the 31 in the registry) rather than writing Cypher; a read-only
+* The Q&A agent gets **23 named tools** (a subset of the 31 in the registry) rather than writing Cypher; a read-only
   `cypher_readonly` escape hatch is among them, for questions no tool covers. Each tool is a tested multi-hop traversal with exact
   arithmetic and evidence attached. Raw NL→Cypher is our *baseline* (`text2cypher`), and the benchmark shows the
   difference.
@@ -280,9 +280,9 @@ clause can explain which figure it used.
 * **Tool oracle.** Feed the engine's parsed parameters to our tools: 354/354. This separates "the graph can't
   answer" from "the agent planned badly". It also means Q333 flatters BidBrain, because our tools mirror the engine
   that produced its gold. Lead with S21, ABS and TND.
-* **Uncertainty.** Every set reports a 95% Wilson interval (`accuracy_ci95` in `qa_summary.json`). These are single
-  runs: between two BidBrain runs, 19 Q333 answers went right→wrong and 17 wrong→right. The current numbers are
-  pre-final; the README's benchmark status note says whether the final re-run has landed. The benchmark model
+* **Uncertainty.** Every set reports a 95% Wilson interval (`accuracy_ci95` in `qa_summary.json`). The final numbers
+  are two runs per system on the final code; BidBrain moved 2 of 21 on S21 between them, so read the mean. Two
+  regressions were found on S21 and fixed before those runs (see the README caveats). The benchmark model
   (Qwen3-32B on vLLM) is not the demo model pool (Groq gpt-oss-120b / qwen3.8-27b / gpt-oss-20b).
 * **Team on TND.** The deterministic team scored 136/144, then 144/144 after fixing a parser bug found on the test
   set; the final code scores 144/144. Treat it as tuned on that set.

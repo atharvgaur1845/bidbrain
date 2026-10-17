@@ -214,7 +214,8 @@ export function HopBars({ qa, systems }: { qa: QA; systems: Sys[] }) {
                 <span className="num">{b.replace("-", "–")}</span> hops
               </h3>
               <ul className="space-y-3.5">
-                {systems.map((s) => {
+                {/* the deterministic team is scored on TND only: leave it out of a Q333 chart rather than show "pending" */}
+                {systems.filter((s) => !anyRun || qa[s.id]?.Q333).map((s) => {
                   const v = qa[s.id]?.Q333?.by_hops?.[b];
                   return (
                     <li key={s.id}>

@@ -6,9 +6,9 @@ decisions and coordinated actions, with a construction bid desk as the proving g
 > **TL;DR**
 > * BidBrain loads a construction company's 687 documents into one FalkorDB graph. When a new document arrives, the graph settles which fact wins (by policy, or by a person), walks from that fact to every open bid that relied on it, re-qualifies those bids without an LLM, and opens **accountable actions**: a person approves, deterministic code executes, and every step is audited. A fact the bid manager publishes becomes part of the **company record**, and every new workspace starts from it.
 > * A deterministic workflow evaluation runs that whole loop with the LLM disabled: **79/79** checks, and the bids it reports as flipped match an independent before/after recompute with precision and recall 1.0.
-> * On answer accuracy (same model, same database, four context strategies), graph tools score **.810** on independent-gold questions, **.780** on absence questions and **.896** on tender questions; the best baseline on each set scores .333, .537 and .542. These are pre-final single runs (see the benchmark status note in the README).
+> * On answer accuracy (same model, same database, four context strategies), graph tools score **.762** on independent-gold questions, **.835** on absence questions and **.931** on tender questions in the headline run (a second run: .810 / .884 / .924); the best baseline on each set scores .333, .500 and .542. Final code, two runs each.
 > * The FalkorDB parts are below as copy-paste recipes: an absence proof, exact betweenness in one Cypher query, a full-text gotcha, `algo.SPpaths`, `GRAPH.COPY` tenancy, WCC as an evidence check, label propagation that beats a random split, a claim → decision → policy-rule schema, and an action layer that turns a recommendation into accountable state.
-> * Caveats sit next to the results, not at the end: pre-final single runs, one near-gold set whose gold our tools mirror, a team score tuned on its test set, and GraphRAG-SDK run without a domain ontology.
+> * Caveats sit next to the results, not at the end: real run-to-run variance (S21 moved 2 of 21 between runs), two regressions found and fixed on S21 before the final runs, one near-gold set whose gold our tools mirror, a team score tuned on its test set, and GraphRAG-SDK run without a domain ontology.
 
 ---
 
@@ -121,7 +121,7 @@ close calls are decided:
 
 ## Tools, not text-to-Cypher
 
-The registry has 31 named tools, and the Q&A agent is offered 24 of them. Raw Cypher is not the interface.
+The registry has 31 named tools, and the Q&A agent is offered 23 of them. Raw Cypher is not the interface.
 `find_portfolio` (with a `via_work` hop), `prove_absence`, `qualify_clause` and `explain_path` are each a tested
 traversal that returns evidence (document and page) and a subgraph for the UI. **Arithmetic never happens in the
 model.** `aggregate` takes *work keys*, re-reads values from the graph and computes in exact integer rupees.
@@ -134,16 +134,16 @@ reference answers. So any accuracy the LLM agent loses comes from planning, not 
 
 Same model (Qwen3-32B on vLLM, temperature 0), same FalkorDB instance, four context strategies: BidBrain's tools,
 LLM text-to-Cypher, vector RAG over FalkorDB's own vector index, and FalkorDB's GraphRAG-SDK. Exact-match accuracy
-with Wilson 95% intervals, from `data/eval/qa_summary.json`. **These are pre-final runs**; the status of the
-final re-run is kept in one place, the benchmark status note in the README. The benchmark model (Qwen3-32B on vLLM)
-is not the demo model (a pool of Groq models).
+with Wilson 95% intervals, from `data/eval/qa_summary.json`: final code, two runs per system with fresh LLM caches
+(GraphRAG-SDK: one earlier run). The benchmark model (Qwen3-32B on vLLM) is not the demo model (a pool of Groq models).
 
 | System | S21, independent gold (n=21) | ABS, absence (n=164) | TND, tender (n=144) | Q333, engine-derived near-gold (n=333) |
 |---|---|---|---|---|
-| **BidBrain (graph tools)** | **.810** [.600, .923] | **.780** [.711, .837] | **.896** [.835, .936] | **.640** [.587, .689] |
-| LLM text-to-Cypher | .333 [.172, .546] | .537 [.460, .611] | .264 [.199, .341] | .180 [.143, .225] |
-| GraphRAG-SDK (auto schema) | .190 [.077, .400] | .311 [.245, .385] | .542 [.460, .621] | .099 [.071, .136] |
-| Vector RAG | .190 [.077, .400] | .268 [.206, .341] | .389 [.313, .470] | .075 [.051, .108] |
+| **BidBrain (graph tools)**, run 1 | **.762** [.549, .894] | **.835** [.771, .884] | **.931** [.877, .962] | **.703** [.652, .749] |
+| BidBrain, run 2 · mean of both | .810 · .786 | .884 · .860 | .924 · .927 | .703 · .703 |
+| LLM text-to-Cypher, run 1 · mean | .333 · .381 | .500 · .491 | .361 · .385 | .147 · .150 |
+| GraphRAG-SDK (auto schema; one run) | .190 [.077, .400] | .311 [.245, .385] | .542 [.460, .621] | .099 [.071, .136] |
+| Vector RAG, run 1 · mean | .238 · .238 | .268 · .265 | .403 · .399 | .069 · .068 |
 | Constant answer (always 0 / majority) | .190 | .427 | .472 | .045 |
 
 **Read these caveats with the table:**
@@ -153,18 +153,20 @@ is not the demo model (a pool of Groq models).
   whose gold comes from independent Cypher and a separate re-implementation of the rules (`eval/synth.py`).
 * **GraphRAG-SDK ran without an ontology.** We used its automatic schema extraction and gave it no hand-written
   ontology. A domain ontology would very likely score higher, so read its row as "generic GraphRAG", not as a ceiling.
-* **Single runs.** Between two BidBrain runs on Q333, 19 answers went right→wrong and 17 went wrong→right. S21 has
-  only 21 questions, so treat it as a sanity check.
-* **BidBrain was re-run once.** The first run scored .313 on TND: the agent's one-line description of
-  `qualify_clause` named no parameters, so the model invented keys the tool silently ignored. We documented and
-  validated the parameters and re-ran every set. The first run is kept in `data/eval/results/run1/`. The baselines
-  do not use these tools, so they were not re-run.
+* **Two runs, and real variance.** At temperature 0, BidBrain moved 2 of 21 questions on S21 (.762 vs .810) and 8 of
+  164 on ABS between two runs. S21 has only 21 questions: treat it as a sanity check and read the mean.
+* **Two regressions were found on S21 before the final runs.** A first final run scored S21 .714. Its misses showed
+  the agent misusing a tool we had just offered it (`trace_from_credential`, now MCP-only) and the filter guard
+  ignoring amounts in words ("six crore"). We fixed both, then ran twice. The fixes are general, but S21 is no longer
+  a clean held-out set for them; that run is kept in `data/eval/results/final_v1/`.
+* **An earlier fix, too.** A pre-final run scored .313 on TND because `qualify_clause`'s one-line description named
+  no parameters; documenting them is what took TND to .9. That run is in `data/eval/results/run1/`.
 * **Constant answers are informative.** Always answering 0 beats vector RAG and GraphRAG-SDK on ABS. The majority
   verdict beats text-to-Cypher and vector RAG on TND.
-* **Cost.** BidBrain spends about 13k tokens per Q333 question (3.9 LLM calls, p50 4.2 s). Text-to-Cypher spends
-  about 1.3k tokens (2.5 s), roughly a tenth.
+* **Cost.** BidBrain spends about 18k tokens per Q333 question (4.1 LLM calls, p50 5.5 s). Text-to-Cypher spends
+  about 1.4k tokens (2.7 s), roughly a twelfth.
 
-![Accuracy by hop count on Q333: BidBrain 92.0 / 72.3 / 52.4% at 2-3 / 4 / 5-6 hops; text-to-Cypher 32.0 / 18.1 / 14.3; vector RAG 0.0 / 6.4 / 10.1; GraphRAG-SDK 0.0 / 7.4 / 13.8](img/benchmark_hops.png)
+![Accuracy by hop count on Q333: BidBrain 86.0 / 78.7 / 61.9% at 2-3 / 4 / 5-6 hops; text-to-Cypher 34.0 / 2.1 / 15.9; vector RAG 0.0 / 6.4 / 9.0; GraphRAG-SDK 0.0 / 7.4 / 13.8](img/benchmark_hops.png)
 
 **The company loop is scored separately, without an LLM.** `eval/workflow.py` drives the real API on throwaway
 graphs with `providers.chat` raising, and takes every expectation from the fixtures, separate Cypher or a re-run of

@@ -1,0 +1,906 @@
+{
+ "summary": {
+  "systems": {
+   "bidbrain": {
+    "ABS": {
+     "n": 164,
+     "n_set": 164,
+     "accuracy": 0.872,
+     "accuracy_ci95": [
+      0.812,
+      0.915
+     ],
+     "presence_accuracy": null,
+     "presence_n": 0,
+     "tokens_per_q": 17937,
+     "tokens_n": 164,
+     "proportional": 0.8887,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.875,
+      "4": 0.8167,
+      "5-6": 0.95
+     },
+     "absence_accuracy": 0.872,
+     "absence_n": 164,
+     "by_family": {
+      "absence_client": 1.0,
+      "absence_person": 0.778,
+      "absence_multihop": 0.95,
+      "absence_category": 0.81,
+      "absence_credential": 0.833
+     },
+     "latency": {
+      "p50": 4597.5,
+      "p95": 8269.6,
+      "n": 164
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 3.93,
+     "tool_calls": 2.93,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 164
+     }
+    },
+    "Q333": {
+     "n": 333,
+     "n_set": 333,
+     "accuracy": 0.6937,
+     "accuracy_ci95": [
+      0.642,
+      0.741
+     ],
+     "presence_accuracy": 0.6928,
+     "presence_n": 332,
+     "tokens_per_q": 17805,
+     "tokens_n": 333,
+     "proportional": 0.7773,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.88,
+      "4": 0.766,
+      "5-6": 0.6085
+     },
+     "absence_accuracy": 1.0,
+     "absence_n": 1,
+     "by_family": {
+      "sum": 0.5,
+      "collection_rate": 0.917,
+      "awarded_vs_billed": 0.875,
+      "date_span": 0.917,
+      "average": 0.708,
+      "distinct_categories": 0.889,
+      "year_difference": 0.583,
+      "mean_median_gap": 0.632,
+      "rank_gap": 0.688,
+      "gap_to_threshold": 0.333,
+      "referenced_share": 0.714,
+      "absence_count": 1.0,
+      "invoices": 0.88,
+      "category_difference": 0.639
+     },
+     "latency": {
+      "p50": 5172.8,
+      "p95": 10595.5,
+      "n": 333
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 3.92,
+     "tool_calls": 2.93,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 333
+     }
+    },
+    "latency": {
+     "p50": 5172.8,
+     "p95": 10595.5,
+     "n": 333
+    },
+    "llm_calls": 3.92,
+    "tool_calls": 2.93,
+    "tokens_per_q": 17805,
+    "S21": {
+     "n": 21,
+     "n_set": 21,
+     "accuracy": 0.7143,
+     "accuracy_ci95": [
+      0.5,
+      0.862
+     ],
+     "presence_accuracy": 0.6842,
+     "presence_n": 19,
+     "tokens_per_q": 18156,
+     "tokens_n": 21,
+     "proportional": 0.763,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 1.0,
+      "4": 0.75,
+      "5-6": 0.6364
+     },
+     "absence_accuracy": 1.0,
+     "absence_n": 2,
+     "by_family": {
+      "absence_count": 1.0,
+      "date_span": 1.0,
+      "distinct_categories": 0.5,
+      "sum": 0.75,
+      "average": 0.0,
+      "gap_to_threshold": 1.0,
+      "rank_gap": 0.5,
+      "referenced_share": 1.0
+     },
+     "latency": {
+      "p50": 8471.9,
+      "p95": 10828.0,
+      "n": 21
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 4.0,
+     "tool_calls": 3.0,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 21
+     }
+    },
+    "TND": {
+     "n": 144,
+     "n_set": 144,
+     "accuracy": 0.9444,
+     "accuracy_ci95": [
+      0.894,
+      0.972
+     ],
+     "presence_accuracy": 0.9444,
+     "presence_n": 144,
+     "tokens_per_q": 8549,
+     "tokens_n": 144,
+     "proportional": 0.9444,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.875,
+      "4": 0.9531
+     },
+     "absence_accuracy": null,
+     "absence_n": 0,
+     "by_family": {
+      "tender_similar": 0.925,
+      "tender_turnover": 0.875,
+      "tender_personnel": 1.0
+     },
+     "latency": {
+      "p50": 3632.1,
+      "p95": 7454.0,
+      "n": 144
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 2.0,
+     "tool_calls": 1.0,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 144
+     }
+    }
+   },
+   "graphrag_sdk": {
+    "ABS": {
+     "n": 164,
+     "n_set": 164,
+     "accuracy": 0.311,
+     "accuracy_ci95": [
+      0.245,
+      0.385
+     ],
+     "presence_accuracy": null,
+     "presence_n": 0,
+     "tokens_per_q": null,
+     "tokens_n": 0,
+     "proportional": 0.3308,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.2188,
+      "4": 0.45,
+      "5-6": 0.25
+     },
+     "absence_accuracy": 0.311,
+     "absence_n": 164,
+     "by_family": {
+      "absence_client": 0.179,
+      "absence_person": 0.25,
+      "absence_multihop": 0.25,
+      "absence_category": 0.619,
+      "absence_credential": 0.056
+     },
+     "latency": {
+      "p50": 11843.6,
+      "p95": 42268.8,
+      "n": 164
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 2.0,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 164
+     }
+    },
+    "Q333": {
+     "n": 333,
+     "n_set": 333,
+     "accuracy": 0.0991,
+     "accuracy_ci95": [
+      0.071,
+      0.136
+     ],
+     "presence_accuracy": 0.0994,
+     "presence_n": 332,
+     "tokens_per_q": null,
+     "tokens_n": 0,
+     "proportional": 0.2685,
+     "errors": 13,
+     "by_hops": {
+      "2-3": 0.0,
+      "4": 0.0745,
+      "5-6": 0.1376
+     },
+     "absence_accuracy": 0.0,
+     "absence_n": 1,
+     "by_family": {
+      "sum": 0.042,
+      "collection_rate": 0.0,
+      "awarded_vs_billed": 0.0,
+      "date_span": 0.292,
+      "average": 0.0,
+      "distinct_categories": 0.0,
+      "year_difference": 0.25,
+      "mean_median_gap": 0.0,
+      "rank_gap": 0.25,
+      "gap_to_threshold": 0.0,
+      "referenced_share": 0.0,
+      "absence_count": 0.0,
+      "invoices": 0.0,
+      "category_difference": 0.213
+     },
+     "latency": {
+      "p50": 15166.3,
+      "p95": 48184.5,
+      "n": 320
+     },
+     "latency_errored": {
+      "p50": 11117.5,
+      "p95": 11990.7,
+      "n": 13
+     },
+     "cached_rows": 0,
+     "llm_calls": 2.0,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 320
+     }
+    },
+    "latency": {
+     "p50": 15166.3,
+     "p95": 48184.5,
+     "n": 320
+    },
+    "llm_calls": 2.0,
+    "tool_calls": null,
+    "tokens_per_q": null,
+    "S21": {
+     "n": 21,
+     "n_set": 21,
+     "accuracy": 0.1905,
+     "accuracy_ci95": [
+      0.077,
+      0.4
+     ],
+     "presence_accuracy": 0.2105,
+     "presence_n": 19,
+     "tokens_per_q": null,
+     "tokens_n": 0,
+     "proportional": 0.4797,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.0,
+      "4": 0.125,
+      "5-6": 0.2727
+     },
+     "absence_accuracy": 0.0,
+     "absence_n": 2,
+     "by_family": {
+      "absence_count": 0.0,
+      "date_span": 0.0,
+      "distinct_categories": 0.5,
+      "sum": 0.125,
+      "average": 0.0,
+      "gap_to_threshold": 0.0,
+      "rank_gap": 1.0,
+      "referenced_share": 0.0
+     },
+     "latency": {
+      "p50": 20211.9,
+      "p95": 33570.9,
+      "n": 21
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 2.0,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 21
+     }
+    },
+    "TND": {
+     "n": 144,
+     "n_set": 144,
+     "accuracy": 0.5417,
+     "accuracy_ci95": [
+      0.46,
+      0.621
+     ],
+     "presence_accuracy": 0.5417,
+     "presence_n": 144,
+     "tokens_per_q": null,
+     "tokens_n": 0,
+     "proportional": 0.5933,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.8125,
+      "4": 0.5078
+     },
+     "absence_accuracy": null,
+     "absence_n": 0,
+     "by_family": {
+      "tender_similar": 0.775,
+      "tender_turnover": 0.812,
+      "tender_personnel": 0.062
+     },
+     "latency": {
+      "p50": 18687.4,
+      "p95": 34424.4,
+      "n": 144
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 2.0,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 144
+     }
+    },
+    "ingest_coverage": 1.0
+   },
+   "team": {
+    "TND": {
+     "n": 144,
+     "n_set": 144,
+     "accuracy": 1.0,
+     "accuracy_ci95": [
+      0.974,
+      1.0
+     ],
+     "presence_accuracy": 1.0,
+     "presence_n": 144,
+     "tokens_per_q": 0,
+     "tokens_n": 144,
+     "proportional": 1.0,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 1.0,
+      "4": 1.0
+     },
+     "absence_accuracy": null,
+     "absence_n": 0,
+     "by_family": {
+      "tender_similar": 1.0,
+      "tender_turnover": 1.0,
+      "tender_personnel": 1.0
+     },
+     "latency": {
+      "p50": 23.0,
+      "p95": 27.6,
+      "n": 144
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 0.0,
+     "tool_calls": 3.77,
+     "models": {}
+    }
+   },
+   "text2cypher": {
+    "ABS": {
+     "n": 164,
+     "n_set": 164,
+     "accuracy": 0.5,
+     "accuracy_ci95": [
+      0.424,
+      0.576
+     ],
+     "presence_accuracy": null,
+     "presence_n": 0,
+     "tokens_per_q": 1182,
+     "tokens_n": 164,
+     "proportional": 0.5,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.4688,
+      "4": 0.7167,
+      "5-6": 0.225
+     },
+     "absence_accuracy": 0.5,
+     "absence_n": 164,
+     "by_family": {
+      "absence_client": 0.464,
+      "absence_person": 0.472,
+      "absence_multihop": 0.225,
+      "absence_category": 0.833,
+      "absence_credential": 0.444
+     },
+     "latency": {
+      "p50": 2155.3,
+      "p95": 6029.9,
+      "n": 164
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 2.08,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 164
+     }
+    },
+    "Q333": {
+     "n": 333,
+     "n_set": 333,
+     "accuracy": 0.1471,
+     "accuracy_ci95": [
+      0.113,
+      0.189
+     ],
+     "presence_accuracy": 0.1476,
+     "presence_n": 332,
+     "tokens_per_q": 1444,
+     "tokens_n": 333,
+     "proportional": 0.2146,
+     "errors": 29,
+     "by_hops": {
+      "2-3": 0.34,
+      "4": 0.0213,
+      "5-6": 0.1587
+     },
+     "absence_accuracy": 0.0,
+     "absence_n": 1,
+     "by_family": {
+      "sum": 0.125,
+      "collection_rate": 0.042,
+      "awarded_vs_billed": 0.042,
+      "date_span": 0.0,
+      "average": 0.125,
+      "distinct_categories": 0.0,
+      "year_difference": 0.208,
+      "mean_median_gap": 0.0,
+      "rank_gap": 0.5,
+      "gap_to_threshold": 0.333,
+      "referenced_share": 0.0,
+      "absence_count": 0.0,
+      "invoices": 0.64,
+      "category_difference": 0.082
+     },
+     "latency": {
+      "p50": 2745.5,
+      "p95": 6013.5,
+      "n": 304
+     },
+     "latency_errored": {
+      "p50": 8083.1,
+      "p95": 14269.9,
+      "n": 29
+     },
+     "cached_rows": 0,
+     "llm_calls": 2.21,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 333
+     }
+    },
+    "latency": {
+     "p50": 2745.5,
+     "p95": 6013.5,
+     "n": 304
+    },
+    "llm_calls": 2.21,
+    "tool_calls": null,
+    "tokens_per_q": 1444,
+    "S21": {
+     "n": 21,
+     "n_set": 21,
+     "accuracy": 0.3333,
+     "accuracy_ci95": [
+      0.172,
+      0.546
+     ],
+     "presence_accuracy": 0.2632,
+     "presence_n": 19,
+     "tokens_per_q": 1401,
+     "tokens_n": 21,
+     "proportional": 0.3329,
+     "errors": 2,
+     "by_hops": {
+      "2-3": 1.0,
+      "4": 0.0,
+      "5-6": 0.4545
+     },
+     "absence_accuracy": 1.0,
+     "absence_n": 2,
+     "by_family": {
+      "absence_count": 1.0,
+      "date_span": 0.0,
+      "distinct_categories": 0.0,
+      "sum": 0.25,
+      "average": 0.0,
+      "gap_to_threshold": 1.0,
+      "rank_gap": 0.0,
+      "referenced_share": 1.0
+     },
+     "latency": {
+      "p50": 6270.5,
+      "p95": 8226.0,
+      "n": 19
+     },
+     "latency_errored": {
+      "p50": 8520.6,
+      "p95": 5352.1,
+      "n": 2
+     },
+     "cached_rows": 0,
+     "llm_calls": 2.24,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 21
+     }
+    },
+    "TND": {
+     "n": 144,
+     "n_set": 144,
+     "accuracy": 0.3611,
+     "accuracy_ci95": [
+      0.287,
+      0.442
+     ],
+     "presence_accuracy": 0.3611,
+     "presence_n": 144,
+     "tokens_per_q": 1559,
+     "tokens_n": 144,
+     "proportional": 0.3611,
+     "errors": 2,
+     "by_hops": {
+      "2-3": 0.375,
+      "4": 0.3594
+     },
+     "absence_accuracy": null,
+     "absence_n": 0,
+     "by_family": {
+      "tender_similar": 0.575,
+      "tender_turnover": 0.375,
+      "tender_personnel": 0.0
+     },
+     "latency": {
+      "p50": 4931.8,
+      "p95": 10443.5,
+      "n": 142
+     },
+     "latency_errored": {
+      "p50": 10504.7,
+      "p95": 10456.4,
+      "n": 2
+     },
+     "cached_rows": 0,
+     "llm_calls": 2.06,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 144
+     }
+    }
+   },
+   "vector_rag": {
+    "ABS": {
+     "n": 164,
+     "n_set": 164,
+     "accuracy": 0.2683,
+     "accuracy_ci95": [
+      0.206,
+      0.341
+     ],
+     "presence_accuracy": null,
+     "presence_n": 0,
+     "tokens_per_q": 2498,
+     "tokens_n": 164,
+     "proportional": 0.2856,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.2656,
+      "4": 0.3,
+      "5-6": 0.225
+     },
+     "absence_accuracy": 0.2683,
+     "absence_n": 164,
+     "by_family": {
+      "absence_client": 0.071,
+      "absence_person": 0.417,
+      "absence_multihop": 0.225,
+      "absence_category": 0.429,
+      "absence_credential": 0.0
+     },
+     "latency": {
+      "p50": 5010.5,
+      "p95": 13388.9,
+      "n": 164
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 1.0,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 164
+     }
+    },
+    "Q333": {
+     "n": 333,
+     "n_set": 333,
+     "accuracy": 0.0691,
+     "accuracy_ci95": [
+      0.046,
+      0.102
+     ],
+     "presence_accuracy": 0.0693,
+     "presence_n": 332,
+     "tokens_per_q": 3552,
+     "tokens_n": 333,
+     "proportional": 0.2441,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.0,
+      "4": 0.0638,
+      "5-6": 0.0899
+     },
+     "absence_accuracy": 0.0,
+     "absence_n": 1,
+     "by_family": {
+      "sum": 0.028,
+      "collection_rate": 0.0,
+      "awarded_vs_billed": 0.0,
+      "date_span": 0.25,
+      "average": 0.0,
+      "distinct_categories": 0.0,
+      "year_difference": 0.208,
+      "mean_median_gap": 0.0,
+      "rank_gap": 0.188,
+      "gap_to_threshold": 0.0,
+      "referenced_share": 0.0,
+      "absence_count": 0.0,
+      "invoices": 0.0,
+      "category_difference": 0.115
+     },
+     "latency": {
+      "p50": 6690.5,
+      "p95": 15961.7,
+      "n": 333
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 1.0,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 333
+     }
+    },
+    "latency": {
+     "p50": 6690.5,
+     "p95": 15961.7,
+     "n": 333
+    },
+    "llm_calls": 1.0,
+    "tool_calls": null,
+    "tokens_per_q": 3552,
+    "S21": {
+     "n": 21,
+     "n_set": 21,
+     "accuracy": 0.2381,
+     "accuracy_ci95": [
+      0.106,
+      0.451
+     ],
+     "presence_accuracy": 0.2632,
+     "presence_n": 19,
+     "tokens_per_q": 2692,
+     "tokens_n": 21,
+     "proportional": 0.4395,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.0,
+      "4": 0.25,
+      "5-6": 0.2727
+     },
+     "absence_accuracy": 0.0,
+     "absence_n": 2,
+     "by_family": {
+      "absence_count": 0.0,
+      "date_span": 1.0,
+      "distinct_categories": 0.0,
+      "sum": 0.25,
+      "average": 0.0,
+      "gap_to_threshold": 0.0,
+      "rank_gap": 0.5,
+      "referenced_share": 0.0
+     },
+     "latency": {
+      "p50": 10216.5,
+      "p95": 14983.2,
+      "n": 21
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 1.0,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 21
+     }
+    },
+    "TND": {
+     "n": 144,
+     "n_set": 144,
+     "accuracy": 0.4028,
+     "accuracy_ci95": [
+      0.326,
+      0.484
+     ],
+     "presence_accuracy": 0.4028,
+     "presence_n": 144,
+     "tokens_per_q": 3544,
+     "tokens_n": 144,
+     "proportional": 0.4239,
+     "errors": 0,
+     "by_hops": {
+      "2-3": 0.5625,
+      "4": 0.3828
+     },
+     "absence_accuracy": null,
+     "absence_n": 0,
+     "by_family": {
+      "tender_similar": 0.575,
+      "tender_turnover": 0.562,
+      "tender_personnel": 0.062
+     },
+     "latency": {
+      "p50": 10599.0,
+      "p95": 20009.4,
+      "n": 144
+     },
+     "latency_errored": {
+      "p50": null,
+      "p95": null,
+      "n": 0
+     },
+     "cached_rows": 0,
+     "llm_calls": 1.0,
+     "tool_calls": null,
+     "models": {
+      "vllm:Qwen/Qwen3-32B": 144
+     }
+    }
+   }
+  },
+  "model": "Qwen/Qwen3-32B",
+  "models_by_system": {
+   "bidbrain": {
+    "vllm:Qwen/Qwen3-32B": 662
+   },
+   "graphrag_sdk": {
+    "vllm:Qwen/Qwen3-32B": 649
+   },
+   "text2cypher": {
+    "vllm:Qwen/Qwen3-32B": 662
+   },
+   "vector_rag": {
+    "vllm:Qwen/Qwen3-32B": 662
+   }
+  },
+  "constant_baselines": {
+   "ABS": {
+    "always_zero": 0.4268,
+    "majority_per_type": 0.4268,
+    "majority_answers": {
+     "count": 0
+    }
+   },
+   "Q333": {
+    "always_zero": 0.0,
+    "majority_per_type": 0.045,
+    "majority_answers": {
+     "money": 240294737,
+     "days": 536,
+     "percent": 88.9,
+     "count": 2
+    }
+   },
+   "S21": {
+    "always_zero": 0.0,
+    "majority_per_type": 0.1905,
+    "majority_answers": {
+     "money": 2008199999,
+     "days": 1569,
+     "percent": 33.33,
+     "count": 1
+    }
+   },
+   "TND": {
+    "always_zero": 0.0,
+    "majority_per_type": 0.4722,
+    "majority_answers": {
+     "verdict": "DOES NOT QUALIFY",
+     "count": 5
+    }
+   }
+  },
+  "graphrag_sdk_ingest": {
+   "n_docs": 678,
+   "ok": 678,
+   "failed_n": 0,
+   "coverage": 1.0,
+   "finalized": true,
+   "finished_at": "2026-10-16 14:59:04"
+  },
+  "generated_at": "2026-10-17 14:26"
+ }
+}
