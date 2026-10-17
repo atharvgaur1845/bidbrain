@@ -182,3 +182,10 @@ def test_tool_oracle_sample():
     rows = [json.loads(l) for l in open(config.DATA / "eval" / "questions_with_engine.jsonl")][:60]
     g = Graph()
     assert all(_close(oracle_answer(g, r), r["engine"]) for r in rows)
+
+
+def test_prove_absence_credential_and_bond_run_closure_checks(g):
+    r = call(g, "prove_absence", {"evidence": "valid_credential", "credential_kind": "PMP"})["result"]
+    assert r["verdict"] == "PROVEN" and r["checks"]["credential_closure"].split("/")[0] == r["checks"]["credential_closure"].split("/")[1].split()[0]
+    b = call(g, "prove_absence", {"evidence": "performance_bond"})["result"]
+    assert b["verdict"] == "PROVEN" and b["checks"]["bond_closure"] == "60/60 bonds in scope secure a tender"

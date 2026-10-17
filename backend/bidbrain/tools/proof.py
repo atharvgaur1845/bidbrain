@@ -135,10 +135,20 @@ def _absence_credential(g, client, category, kind, valid_on) -> dict:
                  and (c.get("iday") is None or c["iday"] <= vd)]
         (present if valid else absent).append({"key": r["key"], "name": r["name"],
                                                "credentials": [c for c in r["creds"] if c.get("id")]})
+    # Closed-world checks: a missing HOLDS edge or a missing date would turn "no record" into a false absence.
+    q_check = """MATCH (cr:Credential) WHERE toLower(cr.kind) CONTAINS toLower($kind)
+                 RETURN count(cr) AS total,
+                        sum(CASE WHEN NOT ()-[:HOLDS]->(cr) THEN 1 ELSE 0 END) AS orphan,
+                        sum(CASE WHEN cr.valid_through_day IS NULL THEN 1 ELSE 0 END) AS undated"""
+    ck_row = g.read(q_check, {"kind": kind})[0]
+    total, orphan, undated = (int(ck_row[k] or 0) for k in ("total", "orphan", "undated"))
+    proven = orphan == 0 and undated == 0
     return {"result": {"claim": f"{len(absent)} of {len(rows)} project leads in scope hold no {kind} valid on {valid_on}",
-                       "verdict": "PROVEN", "universe": len(rows), "present": len(present),
-                       "absent_count": len(absent), "absent": absent},
-            "cypher": [q]}
+                       "verdict": "PROVEN" if proven else "UNPROVEN", "universe": len(rows), "present": len(present),
+                       "absent_count": len(absent), "absent": absent,
+                       "checks": {"credential_closure": f"{total - orphan}/{total} {kind} credentials linked to a holder",
+                                  "dated": f"{total - undated}/{total} carry a valid-through date"}},
+            "cypher": [q, q_check]}
 
 
 def _absence_bond(g, category) -> dict:
@@ -148,10 +158,17 @@ def _absence_bond(g, category) -> dict:
            RETURN t.key AS tender, t.category AS category, collect(b.key) AS bonds"""
     rows = g.read(q, {"cat": cat})
     absent = [r for r in rows if not r["bonds"]]
+    # Closed-world check: a Bond with no SECURES edge (or one dangling in scope) could be the "missing" bond.
+    q_check = """MATCH (b:Bond) WHERE $cat IS NULL OR b.category = $cat
+                 RETURN count(b) AS total,
+                        sum(CASE WHEN NOT (b)-[:SECURES]->(:Tender) THEN 1 ELSE 0 END) AS orphan"""
+    ck_row = g.read(q_check, {"cat": cat})[0]
+    total, orphan = int(ck_row["total"] or 0), int(ck_row["orphan"] or 0)
     return {"result": {"claim": f"{len(absent)} of {len(rows)} tenders have no performance bond on file",
-                       "verdict": "PROVEN", "universe": len(rows), "absent_count": len(absent),
-                       "absent": absent},
-            "cypher": [q]}
+                       "verdict": "PROVEN" if orphan == 0 else "UNPROVEN", "universe": len(rows),
+                       "absent_count": len(absent), "absent": absent,
+                       "checks": {"bond_closure": f"{total - orphan}/{total} bonds in scope secure a tender"}},
+            "cypher": [q, q_check]}
 
 
 # --------------------------------------------------------------------------
