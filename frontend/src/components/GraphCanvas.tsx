@@ -164,7 +164,7 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
         }}
       />
       {labelsPresent.length > 0 && (
-        <div className="pointer-events-none absolute bottom-3 left-4 flex flex-wrap gap-x-3.5 gap-y-1">
+        <div className="pointer-events-none absolute bottom-3 left-4 flex max-w-[calc(100%-2rem)] flex-wrap gap-x-3.5 gap-y-1 rounded-md bg-surface-solid/85 px-2 py-1 backdrop-blur-sm">
           {labelsPresent.map((l) => (
             <span key={l} className="inline-flex items-center gap-1.5 text-[12px] text-ink-3">
               <span className="h-2 w-2 rounded-full" style={{ background: LABEL_COLORS[l] || "#94a3b8" }} />
@@ -173,7 +173,7 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
           ))}
         </div>
       )}
-      <div className="num pointer-events-none absolute right-4 top-3 text-[12px] text-ink-3">
+      <div className="num pointer-events-none absolute right-4 top-3 rounded-md bg-surface-solid/85 px-2 py-0.5 text-[12px] text-ink-3 backdrop-blur-sm">
         {graph.nodes.length} nodes · {graph.links.length} edges
       </div>
     </div>

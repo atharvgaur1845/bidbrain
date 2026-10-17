@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { GData } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/Shell";
@@ -41,7 +42,12 @@ export default function Home() {
     <div>
       <PageHeader
         title="BidBrain"
-        subtitle="A company brain for a construction bid desk, built on FalkorDB."
+        subtitle={<>
+          A company brain for a construction bid desk, built on FalkorDB. It qualifies tenders clause by clause, proves
+          what is <em>missing</em>, and re-checks every open bid when a corrigendum arrives. Same model, same questions:{" "}
+          <Link href="/benchmark/" className="text-kb-ink underline-offset-2 hover:underline">64% exact on 333 multi-hop
+          questions, against 18% for text-to-Cypher and 8% for vector RAG</Link>.
+        </>}
         meta={ovFailed && !ov ? <span>Graph facts unavailable</span> : facts.map(([v, label], i) => (
           <Fragment key={label}>
             {i > 0 && <span aria-hidden>·</span>}
