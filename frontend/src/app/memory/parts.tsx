@@ -304,7 +304,6 @@ export function CompanyMemory({ rules, cap, graph, ready, onRetire }:
   const [busy, setBusy] = useState<string | null>(null);
   return (
     <Card title="Company memory" pad={false} className="overflow-hidden"
-      icon={<Building2 size={16} strokeWidth={1.75} />}
       action={<span className="num text-[12px] text-ink-3">
         {ready ? `${rules.length}${cap ? ` / ${cap}` : ""} rules` : ""}
         <span className="ml-2 hidden sm:inline">{graph || "bidbrain_org"}</span>

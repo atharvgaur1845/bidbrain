@@ -203,13 +203,16 @@ def blast_radius(g: Graph, label: str, key: str, rerun: bool = True) -> dict:
                         OPTIONAL MATCH (k)-[:SATISFIED_BY]->(s)
                         RETURN c.id AS case_id, c.title AS case, c.bid_date AS bid_date, k.id AS clause_id,
                                k.ref AS ref, k.kind AS kind, k.params AS params, k.verdict AS verdict,
-                               collect(s.key) AS sat""",
+                               k.prefer_reference AS pref, collect(s.key) AS sat""",
                      {"kinds": kinds})
     flips, rewired = [], []
     if rerun:
         for c in clauses:
             try:
-                out = qualify_clause(g, c["kind"], json.loads(c["params"] or "{}"), c["bid_date"])
+                # same selection policy as the team: a clause the EvidenceHunter re-selected onto referenced
+                # works is re-checked that way too, so a ripple does not point it back at a work with no letter
+                from bidbrain.agents.orchestrator import select
+                out = select(g, c["kind"], json.loads(c["params"] or "{}"), c["bid_date"], bool(c.get("pref")))[0]
             except Exception:           # a clause the engine cannot re-check keeps its verdict
                 continue
             new = out["result"]["verdict"]

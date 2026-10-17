@@ -4,7 +4,7 @@ domain knowledge lives in the tools, not in the prompt."""
 QA_TOOLS = ["resolve_entity", "find_portfolio", "aggregate", "credential_timeline", "date_span",
             "receivables", "collection_rate", "awarded_vs_billed", "prove_absence", "qualify_clause",
             "who_knows", "key_people", "explain_path", "get_entity", "vector_search", "graph_schema",
-            "fact_history", "cypher_readonly"]
+            "fact_history", "trace_from_credential", "compliance_check", "communities", "cypher_readonly"]
 
 # One-line tool descriptions for the LLM (the full descriptions are served over MCP and in docs/CYPHER.md).
 BRIEF = {
@@ -25,6 +25,9 @@ BRIEF = {
     "who_knows": "People who worked with a client / in a category / state, ranked by works led.",
     "key_people": "Bus factor: people ranked by betweenness over the person-client graph.",
     "explain_path": "Shortest connection paths between two entities (a, a_kind, b, b_kind).",
+    "trace_from_credential": "One query for credential -> holder -> work they led -> that client -> all its works -> documents. Params person, credential (id or kind), work; returns the chain, totals and where it breaks.",
+    "compliance_check": "Re-test our past compliance-matrix MET claims against the graph on each bid date. Optional tender, kind, only_disagreements.",
+    "communities": "Groups of people who keep serving the same clients (of='people') or clients served by one pool of leads (of='clients'), with defining clients.",
     "fact_history": "Why we believe a fact: competing claims (doc, page, authority, status) and the decisions that settled them. Use for 'why/which document/what changed'.",
     "get_entity": "One entity's properties and direct links. kind: client|person|work|tender|bond|credential|contract|document.",
     "vector_search": "Semantic search over document pages (for prose, not for counting).",
@@ -48,6 +51,10 @@ How to work:
 - Verify dates a user "remembers" against the record (credential_timeline / date_span); the graph wins.
 - Invoices are keyed by client, not by work: hop work -> client first (receivables / collection_rate /
   awarded_vs_billed accept `work`).
+- Filter only on what the question states. Never add a role (Prime / JV), year or date range, value
+  bound, reference, government-level or category filter the question does not ask for: scoping by a
+  client, person or work is not a reason to filter further. If a tool result ends with a NOTE about a
+  filter the question does not mention, repeat the call without that filter.
 - Use cypher_readonly only when no tool fits (call graph_schema first if its labels are not enough).
 - Call only the tools you are given.
 

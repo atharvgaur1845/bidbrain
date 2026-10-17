@@ -112,34 +112,212 @@ def explain_path(g: Graph, a: str, a_kind: str, b: str, b_kind: str) -> dict:
             "subgraph": {"nodes": nodes, "edges": edges}, "cypher": [q]}
 
 
+WCC_SCOPES = {
+    # the evidence a similar-works or key-personnel clause stands on
+    "provenance": {
+        "labels": ["Document", "Work", "Client", "Person", "Credential"],
+        "rels": ["EVIDENCED_BY", "HAS_REFERENCE", "FOR_CLIENT", "LED_BY", "HOLDS"],
+        "doc_types": ["completion_certificate", "company_completion_certificate", "reference_letter", "cv",
+                      "personnel_certificate", "past_performance_portfolio"]},
+    # every document, and every entity that should be traceable to one. Hub edges that are not evidence
+    # (Company-OWNS/EMPLOYS, FOR_FY, IN_STATE, IN_CATEGORY) are left out: they would join everything and
+    # hide an entity that has no source document.
+    "corpus": {
+        "labels": ["Document", "Company", "Work", "Client", "Person", "Credential", "Certification", "Tender",
+                   "Requirement", "Bond", "Bank", "Contract", "BOQItem", "Measurement", "Invoice",
+                   "FinancialStatement", "AnnualReport", "TBLine", "LedgerAccount", "Asset", "Bid"],
+        "rels": ["EVIDENCED_BY", "HAS_REFERENCE", "FOR_CLIENT", "LED_BY", "HOLDS", "SECURES", "ISSUED_BY",
+                 "REQUIRES", "CITES_CERT", "BILLED_TO", "HAS_ITEM", "MEASURES", "FOR_TENDER", "CITES",
+                 "PROPOSES", "TO_CLIENT", "SECURED_BY"],
+        "doc_types": None},
+}
+
+WCC = """
+CALL algo.WCC({nodeLabels:$labels, relationshipTypes:$rels}) YIELD node, componentId
+WITH node, componentId WHERE NOT node:Document OR $doc_types IS NULL OR node.doc_type IN $doc_types
+WITH componentId, labels(node)[0] AS label, node.doc_type AS doc_type, collect(node) AS ns
+WITH componentId, sum(size(ns)) AS size,
+     collect({label: label, doc_type: doc_type, n: size(ns),
+              sample: [x IN ns[0..40] | {key: x.key, name: coalesce(x.name, x.title, x.doc_id, x.key)}]}) AS parts
+RETURN componentId, size, parts
+ORDER BY size DESC"""
+
+
+def _classify(parts: list[dict]) -> tuple[str, str]:
+    """What a component outside the main one means. Islands that hold both documents and the facts they
+    evidence (e.g. one fiscal year's statement + ledgers in scope='corpus') are reported, not flagged."""
+    labels = {p["label"] for p in parts}
+    if labels == {"Document"}:
+        types = ", ".join(sorted({p["doc_type"] or "?" for p in parts}))
+        return "uncited_document", (f"{types}: in the corpus, but no fact in the graph cites it; evidence no "
+                                    "tool can reach (content not modelled, or a lost link)")
+    if "Client" in labels and "Work" not in labels and labels <= {"Client", "Document"}:
+        return "client_without_work", ("client with no completed work on record (known from invoices or contracts "
+                                       "only): nothing for them can be cited as experience")
+    if "Document" not in labels:
+        return "unprovenanced", f"{', '.join(sorted(labels))} with no path to any source document: its values cannot be cited"
+    if "Person" in labels and "Work" not in labels:
+        return "credentialed_no_work", ("staff with a CV and credentials but no led work on record: can be named as "
+                                        "key personnel, but bring no similar-works evidence or client relationship")
+    return "island", "documented, but not linked to the main evidence graph by an evidence edge"
+
+
 @tool("isolated_entities",
-      """Weakly connected components (algo.WCC) of the person<->client graph: finds people who
-      never led a completed work and clients we bill but hold no completion certificate for —
-      gaps in the evidence base.""")
-def isolated_entities(g: Graph) -> dict:
-    q = """CALL algo.WCC({nodeLabels:['Person','Client'], relationshipTypes:['WORKED_FOR','ENGAGED']})
-           YIELD node, componentId
-           WITH componentId, collect(node) AS members
-           RETURN componentId, size(members) AS size,
-                  [m IN members | {label: labels(m)[0], key: m.key, name: m.name}] AS members
-           ORDER BY size DESC"""
-    rows = g.read(q)
-    main = rows[0] if rows else None
-    isolated = [m for r in rows[1:] for m in r["members"]]
-    return {"result": {"main_component_size": main["size"] if main else 0, "isolated": isolated,
-                       "n_components": len(rows)},
-            "subgraph": {"nodes": [_node(m["label"], m["key"], m["name"]) for m in isolated], "edges": []},
-            "cypher": [q]}
+      """Evidence-integrity check with weakly connected components (algo.WCC). scope='provenance'
+      (default) runs over Document-Work-Client-Person-Credential, the evidence a similar-works or
+      key-personnel clause stands on; scope='corpus' runs over every document and every entity that
+      should be traceable to one. The main component is the connected evidence base; everything outside
+      it is a finding: documents no fact cites, entities with no source document, credentialed staff
+      who never led a work, clients with no completed work. Returns component sizes and the orphans,
+      grouped, with what each group means.""",
+      {"scope": {"type": "string", "enum": ["provenance", "corpus"]}})
+def isolated_entities(g: Graph, scope: str = "provenance") -> dict:
+    cfg = WCC_SCOPES[scope]
+    rows = g.read(WCC, cfg)
+    for r in rows:
+        r["size"] = int(r["size"])
+    main = rows[0] if rows else {"size": 0, "parts": []}
+    findings: dict[tuple, dict] = {}
+    islands: dict[str, dict] = {}
+    isolated = []
+    for r in rows[1:]:
+        kind, meaning = _classify(r["parts"])
+        if kind == "island":
+            sig = " + ".join(sorted({p["label"] if p["label"] != "Document" else f"Document({p['doc_type']})"
+                                     for p in r["parts"]}))
+            isl = islands.setdefault(sig, {"members": sig, "components": 0, "nodes": 0})
+            isl["components"] += 1
+            isl["nodes"] += r["size"]
+            continue
+        for p in r["parts"]:
+            gk = (kind, p["label"], p["doc_type"])
+            f = findings.setdefault(gk, {"finding": kind, "label": p["label"], "doc_type": p["doc_type"],
+                                         "count": 0, "components": 0, "meaning": meaning, "examples": []})
+            f["count"] += p["n"]
+            f["examples"] += [s["name"] for s in p["sample"]][: max(0, 8 - len(f["examples"]))]
+            isolated += [{"label": p["label"], "key": s["key"], "name": s["name"], "finding": kind}
+                         for s in p["sample"]]
+        for gk in {(kind, p["label"], p["doc_type"]) for p in r["parts"]}:
+            findings[gk]["components"] += 1
+    sizes = [r["size"] for r in rows]
+    out = {"scope": scope, "main_component_size": main["size"], "n_components": len(rows),
+           "component_sizes": sizes[:12] + ([f"... {len(sizes) - 12} more"] if len(sizes) > 12 else []),
+           "main_component": sorted(({"label": p["label"], "doc_type": p["doc_type"], "n": p["n"]}
+                                     for p in main["parts"]), key=lambda x: -x["n"]),
+           "outside_main": sum(sizes[1:]),
+           "findings": sorted(findings.values(), key=lambda f: (f["finding"], -f["count"])),
+           "islands": sorted(islands.values(), key=lambda i: -i["nodes"]),
+           "isolated": isolated[:120]}
+    if not findings:
+        out["verdict"] = "every node in scope is in one component: no orphaned evidence"
+    return {"result": out,
+            "subgraph": {"nodes": [_node(m["label"], m["key"], m["name"]) for m in isolated[:60]], "edges": []},
+            "cypher": [_wcc_text(cfg)]}
+
+
+def _wcc_text(cfg: dict) -> str:
+    """The WCC query with its parameters inlined, as shown in explain mode and docs/CYPHER.md."""
+    q = WCC.replace("$labels", str(cfg["labels"])).replace("$rels", str(cfg["rels"]))
+    if cfg["doc_types"]:
+        return q.replace("$doc_types IS NULL OR ", "").replace("$doc_types", str(cfg["doc_types"]))
+    return q.replace("WITH node, componentId WHERE NOT node:Document OR $doc_types IS NULL OR node.doc_type IN $doc_types\n", "")
+
+
+COMMUNITY_PEOPLE = """
+CALL algo.labelPropagation({nodeLabels:['Person'], relationshipTypes:['OVERLAPS_CLIENTS'], maxIterations:50})
+YIELD node, communityId
+WITH communityId, collect(node) AS members
+UNWIND members AS p
+OPTIONAL MATCH (p)-[r:WORKED_FOR]->(c:Client)
+WITH communityId, members, c, count(DISTINCT p) AS served_by, sum(r.works) AS works
+WITH communityId, members, c, served_by, works, size([(c)<-[:WORKED_FOR]-(x:Person) | x]) AS leads_total
+ORDER BY served_by * served_by / toFloat(leads_total) DESC, works DESC, c.name
+WITH communityId, members,
+     collect(CASE WHEN c IS NULL THEN NULL ELSE {client: c.name, key: c.key, served_by: served_by,
+                                                leads_total: leads_total, works: works} END) AS clients
+RETURN communityId, size(members) AS size, [m IN members | m.name] AS people, [m IN members | m.key] AS keys,
+       [x IN clients WHERE x.served_by >= 2][0..5] AS shared_clients, size(clients) AS clients_total
+ORDER BY size DESC, communityId"""
+
+COMMUNITY_CLIENTS = """
+CALL algo.labelPropagation({nodeLabels:['Client'], relationshipTypes:['SHARES_LEADS'], maxIterations:50})
+YIELD node, communityId
+WITH communityId, collect(node) AS members
+UNWIND members AS c
+OPTIONAL MATCH (c)<-[r:WORKED_FOR]-(p:Person)
+WITH communityId, members, p, count(DISTINCT c) AS serves, sum(r.works) AS works
+WITH communityId, members, p, serves, works, size([(p)-[:WORKED_FOR]->(x:Client) | x]) AS clients_total
+ORDER BY serves * serves / toFloat(clients_total) DESC, works DESC, p.name
+WITH communityId, members,
+     collect(CASE WHEN p IS NULL THEN NULL ELSE {person: p.name, key: p.key, serves: serves,
+                                                clients_total: clients_total, works: works} END) AS leads
+RETURN communityId, size(members) AS size, [m IN members | m.name] AS clients, [m IN members | m.key] AS keys,
+       [x IN leads WHERE x.serves >= 2][0..6] AS shared_leads
+ORDER BY size DESC, communityId"""
+
+CO_GRAPH = {  # the full weighted graph the partition is scored against (modularity)
+    "people": """MATCH (a:Person)-[:WORKED_FOR]->(c:Client)<-[:WORKED_FOR]-(b:Person) WHERE a.key < b.key
+                 RETURN a.key AS a, b.key AS b, count(c) AS w""",
+    "clients": """MATCH (a:Client)<-[:WORKED_FOR]-(p:Person)-[:WORKED_FOR]->(b:Client) WHERE a.key < b.key
+                  RETURN a.key AS a, b.key AS b, count(p) AS w"""}
+
+
+def modularity(edges: list[dict], part: dict[str, int]) -> float:
+    """Newman modularity of a partition over a weighted undirected edge list ({a, b, w}). A node missing
+    from `part` is its own community. 0 = no better than one block (or random); higher = real clusters."""
+    m = sum(e["w"] for e in edges)
+    if not m:
+        return 0.0
+    deg: dict[str, float] = {}
+    for e in edges:
+        deg[e["a"]] = deg.get(e["a"], 0) + e["w"]
+        deg[e["b"]] = deg.get(e["b"], 0) + e["w"]
+    inside = sum(e["w"] for e in edges if part.get(e["a"], e["a"]) == part.get(e["b"], e["b"]))
+    tot: dict = {}
+    for n, d in deg.items():
+        tot[part.get(n, n)] = tot.get(part.get(n, n), 0) + d
+    return round(inside / m - sum((d / (2 * m)) ** 2 for d in tot.values()), 3)
 
 
 @tool("communities",
-      """Community detection (algo.labelPropagation) over the people graph projected by shared
-      clients (two people are linked if they served >= 2 of the same clients). Returns clusters
-      of people who share client relationships — useful for staffing a bid team that already
-      knows the client.""")
-def communities(g: Graph) -> dict:
-    q = """CALL algo.labelPropagation({nodeLabels:['Person'], relationshipTypes:['SHARES_CLIENTS'], maxIterations:50})
-           YIELD node, communityId
-           RETURN communityId, collect(node.name) AS people, size(collect(node)) AS size ORDER BY size DESC"""
+      """Community detection (algo.labelPropagation). of='people' (default): client circles — people
+      linked when they led work for >= 2 of the same clients AND those make up >= 25% of their combined
+      client lists (Jaccard), so a community is a group that keeps serving the same accounts; each comes
+      with the clients that define it. Use it to staff a bid team that already knows the client. of='clients':
+      accounts linked when >= 2 of the same project leads served both; a community is a set of clients
+      that draws on one pool of people (lose a lead, and every client in the set is exposed). Size-1
+      communities are people/clients with no strong overlap. `modularity` scores the split against the full
+      co-client graph (0 = no better than one block).""",
+      {"of": {"type": "string", "enum": ["people", "clients"]}})
+def communities(g: Graph, of: str = "people") -> dict:
+    q = COMMUNITY_PEOPLE if of == "people" else COMMUNITY_CLIENTS
     rows = g.read(q)
-    return {"result": rows, "cypher": [q]}
+    part = {k: r["communityId"] for r in rows for k in r["keys"]}
+    q_full = CO_GRAPH[of]
+    edges = g.read(q_full)
+    score = modularity(edges, part)
+    label = "Person" if of == "people" else "Client"
+    nodes, links = [], []
+    for r in rows:
+        if of == "people":
+            names = [f"{c['client']} ({c['served_by']} of its {c['leads_total']} leads)" for c in r["shared_clients"][:3]]
+            r["basis"] = (f"{r['size']} people; defined by " + ", ".join(names)) if names and r["size"] > 1 \
+                else "no strong client overlap with anyone (fewer than 2 shared clients or Jaccard < 0.25)"
+        else:
+            names = [f"{p['person']} ({p['serves']} of these clients)" for p in r["shared_leads"][:3]]
+            r["basis"] = (f"{r['size']} clients drawing on the same leads: " + ", ".join(names)) if names and r["size"] > 1 \
+                else "no two project leads in common with any other client"
+        r["modularity"] = score
+        if r["size"] > 1:
+            hub = f"Community:{of}-{r['communityId']}"
+            nodes.append(_node("Community", f"{of}-{r['communityId']}", r["basis"].split(";")[0]))
+            for k, n in zip(r["keys"], r["people"] if of == "people" else r["clients"]):
+                nodes.append(_node(label, k, n))
+                links.append(_edge(f"{label}:{k}", hub, "IN_COMMUNITY"))
+    sizes = [r["size"] for r in rows]
+    return {"result": rows,
+            "summary": {"of": of, "sizes": sizes, "communities": sum(1 for s in sizes if s > 1),
+                        "singletons": sum(1 for s in sizes if s == 1), "modularity": score,
+                        "projection": "OVERLAPS_CLIENTS (shared >= 2, Jaccard >= 0.25)" if of == "people"
+                        else "SHARES_LEADS (shared leads >= 2)"},
+            "subgraph": {"nodes": nodes, "edges": links}, "cypher": [q, q_full]}

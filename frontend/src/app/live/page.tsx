@@ -299,7 +299,7 @@ export default function LivePage() {
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       {r.org_rule ? (
                         <Link href="/memory/" className="inline-flex items-center gap-1" title={`Company rule ${r.org_rule}`}>
-                          <Badge tone="violet"><Building2 size={12} strokeWidth={1.75} />In company memory</Badge>
+                          <Badge tone="violet">In company memory</Badge>
                           <span className="num text-[11.5px] text-ink-3">{r.org_rule}</span>
                         </Link>
                       ) : r.retired ? (
@@ -307,7 +307,7 @@ export default function LivePage() {
                       ) : (
                         <Button size="sm" disabled={busy || promoting !== null} onClick={() => promote(r)}
                           title="Share this rule with every session (company memory). You can retire it later on the Memory page.">
-                          <Building2 size={14} strokeWidth={1.75} />
+                          <Building2 size={16} strokeWidth={1.75} />
                           {promoting === r.id ? "Promoting…" : "Promote to company memory"}
                         </Button>
                       )}
@@ -476,7 +476,7 @@ function FeedCard({ item, last }: { item: FeedItem; last?: boolean }) {
   if (item.kind === "promoted") {
     const r = d.rule || {};
     return (
-      <Entry {...base} icon={<Building2 {...ICON} className="text-violet" />}
+      <Entry {...base} icon={<Building2 {...ICON} className="text-kb-ink" />}
         title={d.already ? "Already in company memory" : "Promoted to company memory"}
         aside={<span className="num text-[11.5px] text-ink-3">{d.org_rule}</span>}>
         <p className="mt-1 text-[13px] leading-snug text-ink-2">

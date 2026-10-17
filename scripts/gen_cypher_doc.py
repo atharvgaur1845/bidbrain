@@ -12,6 +12,7 @@ import pathlib
 import re
 
 from bidbrain.graph.client import Graph
+from bidbrain.ingest.load_graph import PROJECTIONS
 from bidbrain.tools import TOOLS, call
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -31,8 +32,11 @@ SAMPLES = {
     "key_people": {},
     "who_knows": {"client": "National Expressway Development Authority"},
     "explain_path": {"a": "Sunita Joshi", "a_kind": "person", "b": "Rahul Menon", "b_kind": "person"},
-    "isolated_entities": {},
+    "isolated_entities": {"scope": "corpus"},
     "communities": {},
+    "trace_from_credential": {"person": "Sunita Joshi", "credential": "Six Sigma", "work": "Pkg-107"},
+    "compliance_check": {"tender": "RFP-132000970"},
+    "fact_history": {"key": "Pkg-113", "kind": "work"},
     "vector_search": {"text": "client praised the safety record", "k": 3},
     "fulltext_search": {"text": "Anganwadi"},
     "graph_schema": {},
@@ -67,6 +71,13 @@ EXTRA = {
     "Analysis projections (bidbrain/ingest/load_graph.py)": [
         ("Person <-> client projection for centrality", "MATCH (p:Person)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)\n"
          "WITH p, c, count(w) AS n, sum(w.value) AS v\nCREATE (p)-[:WORKED_FOR {works:n, value:v}]->(c), (c)-[:ENGAGED {works:n, value:v}]->(p)"),
+        *[(f"{name} projection (communities)" if name != "SHARES_CLIENTS" else "SHARES_CLIENTS projection (unfiltered, reference only)",
+           "\n".join(l.strip() for l in q.strip().splitlines())) for name, q in PROJECTIONS.items()],
+        ("Workbook provenance (found by isolated_entities scope='corpus')",
+         "UNWIND $rows AS r MATCH (n:Asset {key:r.key}), (d:Document {doc_id:r.doc})\n"
+         "CREATE (n)-[:EVIDENCED_BY {kind:'asset_register'}]->(d)      -- also TBLine, BOQItem, Measurement"),
+        ("When each compliance claim was made", "UNWIND $rows AS r MATCH (t:Tender {key:r.tender})\n"
+         "SET t.bid_date = r.bid_date, t.bid_date_basis = r.basis, t.bid_value = r.bid_value, t.matrix_doc = r.doc"),
         ("Indexes", "CREATE INDEX FOR (n:Work) ON (n.key)            -- range index on every entity key\n"
          "CALL db.idx.fulltext.createNodeIndex('Chunk', 'ft')\n"
          "CREATE VECTOR INDEX FOR (c:Chunk) ON (c.embedding) OPTIONS {dimension:384, similarityFunction:'cosine'}"),

@@ -252,7 +252,7 @@ function Isolated({ r, onOpen }: { r: any; onOpen: OpenFn }) {
         </ul>
       ) : <p className="mt-3 text-[13px] text-ink-3">Every person and client is in one component.</p>}
       <p className="mt-3 text-[12.5px] leading-snug text-ink-3">
-        Clients billed with no completed work on record, and people who never led a completed work.
+        Evidence-integrity check (algo.WCC over documents, works, clients, people, credentials): anything outside the main component has no evidence path, such as people with a CV but no work they led, or clients with no completed work on record.
       </p>
     </>
   );

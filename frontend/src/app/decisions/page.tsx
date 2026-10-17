@@ -13,6 +13,7 @@ const POLICIES: { id: string; label: string; tone: string }[] = [
   { id: "authority", label: "Authority", tone: "blue" },
   { id: "recency_same_issuer", label: "Recency", tone: "ok" },
   { id: "learned_rule", label: "Learned rule", tone: "violet" },
+  { id: "org_rule", label: "Company memory", tone: "violet" },
   { id: "human", label: "Human", tone: "warn" },
 ];
 

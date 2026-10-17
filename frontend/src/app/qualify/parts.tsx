@@ -8,6 +8,7 @@ import { fmtINR } from "@/lib/api";
 
 export const AGENTS = [
   { key: "ClauseParser", desc: "Reads the tender into typed clauses", llm: true },
+  { key: "Planner", desc: "Decides which agents run on which clauses", llm: false },
   { key: "EvidenceHunter", desc: "Qualifies each clause by graph traversal", llm: false },
   { key: "AbsenceAuditor", desc: "Finds missing letters, lapsing credentials, gaps", llm: false },
   { key: "ConflictSentinel", desc: "Checks the conflict history of every relied-on fact", llm: false },
@@ -15,7 +16,9 @@ export const AGENTS = [
   { key: "Assembler", desc: "Writes the bid memo with citations", llm: true },
 ];
 
-export type AgentStatus = "idle" | "running" | "done";
+export type AgentStatus = "idle" | "running" | "done" | "skipped";
+export type Plan = { agents: string[]; skip: Record<string, string>; routes: Record<string, string[]>; stage: string };
+export type Handoff = { from: string; to: string; reason: string; clauses: string[] };
 
 export type Finding = { kind: string; text: string; severity?: string; agent: string };
 export type Clause = { clause_id: string; ref: string; kind: string; text: string; params?: any; verdict?: string; basis?: string;
@@ -72,13 +75,14 @@ function StatusDot({ st }: { st: AgentStatus }) {
       <span className={clsx("h-2 w-2 rounded-full",
         st === "done" && "bg-ok",
         st === "running" && "pulse-dot bg-kb shadow-[0_0_0_4px_var(--kb-soft)]",
-        st === "idle" && "bg-line-strong")} />
+        st === "idle" && "bg-line-strong",
+        st === "skipped" && "border border-line-strong bg-transparent")} />
     </span>
   );
 }
 
-export function AgentPipeline({ status, summaries }:
-  { status: Record<string, AgentStatus>; summaries: Record<string, string> }) {
+export function AgentPipeline({ status, summaries, plan, handoffs = [] }:
+  { status: Record<string, AgentStatus>; summaries: Record<string, string>; plan?: Plan | null; handoffs?: Handoff[] }) {
   return (
     <>
       <ol className="flex flex-col">
@@ -92,7 +96,7 @@ export function AgentPipeline({ status, summaries }:
               <span className="pt-[3px]"><StatusDot st={st} /></span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-2">
-                  <span className={clsx("text-[13.5px] font-semibold", st === "idle" ? "text-ink-2" : "text-ink")}>{a.key}</span>
+                  <span className={clsx("text-[13.5px] font-semibold", st === "idle" || st === "skipped" ? "text-ink-2" : "text-ink")}>{a.key}</span>
                   <Badge tone="neutral">{a.llm ? "LLM" : "Graph"}</Badge>
                   <span className="sr-only">{st}</span>
                 </span>
@@ -105,6 +109,24 @@ export function AgentPipeline({ status, summaries }:
           );
         })}
       </ol>
+      {plan && (
+        <p className="mt-4 border-t border-line pt-3 text-[12.5px] leading-relaxed text-ink-3">
+          <span className="font-medium text-ink-2">Plan: </span>
+          {plan.agents.join(" → ")}
+          {Object.entries(plan.skip).map(([a, why]) => <span key={a} className="block">Skipped {a}: {why}</span>)}
+        </p>
+      )}
+      {handoffs.length > 0 && (
+        <ul className="mt-3 flex flex-col gap-1.5 text-[12.5px] leading-snug text-ink-2">
+          {handoffs.map((h, i) => (
+            <li key={i} className="rounded-r-md border-l-2 border-kb bg-well px-3 py-2">
+              <span className="font-medium text-ink">{h.from} → {h.to}</span>
+              <span className="text-ink-3"> · clause {h.clauses.join(", ")}</span>
+              <span className="block">{h.reason}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="mt-4 border-t border-line pt-3 text-[12.5px] leading-relaxed text-ink-3">
         Each handoff is a graph write:{" "}
         <span className="num text-[12px] text-ink-2">(:AgentRun)-[:HANDED_OFF_TO]-&gt;(:AgentRun)</span>
@@ -186,7 +208,8 @@ export function VerifierBanner({ verified }: { verified: any }) {
       <div className="text-ink-2">
         <span className="font-semibold text-ink">Verifier, no LLM. </span>
         {ok
-          ? <>Re-derived all <span className="num font-semibold text-ink">{verified.checked}</span> verdicts from the graph. Every one agrees.</>
+          ? <>Re-derived all <span className="num font-semibold text-ink">{verified.checked}</span> verdicts from the graph. Every one agrees
+              {verified.retried?.length ? <> after the EvidenceHunter re-derived <span className="num font-semibold text-ink">{verified.retried.length}</span> that first disagreed</> : null}.</>
           : <><span className="num font-semibold text-bad">{verified.mismatches.length}</span> verdicts disagree. The case is flagged.</>}
       </div>
     </div>

@@ -7,7 +7,7 @@ import GraphCanvas, { GData, mergeGraph } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/Shell";
 import { Button, Card, Empty, EvidenceList, Markdown, Spinner, Tabs, Verdict } from "@/components/ui";
 import { api, stream } from "@/lib/api";
-import { AgentPipeline, AgentStatus, Clause, TenderList, VerdictTable, VerifierBanner } from "./parts";
+import { AgentPipeline, AgentStatus, Clause, Handoff, Plan, TenderList, VerdictTable, VerifierBanner } from "./parts";
 
 type Tab = "verdicts" | "evidence" | "memo";
 
@@ -32,6 +32,8 @@ export default function QualifyPage() {
   const [focus, setFocus] = useState<string | null>(null);
   const [memo, setMemo] = useState<{ markdown: string; overall: string; method: string } | null>(null);
   const [verified, setVerified] = useState<any>(null);
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [handoffs, setHandoffs] = useState<Handoff[]>([]);
   const [running, setRunning] = useState(false);
   const [ms, setMs] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -41,12 +43,14 @@ export default function QualifyPage() {
 
   async function run() {
     setRunning(true); setClauses([]); setGraph({ nodes: [], edges: [] }); setMemo(null); setVerified(null); setErr(null);
-    setStatus({}); setSummaries({}); setFocus(null); setMs(null);
+    setStatus({}); setSummaries({}); setFocus(null); setMs(null); setPlan(null); setHandoffs([]);
     const body = pick && text === pick.text ? { tender_id: pick.id } : { tender_id: pick?.id, text };
     await stream("/api/qualify", body, (ev) => {
       if (ev.type === "agent_start") setStatus((s) => ({ ...s, [ev.agent]: "running" }));
+      if (ev.type === "plan") setPlan(ev as unknown as Plan);
+      if (ev.type === "handoff") setHandoffs((hs) => [...hs, ev as unknown as Handoff]);
       if (ev.type === "agent_done") {
-        setStatus((s) => ({ ...s, [ev.agent]: "done" }));
+        setStatus((s) => ({ ...s, [ev.agent]: ev.skipped ? "skipped" : "done" }));
         if (ev.summary) setSummaries((s) => ({ ...s, [ev.agent]: ev.summary }));
       }
       if (ev.type === "clause") setClauses((cs) => [...cs, { clause_id: ev.clause_id, ref: ev.ref, kind: ev.kind, text: ev.text, params: ev.params, findings: [] }]);
@@ -92,7 +96,7 @@ export default function QualifyPage() {
     <div>
       <PageHeader icon={<ScrollTextIcon size={19} strokeWidth={1.75} />} tone="teal"
         title="Qualify a tender"
-        subtitle="Six agents work on one case graph, each reading what the previous one wrote. Every verdict links back to its evidence."
+        subtitle="A planner routes six agents over one case graph. They read each other's findings there and hand work back when one finds a fix. Every verdict links back to its evidence."
         meta={meta}
         actions={memo ? <Verdict v={memo.overall} size="lg" /> : null}
       />
@@ -121,7 +125,7 @@ export default function QualifyPage() {
           </Card>
 
           <Card title="Agent pipeline" action={ms !== null ? <span className="num text-[12.5px] text-ink-3">{ms.toFixed(0)} ms</span> : null}>
-            <AgentPipeline status={status} summaries={summaries} />
+            <AgentPipeline status={status} summaries={summaries} plan={plan} handoffs={handoffs} />
           </Card>
         </div>
 

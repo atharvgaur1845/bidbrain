@@ -212,10 +212,7 @@ def get_entity(g: Graph, key: str, kind: str) -> dict:
 # portfolio traversal
 
 
-FIND_PORTFOLIO = f"""
-MATCH (w:Work)-[:FOR_CLIENT]->(c:Client), (w)-[:LED_BY]->(p:Person),
-      (w)-[e:EVIDENCED_BY {{kind:'completion_certificate'}}]->(d:Document)
-WHERE ($client IS NULL OR c.key = $client)
+_PF_WHERE = """($client IS NULL OR c.key = $client)
   AND ($person IS NULL OR p.key = $person)
   AND ($cats IS NULL OR w.category IN $cats)
   AND ($xcats IS NULL OR NOT w.category IN $xcats)
@@ -225,8 +222,23 @@ WHERE ($client IS NULL OR c.key = $client)
   AND ($years IS NULL OR w.completed_year IN $years)
   AND ($role IS NULL OR w.role = $role)
   AND ($has_ref IS NULL OR w.has_reference = $has_ref)
-  AND ($levels IS NULL OR c.govt_level IN $levels)
+  AND ($levels IS NULL OR c.govt_level IN $levels)"""
+
+FIND_PORTFOLIO = f"""
+MATCH (w:Work)-[:FOR_CLIENT]->(c:Client), (w)-[:LED_BY]->(p:Person),
+      (w)-[e:EVIDENCED_BY {{kind:'completion_certificate'}}]->(d:Document)
+WHERE {_PF_WHERE}
 RETURN {_WORK_RET}
+ORDER BY w.value DESC"""
+
+# via_work in one query: anchor work -> its client -> every work for that client -> its certificate. The second
+# MATCH is OPTIONAL so a filter that leaves nothing still returns the anchor and client (one row, w null).
+FIND_PORTFOLIO_VIA = f"""
+MATCH (anchor:Work {{key:$via}})-[:FOR_CLIENT]->(c:Client)
+OPTIONAL MATCH (w:Work)-[:FOR_CLIENT]->(c), (w)-[:LED_BY]->(p:Person),
+      (w)-[e:EVIDENCED_BY {{kind:'completion_certificate'}}]->(d:Document)
+WHERE {_PF_WHERE}
+RETURN anchor.key AS anchor_key, anchor.title AS anchor_title, {_WORK_RET}
 ORDER BY w.value DESC"""
 
 
@@ -255,15 +267,11 @@ def find_portfolio(g: Graph, client: str | None = None, person: str | None = Non
                    role: str | None = None, has_reference: bool | None = None,
                    govt_levels: list | None = None) -> dict:
     resolved, scope_nodes, scope_edges, cy = {}, [], [], []
+    wk = None
     if via_work:
         wk, r = _resolve(g, via_work, "work")
         resolved["via_work"] = r or wk
-        q = "MATCH (w:Work {key:$k})-[:FOR_CLIENT]->(c:Client) RETURN c.key AS c, c.name AS n, w.title AS t"
-        hop = g.read(q, {"k": wk})[0]
-        cy.append(q)
-        client = hop["c"]
-        scope_nodes.append(_node("Work", wk, hop["t"], role="anchor"))
-        scope_edges.append(_edge(f"Work:{wk}", f"Client:{client}", "FOR_CLIENT"))
+        client = None                      # the query reaches the client through the anchor work
     elif client:
         client, r = _resolve(g, client, "client")
         resolved["client"] = r or client
@@ -276,8 +284,18 @@ def find_portfolio(g: Graph, client: str | None = None, person: str | None = Non
               "after": day(completed_after), "before": day(completed_before),
               "years": [int(y) for y in years] if years else None, "role": role,
               "has_ref": has_reference, "levels": govt_levels}
-    rows = g.read(FIND_PORTFOLIO, params)
-    cy.append(FIND_PORTFOLIO)
+    if wk:
+        rows = g.read(FIND_PORTFOLIO_VIA, {**params, "via": wk})
+        if not rows:
+            raise LookupError(f"work {wk} has no client")
+        client = params["client"] = rows[0]["client_key"]
+        scope_nodes.append(_node("Work", wk, rows[0]["anchor_title"], role="anchor"))
+        scope_edges.append(_edge(f"Work:{wk}", f"Client:{client}", "FOR_CLIENT"))
+        rows = [r for r in rows if r["key"] is not None]
+        cy.append(FIND_PORTFOLIO_VIA)
+    else:
+        rows = g.read(FIND_PORTFOLIO, params)
+        cy.append(FIND_PORTFOLIO)
     sg, ev = _works_payload(rows, scope_nodes, scope_edges)
     return {"result": {"n": len(rows), "total_value": sum(r["value"] or 0 for r in rows),
                        "works": [{k: r[k] for k in ("key", "title", "value", "completed", "category",

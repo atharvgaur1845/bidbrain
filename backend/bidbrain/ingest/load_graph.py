@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import datetime as dt
 import json
 import re
 import time
@@ -69,16 +70,42 @@ def req_kind(text: str) -> str:
     return next((k for needle, k in rules if needle in t), "other")
 
 
+OVERLAP_MIN_SHARED = 2       # OVERLAPS_CLIENTS: at least this many clients in common ...
+OVERLAP_MIN_JACCARD = 0.25   # ... and they are at least this share of the two people's combined client lists
+LEADS_MIN_SHARED = 2         # SHARES_LEADS: two clients served by at least this many of the same project leads
+
+PROJECTIONS = {
+    # every pair of people with >= 2 clients in common. 70 pairs over 31 people: one connected block, so label
+    # propagation over it returns a single community of 31 (kept for reference; `communities` does not use it)
+    "SHARES_CLIENTS": """MATCH (a:Person)-[:WORKED_FOR]->(c:Client)<-[:WORKED_FOR]-(b:Person) WHERE a.key < b.key
+        WITH a, b, count(c) AS n WHERE n >= 2
+        CREATE (a)-[:SHARES_CLIENTS {n:n}]->(b), (b)-[:SHARES_CLIENTS {n:n}]->(a)""",
+    # the people-community projection: >= 2 shared clients AND Jaccard >= 0.25 over the two client lists, so a lead
+    # with 7 clients is not tied to everyone who once shared one or two of them
+    "OVERLAPS_CLIENTS": f"""MATCH (a:Person)-[:WORKED_FOR]->(c:Client)<-[:WORKED_FOR]-(b:Person) WHERE a.key < b.key
+        WITH a, b, count(c) AS shared
+        MATCH (a)-[:WORKED_FOR]->(ca:Client) WITH a, b, shared, count(ca) AS na
+        MATCH (b)-[:WORKED_FOR]->(cb:Client) WITH a, b, shared, na, count(cb) AS nb
+        WITH a, b, shared, toFloat(shared) / (na + nb - shared) AS jaccard
+        WHERE shared >= {OVERLAP_MIN_SHARED} AND jaccard >= {OVERLAP_MIN_JACCARD}
+        CREATE (a)-[:OVERLAPS_CLIENTS {{shared:shared, jaccard:jaccard}}]->(b),
+               (b)-[:OVERLAPS_CLIENTS {{shared:shared, jaccard:jaccard}}]->(a)""",
+    # the client-community projection: two clients whose works were led by >= 2 of the same people
+    "SHARES_LEADS": f"""MATCH (a:Client)<-[:WORKED_FOR]-(p:Person)-[:WORKED_FOR]->(b:Client) WHERE a.key < b.key
+        WITH a, b, count(p) AS leads WHERE leads >= {LEADS_MIN_SHARED}
+        CREATE (a)-[:SHARES_LEADS {{leads:leads}}]->(b), (b)-[:SHARES_LEADS {{leads:leads}}]->(a)""",
+}
+
+
 def project(g: Graph) -> None:
     """(Re)build the analysis projections; called at load and after any write
     that changes who-worked-for-whom."""
-    g.run("MATCH ()-[r:WORKED_FOR|ENGAGED|SHARES_CLIENTS]->() DELETE r")
+    g.run("MATCH ()-[r:WORKED_FOR|ENGAGED|SHARES_CLIENTS|OVERLAPS_CLIENTS|SHARES_LEADS]->() DELETE r")
     g.run("""MATCH (p:Person)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
              WITH p, c, count(w) AS n, sum(w.value) AS v
              CREATE (p)-[:WORKED_FOR {works:n, value:v}]->(c), (c)-[:ENGAGED {works:n, value:v}]->(p)""")
-    g.run("""MATCH (a:Person)-[:WORKED_FOR]->(c:Client)<-[:WORKED_FOR]-(b:Person) WHERE a.key < b.key
-             WITH a, b, count(c) AS n WHERE n >= 2
-             CREATE (a)-[:SHARES_CLIENTS {n:n}]->(b), (b)-[:SHARES_CLIENTS {n:n}]->(a)""")
+    for q in PROJECTIONS.values():
+        g.run(q)
 
 
 def unwind(g: Graph, cypher: str, rows: list[dict], batch: int = 400) -> None:
@@ -227,6 +254,22 @@ def load(graph_name: str = config.BASE_GRAPH, with_chunks: bool = True, quiet: b
                 evidence:r.evidence})
         CREATE (t)-[:REQUIRES]->(q), (q)-[:EVIDENCED_BY {kind:'compliance_matrix', page:r.page}]->(d)
         WITH q, r MATCH (c:Certification {key:r.cert}) CREATE (q)-[:CITES_CERT]->(c)""", reqs)
+    # When was each compliance claim made? The full matrices print "Bid Submission Date" and "Bid Value"; the
+    # short checklists print only their own signature date. `compliance_check` re-tests each MET row on this date.
+    tdates = []
+    for doc in sorted({r["source_doc"]: r["tender_ref"] for r in f["compliance"]}.items()):
+        t = pages.raw.get(doc[0], "")
+        sub = re.search(r"Bid Submission Date\s*\n?\s*(\d{4}-\d{2}-\d{2})", t)
+        val = re.search(r"Bid Value:?\s*\n?\s*INR\s*([\d.]+)\s*Cr", t)
+        signed = re.search(r"(January|February|March|April|May|June|July|August|September|October|November|"
+                           r"December) (\d{1,2}), (\d{4})", t)
+        signed_iso = (dt.datetime.strptime(signed.group(0), "%B %d, %Y").date().isoformat() if signed else None)
+        tdates.append({"tender": doc[1], "doc": doc[0], "bid_value": int(round(float(val.group(1)) * 1e7)) if val else None,
+                       "bid_date": sub.group(1) if sub else signed_iso,
+                       "basis": "bid_submission_date" if sub else ("matrix_signature_date" if signed else None)})
+    unwind(g, """UNWIND $rows AS r MATCH (t:Tender {key:r.tender})
+                 SET t.bid_date = r.bid_date, t.bid_date_basis = r.basis, t.bid_value = r.bid_value,
+                     t.matrix_doc = r.doc""", tdates)
     banks = sorted({b["bank"] for b in f["bonds"] if b.get("bank")})
     unwind(g, "UNWIND $rows AS r CREATE (:Bank {key:r, name:r})", banks)
     bonds = [{**b, "key": b["bond_no"], "issued_day": day(b.get("issued")), "expiry_day": day(b.get("expiry")),
@@ -307,6 +350,38 @@ def load(graph_name: str = config.BASE_GRAPH, with_chunks: bool = True, quiet: b
                 ownership:r.ownership, safety_certified:r.safety_certified})
         CREATE (co)-[:OWNS]->(a)
         WITH a, r MATCH (s:State {key:r.location}) CREATE (a)-[:LOCATED_IN]->(s)""", f["assets"])
+
+    # ---- provenance of workbook rows ----------------------------------------
+    # Assets, trial-balance lines, BOQ items and measurements come from spreadsheets. Their facts carry a
+    # source filename that was never linked: `isolated_entities(scope='corpus')` (algo.WCC) found 404 entities
+    # (210 assets, 194 TB lines) with no path to any document, and 22 documents nothing cited (8 workbooks,
+    # 6 RA bills, 8 bank statements). The workbooks are linked here. Bank statements are not modelled, and the 6 RA
+    # bills are for contracts #70, #76 and #77, which have no final-bill record, so they stay uncited (reported).
+    by_file = {**{r["filename"].rsplit("/", 1)[-1]: r["doc_id"] for r in docs}, **WB_DOC}
+    prov = [("Asset", "asset_register", [{"key": f"A{a['asset_id']}", "src": a.get("source_doc")} for a in f["assets"]]),
+            ("TBLine", "trial_balance", [{"key": f"{t['fy']}|{t['account']}", "src": t.get("source_doc")}
+                                         for t in f["trial_balance"]]),
+            ("BOQItem", "boq_workbook", [{"key": f"C{b['contract']}-{b['item_no']}", "src": b.get("source_doc")}
+                                         for b in f["boq_items"]]),
+            ("Measurement", "boq_workbook", [{"key": f"C{m['contract']}-RA{m['ra_no']}-{m['item_no']}-{i}",
+                                              "src": m.get("source_doc")} for i, m in enumerate(f["measurements"])])]
+    for label, kind, rows in prov:
+        rows = [{"key": r["key"], "doc": by_file[r["src"]]} for r in rows if r["src"] in by_file]
+        unwind(g, f"""UNWIND $rows AS r MATCH (n:{label} {{key:r.key}}), (d:Document {{doc_id:r.doc}})
+                      CREATE (n)-[:EVIDENCED_BY {{kind:'{kind}'}}]->(d)""", rows)
+    # a running-account bill prints "Contract #76" and "RA 2": it evidences that contract's RA-2 measurements
+    # (when the contract is on record; none of this corpus's RA bills is)
+    ra = []
+    for d in docs:
+        if d["doc_type"] == "ra_bill":
+            t = pages.raw.get(d["doc_id"], "")
+            m_c, m_r = re.search(r"Contract #(\d+)", t), re.search(r"Running Account Bill\s*[—-]\s*RA (\d+)", t)
+            if m_c and m_r:
+                ra.append({"doc": d["doc_id"], "contract": int(m_c.group(1)), "ra_no": int(m_r.group(1))})
+    unwind(g, """UNWIND $rows AS r MATCH (d:Document {doc_id:r.doc}), (c:Contract {contract:r.contract})
+                 CREATE (c)-[:EVIDENCED_BY {kind:'ra_bill', ra_no:r.ra_no, page:1}]->(d)
+                 WITH r, d MATCH (m:Measurement {contract:r.contract, ra_no:r.ra_no})
+                 CREATE (m)-[:EVIDENCED_BY {kind:'ra_bill', page:1}]->(d)""", ra)
 
     # ---- claims ---------------------------------------------------------------
     cl = claims_mod.from_facts(f, pages)

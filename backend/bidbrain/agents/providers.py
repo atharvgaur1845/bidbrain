@@ -19,6 +19,10 @@ to the next bucket and, if every bucket rejects it, raises with the real reason.
   recorded runs); replay also accepts entries recorded under the older
   model-agnostic key. Entries written before this key change are otherwise
   unreachable (they are simply re-generated).
+* Stickiness: `chat(..., prefer=bucket)` tries that bucket first (cache and live) while it is not
+  parked, so one agent run keeps one model; it falls back to the rest of the pool only when the
+  preferred bucket is rate-limited, unwell or rejects the request. `run_agent` passes the bucket
+  that served its first step.
 * Reasoning is kept short: gpt-oss gets reasoning_effort=low, Qwen gets
   thinking disabled — tool routing does not need a long hidden chain of thought.
 """
@@ -48,6 +52,7 @@ ENDPOINTS = {
 DEFAULT_POOL = "groq:openai/gpt-oss-120b,groq:qwen/qwen3.8-27b,groq:openai/gpt-oss-20b,cerebras:gpt-oss-120b"
 REPLAY = os.getenv("BIDBRAIN_REPLAY", "0") == "1"
 MAX_WAIT = float(os.getenv("LLM_MAX_WAIT", "45"))      # seconds a call may wait for a rate limit to reset
+STICKY_WAIT = float(os.getenv("LLM_STICKY_WAIT", "20"))  # seconds worth waiting for the model that began the answer
 MIN_PARK = 1.0          # a 429 with 'retry-after: 0' must not turn into a tight retry loop
 SHORT_PARK = 5.0        # 5xx, timeouts, connection errors: the endpoint is briefly unwell
 AUTH_PARK = 3600.0      # 401/403: the key is wrong or lacks access; retrying soon will not help
@@ -208,8 +213,13 @@ def _shape(prov: str, model: str, messages: list[dict]) -> tuple[list[dict], dic
     return msgs, extra
 
 
-def _hit(messages, tools, temperature, max_tokens) -> dict | None:
-    for prov, model in POOL:
+def _prefer_first(buckets: list[tuple[str, str]], prefer: str | None) -> list[tuple[str, str]]:
+    """Pool order, with the preferred bucket (if any) moved to the front."""
+    return sorted(buckets, key=lambda pm: f"{pm[0]}:{pm[1]}" != prefer) if prefer else list(buckets)
+
+
+def _hit(messages, tools, temperature, max_tokens, prefer: str | None = None) -> dict | None:
+    for prov, model in _prefer_first(POOL, prefer):
         if hit := _cache.get(_key(f"{prov}:{model}", messages, tools, temperature, max_tokens)):
             return hit
     if REPLAY:
@@ -227,8 +237,9 @@ def _fail(errors: list[tuple[str, str]], why: str) -> LLMUnavailable:
 
 
 def chat(messages: list[dict], tools: list[dict] | None = None, temperature: float = 0.0,
-         max_tokens: int = 1500, use_cache: bool = True) -> Reply:
-    if use_cache and (hit := _hit(messages, tools, temperature, max_tokens)):
+         max_tokens: int = 1500, use_cache: bool = True, prefer: str | None = None) -> Reply:
+    """One completion from the pool. `prefer` ('provider:model') is tried first while it is not parked."""
+    if use_cache and (hit := _hit(messages, tools, temperature, max_tokens, prefer)):
         return Reply(**{**hit, "cached": True, "ms": 0.0})
     if REPLAY:
         raise LLMUnavailable("replay mode: no recorded completion for this request", "replay_miss")
@@ -247,7 +258,13 @@ def chat(messages: list[dict], tools: list[dict] | None = None, temperature: flo
                                  "request")
         if now > deadline:
             raise _fail(errors, f"gave up after {MAX_WAIT:.0f}s")
-        ready = [(p, m) for p, m in cands if _parked.get(f"{p}:{m}", 0) <= now]
+        # one model per answer: a preferred bucket that is only briefly rate-limited is waited for, not swapped out
+        if prefer and prefer not in rejected and any(f"{p}:{m}" == prefer for p, m in cands):
+            w = _parked.get(prefer, 0) - now
+            if 0 < w <= STICKY_WAIT and now + w < deadline:
+                time.sleep(w)
+                continue
+        ready = _prefer_first([(p, m) for p, m in cands if _parked.get(f"{p}:{m}", 0) <= now], prefer)
         if not ready:
             wake = min(_parked[f"{p}:{m}"] for p, m in cands)
             if wake > deadline:

@@ -13,7 +13,7 @@ Node labels (key property `key` on every entity):
   Person{name,designation,experience_years,qualification}
   Credential{kind:'PMP'|'Six Sigma Black Belt',issued,valid_through,valid_through_day}
   Document{doc_id,doc_type,pages}   Chunk{doc_id,page,text}
-  Tender{ref,category}  Requirement{text,kind,status,threshold_value,threshold_unit}
+  Tender{ref,category,bid_date,bid_date_basis,bid_value}  Requirement{text,kind,status,threshold_value,threshold_unit}
   Bond{amount,issued,expiry,status}  Bank{name}  Certification{standard,body,valid_until}
   Contract{awarded_value,billed_value,period_from,period_to}  BOQItem  Measurement
   Invoice{invoice_date,year,invoiced,received,outstanding,status}
@@ -25,6 +25,8 @@ Relationships:
   (Person)-[:HOLDS]->(Credential)  (Tender)-[:REQUIRES]->(Requirement)  (Bond)-[:SECURES]->(Tender)
   (Invoice)-[:BILLED_TO]->(Client)  (Contract)-[:FOR_CLIENT]->(Client)  (FinancialStatement)-[:FOR_FY]->(FiscalYear)
   (Claim)-[:ABOUT]->(subject)  (Claim)-[:FROM]->(Document)  (Claim)-[:CONTRADICTS|SUPERSEDES]->(Claim)
+  Projections: (Person)-[:WORKED_FOR {works,value}]->(Client)  (Person)-[:OVERLAPS_CLIENTS {shared,jaccard}]->(Person)
+  (Client)-[:SHARES_LEADS {leads}]->(Client)
 Dialect notes (FalkorDB): no EXISTS{} subqueries (use pattern predicates); shortestPath only in
 WITH/RETURN and directed; dates compare as strings 'YYYY-MM-DD' or via *_day ints.
 """
