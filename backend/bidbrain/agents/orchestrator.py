@@ -31,6 +31,36 @@ RELEVANT = {"similar_works": ["value", "completed", "role", "client", "grading"]
             "certification": ["valid_until"], "years_in_business": [], "other": []}
 
 
+class _Meter:
+    """Per-agent cost: wall ms, LLM calls, tool calls. Written onto the AgentRun node when the agent
+    finishes (so the case graph records what each agent did and what it cost) and returned in `agents`."""
+
+    def __init__(self, g: Graph, case_id: str):
+        self.g, self.case_id, self.runs, self.prev = g, case_id, [], None
+
+    def start(self, agent: str, **props) -> str:
+        rid = C.agent_run(self.g, self.case_id, agent, prev_run=self.prev, **props)
+        self.runs.append({"agent": agent, "run": rid, "t0": time.perf_counter(), "llm_calls": 0, "tool_calls": 0,
+                          "prompt_tokens": 0, "completion_tokens": 0})
+        self.prev = rid
+        return rid
+
+    def tool(self, n: int = 1) -> None:
+        self.runs[-1]["tool_calls"] += n
+
+    def llm(self, n: int = 1, prompt: int = 0, completion: int = 0) -> None:
+        r = self.runs[-1]
+        r["llm_calls"] += n
+        r["prompt_tokens"] += prompt
+        r["completion_tokens"] += completion
+
+    def done(self, **props) -> None:
+        r = self.runs[-1]
+        r["ms"] = round((time.perf_counter() - r.pop("t0")) * 1000, 1)
+        C.agent_done(self.g, r["run"], ms=r["ms"], llm_calls=r["llm_calls"], tool_calls=r["tool_calls"],
+                     prompt_tokens=r["prompt_tokens"], completion_tokens=r["completion_tokens"], **props)
+
+
 def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -> dict:
     emit = emit or (lambda e: None)
     t_start = time.perf_counter()
@@ -38,25 +68,28 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
                           bid_date=tender.get("bid_date"), tender_ref=tender.get("id"),
                           category=tender.get("category"))["result"]["case_id"]
     emit({"type": "case_open", "case_id": case_id, "title": tender.get("title")})
+    M = _Meter(g, case_id)
 
     # 1 ── ClauseParser ──────────────────────────────────────────────────────
-    r1 = C.agent_run(g, case_id, "ClauseParser")
+    r1 = M.start("ClauseParser")
     emit({"type": "agent_start", "agent": "ClauseParser", "run": r1})
     if tender.get("clauses") and not prefer_llm:
         parsed, how = tender["clauses"], "pre-parsed"
     else:
         parsed, how = clause_mod.parse(tender.get("text", ""), prefer_llm=prefer_llm)
+        if how == "llm":
+            M.llm()
     clause_ids = []
     for c in parsed:
         kid = C.add_clause(g, case_id, c, r1)
         clause_ids.append((kid, c))
         emit({"type": "clause", "agent": "ClauseParser", "clause_id": kid, "ref": c["id"], "kind": c["kind"],
               "text": c["text"], "params": c["params"]})
-    C.agent_done(g, r1, method=how, n_clauses=len(parsed))
+    M.done(method=how, n_clauses=len(parsed))
     emit({"type": "agent_done", "agent": "ClauseParser", "summary": f"{len(parsed)} clauses ({how})"})
 
     # 2 ── EvidenceHunter ────────────────────────────────────────────────────
-    r2 = C.agent_run(g, case_id, "EvidenceHunter", prev_run=r1)
+    r2 = M.start("EvidenceHunter")
     emit({"type": "agent_start", "agent": "EvidenceHunter", "run": r2})
     verdicts = {}
     for kid, c in clause_ids:
@@ -68,6 +101,7 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
                   "verdict": "DECLARE", "basis": "declaration — include signed undertaking"})
             continue
         out = qualify_clause(g, c["kind"], c["params"], tender.get("bid_date"))
+        M.tool()
         res = out["result"]
         sat = C.satisfied_edges(c["kind"], res)
         C.set_verdict(g, kid, res["verdict"], res["basis"], sat, r2)
@@ -78,11 +112,11 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
         emit({"type": "verdict", "agent": "EvidenceHunter", "clause_id": kid, "ref": c["id"], "kind": c["kind"],
               "verdict": res["verdict"], "basis": res["basis"], "subgraph": out.get("subgraph"),
               "evidence": out.get("evidence", [])[:8], "cypher": out.get("cypher", [])[:1]})
-    C.agent_done(g, r2, n_clauses=len(clause_ids))
+    M.done(n_clauses=len(clause_ids))
     emit({"type": "agent_done", "agent": "EvidenceHunter"})
 
     # 3 ── AbsenceAuditor ────────────────────────────────────────────────────
-    r3 = C.agent_run(g, case_id, "AbsenceAuditor", prev_run=r2)
+    r3 = M.start("AbsenceAuditor")
     emit({"type": "agent_start", "agent": "AbsenceAuditor", "run": r3})
     n_find = 0
     # read the EvidenceHunter's work back from the case subgraph (not from memory)
@@ -104,6 +138,7 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
                     """MATCH (w:Work)-[:FOR_CLIENT]->(c:Client) WHERE w.key IN $k
                        RETURN DISTINCT c.key AS client ORDER BY client""", {"k": [m["key"] for m in missing]})]
                 proofs = [prove_absence(g, "reference_letter", client=ck) for ck in clients]
+                M.tool(len(proofs))
                 proof = proofs[0]
                 checks = [p["result"]["checks"] for p in proofs]
                 txt = (f"No client reference letter on file for {', '.join(m['title'] for m in missing)} "
@@ -137,11 +172,11 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
             C.add_finding(g, kid, "gap", txt, "high", [("Work", w["key"]) for w in nm], r3)
             n_find += 1
             emit({"type": "finding", "agent": "AbsenceAuditor", "clause_id": kid, "kind": "gap", "text": txt})
-    C.agent_done(g, r3, findings=n_find)
+    M.done(findings=n_find)
     emit({"type": "agent_done", "agent": "AbsenceAuditor", "summary": f"{n_find} findings"})
 
     # 4 ── ConflictSentinel ──────────────────────────────────────────────────
-    r4 = C.agent_run(g, case_id, "ConflictSentinel", prev_run=r3)
+    r4 = M.start("ConflictSentinel")
     emit({"type": "agent_start", "agent": "ConflictSentinel", "run": r4})
     # a claim about the satisfying node itself, or about a credential that person HOLDS (PMP validity);
     # its resolution is the *head* decision for that fact (the one nothing supersedes), not whichever
@@ -177,11 +212,11 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
         C.add_finding(g, r["clause_id"], "conflict", txt, sev, [("Claim", r["claim"])], r4)
         emit({"type": "finding", "agent": "ConflictSentinel", "clause_id": r["clause_id"], "kind": "conflict",
               "text": txt, "severity": sev})
-    C.agent_done(g, r4, findings=len(seen))
+    M.done(findings=len(seen))
     emit({"type": "agent_done", "agent": "ConflictSentinel", "summary": f"{len(seen)} facts with history"})
 
     # 5 ── Verifier (no LLM) ────────────────────────────────────────────────
-    r5 = C.agent_run(g, case_id, "Verifier", prev_run=r4, uses_llm=False)
+    r5 = M.start("Verifier", uses_llm=False)
     emit({"type": "agent_start", "agent": "Verifier", "run": r5})
     stored = g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause)
                        OPTIONAL MATCH (k)-[:SATISFIED_BY]->(s)
@@ -192,6 +227,7 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
         if s["kind"] == "other":
             continue
         fresh = qualify_clause(g, s["kind"], json.loads(s["params"] or "{}"), tender.get("bid_date"))["result"]
+        M.tool()
         fresh_keys = sorted(x["key"] for x in fresh.get("satisfied_by") or [] if "key" in x)
         stored_keys = sorted(k for k in s["sat"] if k and not k.startswith("FS-") and k != "company")
         ok = fresh["verdict"] == s["verdict"] and (not fresh_keys or fresh_keys == stored_keys)
@@ -199,16 +235,17 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
             mismatches.append({"clause": s["ref"] or s["id"], "clause_id": s["id"], "stored": s["verdict"], "fresh": fresh["verdict"]})
             C.add_finding(g, s["id"], "verification_failed",
                           f"Verifier re-derived {fresh['verdict']} but the case says {s['verdict']}", "high", [], r5)
-    C.agent_done(g, r5, mismatches=len(mismatches))
+    M.done(mismatches=len(mismatches))
     g.run("MATCH (c:Case {id:$c}) SET c.verified = $v", {"c": case_id, "v": not mismatches})
     emit({"type": "verified", "agent": "Verifier", "ok": not mismatches, "mismatches": mismatches,
           "checked": sum(1 for s in stored if s["kind"] != "other")})
 
     # 6 ── Assembler ─────────────────────────────────────────────────────────
-    r6 = C.agent_run(g, case_id, "Assembler", prev_run=r5)
+    r6 = M.start("Assembler")
     emit({"type": "agent_start", "agent": "Assembler", "run": r6})
     rec = C.case_get(g, case_id)["result"]
     prec = call(g, "precedents", {"category": tender.get("category")})
+    M.tool()
     for p in prec.get("result", [])[:2]:
         g.run("MATCH (c:Case {id:$c}), (b:Bid {key:$b}) MERGE (c)-[:PRECEDENT]->(b)", {"c": case_id, "b": p["bid"]})
     overall = C.overall_verdict(g, case_id)      # the same rule the ripple recomputes with
@@ -224,6 +261,8 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
                               "verifier": {"ok": not mismatches, "mismatches": mismatches},
                               "precedents": prec.get("result", [])[:2]}, default=str)[:16000]
             res = run_agent(g, "Assembler", ASSEMBLER_SYSTEM, ctx, ["who_knows", "key_people"], max_steps=4, emit=emit)
+            M.llm(res.usage["llm_calls"], res.usage["prompt"], res.usage["completion"])
+            M.tool(res.usage["tool_calls"])
             if res.final and not res.error:
                 memo, how = res.final, "llm"
         except Exception:
@@ -232,10 +271,13 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
         memo = _template_memo(tender, rec, overall, prec.get("result", []), evidence, mismatches)
     g.run("MATCH (c:Case {id:$c}) SET c.memo = $m, c.verdict = $v, c.status = 'open'",
           {"c": case_id, "m": memo, "v": overall})
-    C.agent_done(g, r6, method=how)
+    M.done(method=how)
     emit({"type": "memo", "agent": "Assembler", "markdown": memo, "overall": overall, "method": how})
     final = C.case_get(g, case_id)["result"]
     final["ms"] = round((time.perf_counter() - t_start) * 1000, 1)
+    final["agents"] = M.runs
+    final["usage"] = {k: sum(r[k] for r in M.runs) for k in ("llm_calls", "tool_calls", "prompt_tokens",
+                                                            "completion_tokens")}
     emit({"type": "done", "case_id": case_id, "overall": overall, "ms": final["ms"]})
     return final
 
