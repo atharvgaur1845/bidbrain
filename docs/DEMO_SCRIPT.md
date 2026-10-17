@@ -1,68 +1,98 @@
-# Demo video: shot-by-shot (target 3:45)
+# Demo video: 2 minutes, shot by shot
 
-Footage: `scripts/record_demo.mjs` (Playwright) drives the deployed app and records 1440×900 video. A human narrates
-over it. Each beat lists **what's on screen** and **what is said**. Keep the cursor slow, and pause about 1 s on
-every number that matters.
+Recorded at 1440×900. A human narrates. Keep the graph and the workflow on screen the whole time; no architecture
+slides. Pause about 1 s on every number that matters.
 
----
+**The core path (0:00–1:30) uses no LLM.** It runs the same with an empty `.env`. The LLM is used only by **Ask**
+(free-text questions), by the ClauseParser for new or edited tender text, and by the bid-memo prose (template
+fallback). None of these is in the core path.
 
-### 0:00 – 0:20 · Hook (Overview page)
-**Screen:** Home: the header facts (687 documents · 7,564 nodes · 13,507 relationships · 114 decisions), the "Ask the company brain" panel and the Explore rows.
-**Say:** "Indian infrastructure firms win public tenders by proving their past: similar works, qualified engineers,
-valid bank guarantees. That proof lives in hundreds of documents that contradict each other. BidBrain is a company
-brain on FalkorDB that turns all of it into one graph that agents act on."
-
-### 0:20 – 1:15 · Hero 1: tender in, bid memo out (Qualify)
-**Screen:** pick *4-laning of Greenfield Expressway, ₹250 Cr* → **Run agents**. The agent column ticks
-through ClauseParser → EvidenceHunter → AbsenceAuditor → ConflictSentinel → **Verifier** → Assembler. Clause rows fill
-in with PASS badges, and the evidence graph grows. Open the Memo tab and **Download bid pack** later; first click clause 2.1 to highlight Ring Road UP Pkg-113 →
-DOC-CC-113 p.1, and open the PDF at that page.
-**Say:** "Six agents share one case graph. Each writes its conclusions as nodes the next one reads, so every handoff
-is an edge. The similar-works rule is the real CPWD rule: one work at 80% of the cost, or two at 60%, or three at
-40%. Every verdict links to the certificate page that proves it. The Verifier uses no LLM; it re-derives every
-verdict from the graph."
-**Then:** switch to *Institutional Buildings, ₹90 Cr* and run it. Turnover **FAILS by ₹1.08 Cr**. Point at the
-ConflictSentinel finding: "that year was restated by the next year's accounts — here's which figure we used, and why."
-
-### 1:15 – 1:55 · Hero 2: proof of absence (Ask)
-**Screen:** suggested question *"Which of Trishakti Power's completed works have no client reference letter?"*. The
-trace streams: `resolve_entity` → `prove_absence`, and the graph draws 19 works with two red dashed "?" nodes.
-The answer is 2: Pkg-85 and Pkg-43. Expand the proof: 19/19 attested by three views, 132/132 letters linked, orphan
-search empty. Click **Compare with vector RAG**: it answers from the 8 chunks it retrieved.
-**Say:** "Questions about what's *missing* are where retrieval breaks. A retriever only reasons over what it fetched,
-so it never sees the letter that isn't there. The graph knows the boundary of the set and returns a proof, not a guess."
-
-### 1:55 – 2:50 · Hero 3: live documents ripple (Live documents)
-**Screen:** with the expressway case open, send **"Revised Completion Certificate — Pkg-116"**. It is auto-resolved
-by *recency*, and the feed notes "the bid now rests on one work". Send **"Corrigendum — Ring Road UP Pkg-113"**:
-the old claims are struck through, and the ripple card shows clause 2.1 **PASS → FAIL** and **BID → NO-BID**. The
-ripple graph lights up the case and the past expressway bid (RFP-132032301) that cited this work in its Annexure D.
-**Say:** "Documents keep arriving. Each becomes a claim, nothing is overwritten, and conflicts are settled by an
-authority-and-recency policy. Then BidBrain walks outward from the changed fact to every open bid that relied on it.
-Two documents later, a winnable bid is a no-bid, and we know exactly why."
-**Then:** send **"JV Experience Certificate"**. It's a close call, so it lands in *Needs your judgement*. Click
-**Choose and learn rule**. Send the second JV certificate: it **resolves itself**, citing your decision.
-**Say:** "When the policy can't decide, it asks. When you decide, it learns."
-
-### 2:50 – 3:10 · Decisions & graph algorithms (Decisions → Explore)
-**Screen:** Decisions page. Click the corrigendum decision: the trace graph shows Decision → SELECTS → claim → FROM →
-DOC, and DECIDED_BY. Then Explore → **Bus factor (betweenness)**: Rahul Menon tops the list (exact betweenness, computed in one Cypher query over
-`allShortestPaths`, so the ranking never changes). **Audit past bids**: 5 of the 6 past dossiers cited works not yet
-complete at submission.
-**Say:** "Every fact traces back to a decision, a decider, and two documents. FalkorDB's algorithms are tools the
-agents call: betweenness shows who the company can't afford to lose."
-
-### 3:10 – 3:40 · Benchmark (Benchmark page)
-**Screen:** the leaderboard (same Qwen3-32B for BidBrain, text-to-Cypher, vector RAG and GraphRAG-SDK), the hop-count
-bars, tool sufficiency 354/354, and conflict-engine P/R on 275 planted events plus 50 rendered PDFs.
-**Say:** "Same model, same database, different context. [Read the headline gap at 5–6 hops and on absence
-questions.] And we publish what broke: the PDF eval found two real bugs on its first run."
-
-### 3:40 – 3:45 · Close
-**Screen:** Overview, with the MCP endpoint and repo link.
-**Say:** "BidBrain: the bid desk's company brain. Every answer shows its path."
+**Before recording**
+* Browser 1: a fresh workspace (press **Reset graph**, top right). Browser 2: a private window, not opened yet.
+* Check that the company record is empty: **Memory** → *Company record* shows no active fact. Step 1:20 publishes a
+  fact that **every new workspace** will apply. After recording, retire it from browser 1's workspace with
+  `POST /api/company/record/<id>/retire` and header `X-Session: <browser 1's session id>` (the UI has no retire
+  button for facts yet). Only the publishing workspace can retire it.
 
 ---
 
-**Before recording:** hit **Reset** (fresh session graph), make sure the model line in the sidebar shows a model name (e.g. `gpt-oss-120b`), not "No model", and
-warm the Space with one request.
+### 0:00 – 0:08 · The problem (Control room, empty)
+**Screen:** the **Control room** in browser 1.
+**Say:** "A construction firm bids on public tenders with proof scattered across hundreds of documents, and those
+documents keep changing. One corrigendum can quietly make a bid ineligible."
+
+### 0:08 – 0:22 · Qualify a tender (Change impact → demo runner)
+**Click:** sidebar **Change impact** → **Run the demo steps**. The first step, *Qualify T-NHX-2026-014 (rules only, no
+LLM)*, turns *Done: recommendation BID*.
+(Alternative: **Control room** → **Qualify a tender** → *4-laning of Greenfield Expressway Package-III* → **Run
+agents**, then go to **Change impact**.)
+**Say:** "Six agents qualify the expressway tender clause by clause against the company graph. Verdict: BID. The
+similar-works clause rests on Ring Road Pkg-113, a ₹200 crore work."
+
+### 0:22 – 0:55 · The graph changes a decision (Change impact)
+**Screen:** the runner sends **DEMO-0** (revised completion certificate) and **DEMO-1** (corrigendum). The page
+switches to the document list. **Click** the *Corrigendum — Ring Road — Uttar Pradesh Pkg-113* event (badge
+*1 bid · 2 to act*). Move the cursor down the numbered chain:
+1. **Document**: DOC-DEMO-1, p.1, issuer National Special Projects Office.
+2. **Changed fact**: Pkg-113 contract value ~~₹200 Cr~~ → **₹188 Cr**.
+3. **Adjudication**: *Recency (same issuer)*, "policy, no LLM", decision id.
+4. **Affected requirements**: clause **2.1 similar works**, Pass → **Fail**, "graph traversal".
+5. **Bid verdict change**: **Bid → No-bid**, "deterministic requalification".
+6. **Required actions**: *Re-approve bid* and *Publish to company record*, both **Pending**.
+**Click:** **Graph query** at the bottom, for one second, to show the Cypher.
+**Say:** "A corrigendum arrives. It becomes a claim with its page. The policy picks the winner: same issuer, later
+document. Then the graph walks from that fact to every open clause that relied on it, re-runs them, and the bid
+flips to NO-BID. No text search, no LLM. And the system doesn't stop at a recommendation: it opens actions."
+
+![Change impact chain for the Pkg-113 corrigendum](img/impact.png)
+
+### 0:55 – 1:08 · An accountable action (Change impact → Actions)
+**Click:** on *Re-approve bid*: **Approve** → **Execute** → **Confirm execute**. It shows *Executed*. Then sidebar
+**Actions** → tab **Executed** → the row. Point at the result (*re-verified 6 clauses; recommendation NO-BID
+approved*) and the **Audit trail**.
+**Say:** "Nothing executes without approval. Execution is deterministic: it re-verifies every clause against the
+graph before recording the new recommendation, and every step is in the audit trail. Requests for missing letters
+become internal requests; nothing is emailed."
+
+![Actions: the executed re-approval with its result, trigger, cited document and audit trail](img/actions.png)
+
+### 1:08 – 1:20 · Trace the decision (Decisions)
+**Click:** sidebar **Decisions** → tab **Recency** → *Ring Road — Uttar Pradesh Pkg-113*. The trace graph shows
+Decision → SELECTS → the ₹188 Cr claim → FROM → DOC-DEMO-1, and the two ₹200 Cr claims set aside (**Superseded**),
+each with its document and page.
+**Say:** "Every settled fact keeps the policy, the decider and every source. Nothing was overwritten."
+
+### 1:20 – 1:30 · Publish to the company record (Decisions → Actions)
+**Click:** **Publish to company record** → **Open action** → **Approve** → **Execute** → **Confirm execute**.
+**Say:** "The bid manager makes this the company's truth. That is an action too, with the same approval gate."
+
+### 1:30 – 1:45 · A clean second workspace (browser 2)
+**Click:** open browser 2 (private window) at the app. Sidebar **Memory**: *Company record* lists Pkg-113 = ₹188 Cr,
+**Applied**, with the source decision and document. Then **Decisions** → tab **Company record** → the row: the
+decision has policy *Company record* and its rationale names the OrgFact. **Control room**: *Open cases 0*.
+**Say:** "A new workspace starts from the new fact. It was applied through the same conflict engine, with a policy
+that cites where it came from. Nothing private crossed over: no cases, no actions, no conversation."
+
+*(Optional, +15 s, company rule beat.)* In browser 1, **Live documents** → send *JV Experience Certificate —
+Residential Quarters* (DEMO-3); it lands as a card; **Choose and learn rule**; **Promote to company memory**. In
+browser 2, **Memory** → tick **Use company memory in this session**, then **Live documents** → send DEMO-4: it
+resolves itself, citing the promoted rule.
+
+### 1:45 – 2:00 · Evidence (Benchmark)
+**Screen:** sidebar **Benchmark**. One beat each:
+* "The workflow evaluation runs this whole loop without an LLM: 79 of 79 checks. The bids it says flipped match an
+  independent before-and-after recompute exactly: precision and recall 1.0."
+* "Absence is proved, not guessed: 2 of Trishakti Power's 19 works have no reference letter, with the boundary
+  attested three ways and all 132 letters accounted for."
+* "On answer accuracy, with the same model, graph tools beat text-to-Cypher, GraphRAG-SDK and vector RAG. The
+  labels say which sets have independent gold and which are engine-derived."
+**Close:** "BidBrain: changing evidence in, auditable decisions and accountable actions out."
+
+---
+
+**Notes for the editor**
+* The benchmark numbers on screen are from the pre-final run until the re-run lands; do not read them aloud as final.
+* If the runner was already used in this workspace, the page shows the document list instead of the button: press
+  **Reset graph** first.
+* The absence beat can be shown live only with an LLM key (**Ask** → *Which of Trishakti Power's completed works have
+  no client reference letter?*); otherwise say it over the Benchmark page.

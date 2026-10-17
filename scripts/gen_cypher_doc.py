@@ -38,6 +38,8 @@ SAMPLES = {
     "compliance_check": {"tender": "RFP-132000970"},
     "depends_on": {"doc_id": "DOC-CERT-001"},
     "fact_history": {"key": "Pkg-113", "kind": "work"},
+    "change_impact": {"doc_id": "DOC-CC-151"},
+    "fact_as_of": {"key": "anganwadicentregujaratpkg151", "predicate": "value", "as_of": "2026-10-17"},
     "vector_search": {"text": "client praised the safety record", "k": 3},
     "fulltext_search": {"text": "Anganwadi"},
     "graph_schema": {},
@@ -63,6 +65,44 @@ EXTRA = {
          "  AND NOT ()-[:SUPERSEDES]->(old)\nWITH old MATCH (d:Decision {id:$d}) CREATE (d)-[:SUPERSEDES]->(old)"),
         ("Learn a rule from a human decision (procedural memory)", "MERGE (r:PolicyRule {id:$id}) SET r.predicate = $p, r.prefer_kind = $pk, r.over_kind = $ok\n"
          "WITH r MATCH (d:Decision {id:$d}) MERGE (r)-[:LEARNED_FROM]->(d)"),
+    ],
+    "Accountable actions (bidbrain/company/actions.py)": [
+        ("Create an action idempotently (MERGE on a hash of kind, case, trigger, target)",
+         "MERGE (a:Action {idem:$idem})\n"
+         "ON CREATE SET a.id = $id, a.kind = $kind, a.status = 'pending', a.title = $title, a.detail = $detail,\n"
+         "              a.owner = $owner, a.case_id = $case, a.target = $target, a.payload = $payload,\n"
+         "              a.created_at = timestamp(), a.updated_at = timestamp(), a._new = true\n"
+         "WITH a, coalesce(a._new, false) AS created SET a._new = null\nRETURN a.id AS id, a.status AS status, created"),
+        ("Link the action to its case, trigger, evidence and owner",
+         "MATCH (a:Action {id:$a}), (c:Case {id:$c}) MERGE (a)-[:FOR_CASE]->(c)\n"
+         "MATCH (a:Action {id:$a}), (t:Decision {id:$t}) MERGE (a)-[:TRIGGERED_BY]->(t)      -- or (t:Finding)\n"
+         "MATCH (a:Action {id:$a}), (d:Document {doc_id:$d}) MERGE (a)-[:CITES]->(d)\n"
+         "MATCH (a:Action {id:$a}), (p:Person {key:$p}) MERGE (a)-[:ASSIGNED_TO]->(p)"),
+        ("Lifecycle transition as compare-and-set (no row back = stale click, HTTP 409)",
+         "MATCH (a:Action {id:$a}) WHERE a.status IN $frm\n"
+         "SET a.status = $to, a.updated_at = timestamp(), a.decided_by = $by RETURN a.id AS id"),
+        ("Audit trail", "MATCH (a:Action {id:$a})\n"
+         "CREATE (a)-[:HAS_EVENT]->(:ActionEvent {at:timestamp(), from:$f, to:$t, by:$by, note:$n})"),
+        ("Executor: internal document request (nothing is emailed)",
+         "MERGE (r:DocumentRequest {id:$id}) ON CREATE SET r.kind = 'reference_letter', r.status = 'requested',\n"
+         "    r.requested_at = timestamp(), r.requested_by = $by, r.channel = 'internal'\n"
+         "WITH r MATCH (w:Work {key:$w}) MERGE (r)-[:FOR_WORK]->(w)\n"
+         "WITH r MATCH (a:Action {id:$a}) MERGE (a)-[:CREATED]->(r)"),
+    ],
+    "Company record (bidbrain/company/record.py, graph bidbrain_org)": [
+        ("Publish a decided fact (idempotent per claim)",
+         "MERGE (f:OrgFact {id:$id})\n"
+         "ON CREATE SET f.subject_label = $sl, f.subject_key = $sk, f.predicate = $p, f.value = $v, f.claim = $claim,\n"
+         "              f.document = $doc, f.source_decision = $d, f.policy = $policy, f.source_session = $sess,\n"
+         "              f.approved_by = $by, f.published_at = timestamp(), f.status = 'active'"),
+        ("A newer value supersedes, never deletes",
+         "MATCH (old:OrgFact {subject_key:$sk, predicate:$p, status:'active'}) WHERE old.id <> $id\n"
+         "SET old.status = 'superseded', old.superseded_by = $id, old.superseded_at = timestamp()"),
+        ("Apply in a workspace: write the claim, then the conflict engine settles it (policy company_record)",
+         "MATCH (s:Work {key:$sk})\nMERGE (c:Claim {id:$id})\n"
+         "ON CREATE SET c += $props, c.status = 'active', c.company_record = $f, c.recorded_at = timestamp()\n"
+         "MERGE (c)-[:ABOUT]->(s)\nWITH c MATCH (d:Document {doc_id:$doc}) MERGE (c)-[:FROM]->(d)\n"
+         "MERGE (r:CompanyRecordRef {id:$f}) SET r.applied_at = timestamp()      -- applied once per workspace"),
     ],
     "Tenancy & memory (bidbrain/api/sessions.py)": [
         ("Per-visitor graph", "GRAPH.COPY bidbrain_base session_<id>      -- Redis command, one isolated graph per visitor"),

@@ -39,6 +39,7 @@ import re
 import sqlite3
 import threading
 import time
+from pathlib import Path
 from dataclasses import dataclass
 
 from openai import OpenAI
@@ -60,7 +61,7 @@ MIN_PARK = 1.0          # a 429 with 'retry-after: 0' must not turn into a tight
 SHORT_PARK = 5.0        # 5xx, timeouts, connection errors: the endpoint is briefly unwell
 AUTH_PARK = 3600.0      # 401/403: the key is wrong or lacks access; retrying soon will not help
 GONE_PARK = 86400.0     # 404: model not offered on this account
-CACHE_PATH = os.getenv("LLM_CACHE_PATH") or (config.DATA / "llm_cache.sqlite")   # a fresh path = a real re-run
+CACHE_PATH = Path(os.getenv("LLM_CACHE_PATH") or (config.DATA / "llm_cache.sqlite"))   # a fresh path = a real re-run
 
 
 def _parse_pool(spec: str) -> list[tuple[str, str]]:
