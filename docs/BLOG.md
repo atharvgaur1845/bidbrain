@@ -4,11 +4,11 @@
 decisions and coordinated actions, with a construction bid desk as the proving ground.*
 
 > **TL;DR**
-> * BidBrain loads a construction company's 687 documents into one FalkorDB graph. When a new document arrives, the graph settles which fact wins (by policy, or by a person), walks from that fact to every open bid that relied on it, re-qualifies those bids without an LLM, and opens **accountable actions**: a person approves, deterministic code executes, and every step is audited. A fact the bid manager publishes becomes part of the **company record**, and every new workspace starts from it.
-> * A deterministic workflow evaluation runs that whole loop with the LLM disabled: **79/79** checks, and the bids it reports as flipped match an independent before/after recompute with precision and recall 1.0.
+> * BidBrain loads a construction company's 687 documents into one FalkorDB graph. When a new document arrives, the graph settles which fact wins (by policy, or by a person), walks from that fact to every open bid that relied on it, re-qualifies those bids without an LLM, and opens **accountable actions**: a person approves, deterministic code executes, and every step is audited. A fact the bid manager publishes, once a second person approves it, becomes part of the **company record**, and every workspace that opts in to company memory starts from it.
+> * A deterministic workflow evaluation runs that whole loop with the LLM disabled: **81/81** checks, and the bids it reports as flipped match an independent before/after recompute with precision and recall 1.0.
 > * On answer accuracy (same model, same database, four context strategies), graph tools score **.762** on independent-gold questions, **.835** on absence questions and **.931** on tender questions in the headline run (a second run: .810 / .884 / .924); the best baseline on each set scores .333, .500 and .542. Final code, two runs each.
 > * The FalkorDB parts are below as copy-paste recipes: an absence proof, exact betweenness in one Cypher query, a full-text gotcha, `algo.SPpaths`, `GRAPH.COPY` tenancy, WCC as an evidence check, label propagation that beats a random split, a claim → decision → policy-rule schema, and an action layer that turns a recommendation into accountable state.
-> * Caveats sit next to the results, not at the end: real run-to-run variance (S21 moved 2 of 21 between runs), two regressions found and fixed on S21 before the final runs, one near-gold set whose gold our tools mirror, a team score tuned on its test set, and GraphRAG-SDK run without a domain ontology.
+> * Caveats sit next to the results, not at the end: real run-to-run variance (S21 moved 1 of 21 between runs), two regressions found and fixed on S21 before the final runs, one near-gold set whose gold our tools mirror, a team score tuned on its test set, and GraphRAG-SDK run without a domain ontology.
 
 ---
 
@@ -68,7 +68,7 @@ The most important modelling decision was to stop treating property values as fa
 `Work.value` is a **materialized view of the winning claim**. When a corrigendum arrives we add a claim, link the
 disagreement with `CONTRADICTS`, and settle it with a `(:Decision)` that records the policy, the rationale, the
 decider and both documents. History is never edited: the losing claim keeps its value and gets `invalidated_at`,
-next to the `recorded_at` every claim carries, so `fact_as_of` can answer "what did we believe on date T". The policy
+next to the `recorded_at` every claim carries, and every document keeps the date it prints, so `fact_as_of` can answer "what did we believe on date T" on both axes: the document must have existed by T (valid time) and the graph must have recorded the claim by T (transaction time). The policy
 is deliberately boring:
 
 1. a fact already published to the **company record** (approved in another workspace; it cites its origin);
@@ -102,7 +102,9 @@ agents run on which clauses, and every agent reads its assignment from there. Ag
 through the graph. If the AbsenceAuditor finds that the works a clause relies on have no reference letter, it
 leaves a request on that `Finding`. The EvidenceHunter then runs again and re-selects referenced works, keeping
 the new selection only if the clause still passes. If the Verifier disagrees with a verdict, the EvidenceHunter
-re-derives that clause once. The case is marked NEEDS REVIEW only if they still disagree.
+re-derives that clause once. The case is marked NEEDS REVIEW only if they still disagree. The Verifier also
+accounts for every amount in the clause text independently of the parser ("X% of the estimated cost" resolved from
+the tender header, cumulative `min_total`), and a known clause nobody could read is NEEDS REVIEW, never a pass.
 
 ![Qualify page: the stored case for the NEDA expressway tender, seven clauses each with a verdict and the numbers behind it; the turnover clause lists which audited-statement figures it used and why; the case is No-bid after the corrigendum](img/qualify.png)
 
@@ -121,12 +123,12 @@ close calls are decided:
 
 ## Tools, not text-to-Cypher
 
-The registry has 31 named tools, and the Q&A agent is offered 23 of them. Raw Cypher is not the interface.
+The registry has 31 named tools, and the Q&A agent is offered 26 of them (23 during the benchmark runs). Raw Cypher is not the interface.
 `find_portfolio` (with a `via_work` hop), `prove_absence`, `qualify_clause` and `explain_path` are each a tested
 traversal that returns evidence (document and page) and a subgraph for the UI. **Arithmetic never happens in the
 model.** `aggregate` takes *work keys*, re-reads values from the graph and computes in exact integer rupees.
 
-The same registry serves our agents, any **MCP** client (`/mcp`, 30 read-only tools plus one acting tool, `qualify_tender`, which runs the tender team on a session's own graph copy), and an evaluation **oracle**.
+The same registry serves our agents, any **MCP** client (`/mcp`, 32 read-only tools plus two acting tools: `qualify_tender`, which runs the tender team on a session's own graph copy, and `transition_action`), and an evaluation **oracle**.
 The oracle replays a deterministic engine's parsed parameters through our tools and reproduces **354 of 354**
 reference answers. So any accuracy the LLM agent loses comes from planning, not from missing graph capability.
 
@@ -153,7 +155,7 @@ with Wilson 95% intervals, from `data/eval/qa_summary.json`: final code, two run
   whose gold comes from independent Cypher and a separate re-implementation of the rules (`eval/synth.py`).
 * **GraphRAG-SDK ran without an ontology.** We used its automatic schema extraction and gave it no hand-written
   ontology. A domain ontology would very likely score higher, so read its row as "generic GraphRAG", not as a ceiling.
-* **Two runs, and real variance.** At temperature 0, BidBrain moved 2 of 21 questions on S21 (.762 vs .810) and 8 of
+* **Two runs, and real variance.** At temperature 0, BidBrain moved 1 of 21 questions on S21 (.762 vs .810) and 8 of
   164 on ABS between two runs. S21 has only 21 questions: treat it as a sanity check and read the mean.
 * **Two regressions were found on S21 before the final runs.** A first final run scored S21 .714. Its misses showed
   the agent misusing a tool we had just offered it (`trace_from_credential`, now MCP-only) and the filter guard
@@ -174,10 +176,10 @@ graphs with `providers.chat` raising, and takes every expectation from the fixtu
 
 | Dimension | Passed | What is checked |
 |---|---:|---|
-| task completion | 15/15 | corrigendum → review action → approve → execute; letter and renewal requests; rejected actions never run; idempotent execute and creation |
+| task completion | 16/16 | corrigendum → review action → approve → execute; letter and renewal requests; rejected actions never run; idempotent execute and creation; a publish cannot be approved by the session that queued it |
 | impact recall | 18/18 | flips reported by `/api/impact` vs an independent before/after re-run of every open clause over 9 events: P = R = 1.0 (4 flips, 198 clause re-checks) |
 | adversarial conflicts | 16/16 | rounding, unrelated corrigenda, a later but less formal letter, close authority, expired credentials, absence PROVEN vs UNPROVEN, aliases |
-| memory transfer | 9/9 | promoted rules apply only after opt-in; a published fact applies in new and existing workspaces, citing its origin |
+| memory transfer | 10/10 | promoted rules and published facts apply only after opt-in; a published fact applies in new and existing workspaces, citing its origin |
 | isolation | 9/9 | workspace B sees nothing of A; A's ids are 404 from B |
 | temporal | 4/4 | `fact_as_of` just before and after the corrigendum |
 | provenance | 8/8 | every evidence row names a real document and page; every decision selects one of its sources |
@@ -251,7 +253,7 @@ YIELD node, score WITH node AS p, score WHERE p:Person RETURN p.key AS key, scor
 
 There is a second trap. `algo.betweenness` samples source nodes even when `samplingSize` is larger than the graph,
 so below the top two, one call's ranking depends on the seed. Averaging 32 seeded runs was not enough either: ranks
-4-6 still differed from exact Brandes. On a 68-node projection you can afford the exact answer, in one Cypher query:
+4-6 still differed from exact Brandes. On a 65-node projection you can afford the exact answer, in one Cypher query:
 
 ```cypher
 MATCH (a) WHERE (a:Person OR a:Client) AND (a)-[:WORKED_FOR]-()
@@ -266,7 +268,7 @@ WITH v, sum(1 / n) AS score WHERE v:Person                  // each inner node g
 RETURN v.key AS key, score
 ```
 
-That is Brandes' definition, computed by the database over 2,278 pairs in about 0.1 s, and it matches a Python
+That is Brandes' definition, computed by the database over 2,080 pairs (65 nodes) in about 0.1 s, and it matches a Python
 Brandes implementation to the decimal. `key_people` (`tools/algos.py`) ranks by it and still runs the sampled
 `algo.betweenness` (32 seeds) as a reported cross-check: same top 3 in order, 9 of the top 10.
 
@@ -361,7 +363,7 @@ RETURN componentId, collect({label: label, n: n}) AS parts ORDER BY componentId
 
 **Auditing our own past claims.** The corpus has 40 compliance matrices with 491 `Requirement` rows, every one
 marked MET. `compliance_check` re-tests each row the engine can evaluate *on the date the matrix was submitted*, with
-the same rules the bid team uses: 318 checkable, 194 agree, 119 disagree. Be careful what you conclude from that.
+the same rules the bid team uses: 318 checkable: 194 agree, 119 disagree, 5 unconfirmed. Be careful what you conclude from that.
 105 of the 119 follow three patterns that most likely come from the synthetic generator, and the tool labels them
 `likely_generator_artifacts`: all 52 ISO disagreements are 2019-22 matrices citing certificates whose `initial_date`
 is 2022; all 13 PMP ones predate the single issue date every PMP on file shares; all 40 plant ones state "210 owned
@@ -396,7 +398,7 @@ co-client graph:
 | greedy local-move optimiser (reference, Python) | 0.21 |
 | random partitions with the same sizes (mean of 200) | −0.021 |
 
-The split is the same for any factor from 1.2 to 1.6. For clients, label propagation on client-client projections
+The split is not fixed: measured on a copy, factors 1.2-1.4 give 17/12/8 (0.207), 1.5 gives 15/12/10 (0.203), 1.6 gives 14/13/10 (0.200), 1.7 drops to 0.156 and 2.0 to 0.114; below 1.2 everyone is one block. Three communities from 1.2 up, with sizes and members that shift with the factor. For clients, label propagation on client-client projections
 (shared leads, with or without a Jaccard filter) either merged everything or shattered it, never above 0.14. Placing
 each client in the people circle that holds most of its leads scores 0.175 (random −0.039, greedy 0.18), and gives
 the same circles seen from both sides. `communities` returns the modularity and the random baseline with every answer.
@@ -499,7 +501,8 @@ approved, what was actually done and when. BidBrain writes that as graph state t
     -[:ASSIGNED_TO]->(:Person)   -[:HAS_EVENT]->(:ActionEvent {at, from, to, by, note})
     -[:CREATED]->(:DocumentRequest {kind, status, channel:'internal'})
 
-pending --approve--> approved --execute--> executed      (reject from pending or approved)
+pending --approve--> approved --execute--> executing --> executed --(letter arrives)--> fulfilled
+   (reject from pending or approved; superseded when a review_bid's case moved on or its finding no longer applies)
 ```
 
 The graph decides which actions exist: one `review_bid` per open case whose recommendation a ripple changed, one
@@ -536,20 +539,21 @@ CREATE (a)-[:HAS_EVENT]->(:ActionEvent {at:timestamp(), from:$f, to:$t, by:$by, 
 **Execute only deterministic code, and say only what happened.** `review_bid` re-runs `qualify_clause` on every
 clause and refuses if any stored verdict disagrees; only then does it record `Case.approved_recommendation`. A
 reference-letter request is an internal `DocumentRequest` node, because there is no email integration, and the
-result says that nothing was sent. An action becomes `executed` only after its executor returns, and executing it
-again returns the stored result.
+result says that nothing was sent. Execute first claims the action (CAS `approved → executing`); it becomes `executed` only after its executor
+returns, and executing it again returns the stored result. Ripples re-derive findings and follow-up actions, and an
+arriving reference letter resolves its absence finding and fulfils the letter request.
 
 ![Actions: the executed re-approval, with its result (6 clauses re-verified, NO-BID approved), trigger decision, cited corrigendum and audit trail](img/actions.png)
 
-**Publish to a company record, and apply it through the engine.** Workspaces are private `GRAPH.COPY`s. When the
-bid manager approves a `publish_to_company_record` action, exactly one decided fact is copied into the shared
+**Publish to a company record, and apply it through the engine.** Workspaces are private `GRAPH.COPY`s. When a
+`publish_to_company_record` action is approved by a second person (the session that queued it cannot approve it), exactly one decided fact is copied into the shared
 `bidbrain_org` graph, with its claim, source document, source decision and the publishing workspace's hashed tag:
 
 ```cypher
 MERGE (f:OrgFact {id:$id})
 ON CREATE SET f.subject_label = $sl, f.subject_key = $sk, f.predicate = $p, f.value = $v, f.claim = $claim,
               f.document = $doc, f.source_decision = $d, f.policy = $policy, f.rationale = $why,
-              f.source_session = $sess, f.approved_by = $by, f.published_at = timestamp(), f.status = 'active'
+              f.source_session = $sess, f.published_by = $by, f.approved_by = $appr, f.published_at = timestamp(), f.status = 'active'
 ```
 
 The tempting shortcut is to `SET w.value = $v` in every workspace. We don't: the fact is written into a workspace as
@@ -567,7 +571,10 @@ WITH c MATCH (d:Document {doc_id:$doc}) MERGE (c)-[:FROM]->(d)
 
 A `(:CompanyRecordRef {id})` in the workspace marks the fact as applied, so each fact is applied once. A newer fact
 for the same subject and predicate supersedes the older one in the record rather than overwriting it; only the
-publishing workspace can retire a fact, and a retired fact stays in the record with its status. Claims carry
+publishing workspace can retire a fact, and a retired fact stays in the record with its status. Facts apply only in
+workspaces that turned on "Use company memory". Retiring propagates: each workspace that applied the fact withdraws
+its claim on the next request (policy `record_withdrawn`) and ripples the change. An applied fact can be beaten by
+newer or higher-authority evidence, or contested by a workspace, which reopens its decisions as cards. Claims carry
 `recorded_at` and `invalidated_at`, so `fact_as_of` can still answer "what did we believe before the corrigendum?".
 
 ![Memory: the company record lists the published Pkg-113 value, its source decision, approver and source document, and whether this workspace has applied it](img/memory.png)
@@ -583,7 +590,7 @@ publishing workspace can retire a fact, and a retired fact stays in the record w
   filter, and the answer dropped from ₹2.10 B to ₹0.42 B. We now check every narrowing filter for lexical support
   in what the user asked. An unsupported filter gets a note in the tool result asking the model to call again
   without it. This is a heuristic guard, not a real self-check.
-* **Our weakest absence families.** Per-category absence scores .524 and per-person absence .611, against 1.0 for
+* **Our weakest absence families.** Per-category absence scores .524 (run 1) and .667 (run 2), per-person absence .861 and .944, against 1.0 for
   per-client absence.
 * **The 144/144 team score is tuned on the test set.** The deterministic six-agent pipeline scored 136/144 on TND at
   first. All 8 misses were one parser bug ("buildings" also matched "small buildings"), found on the test set and

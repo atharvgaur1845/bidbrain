@@ -51,12 +51,14 @@ cover each step.
   and each line of each financial statement.
 * The entity property (`Work.value`) is a **materialized view** of the claim that currently wins. When a corrigendum
   arrives we add a claim; we never edit history. That is what makes "why did we decide this?" answerable.
-* **Bitemporal: when we learned it, and when we stopped believing it.** Every claim gets `recorded_at` (transaction
-  time: when the graph learned it). When a decision sets a claim aside, its status becomes `superseded` or `rejected`
-  and it gets `invalidated_at`; its value stays. Separately, `observed_day` / `valid_from_day` / `valid_to_day` hold
-  the document's own dates. `fact_as_of(key, predicate, as_of)` (`tools/impact.py`) answers "what did the company
-  believe at time T": among the claims recorded by T and not invalidated by T, the one a decision selected wins. The
-  workflow eval checks it 5 ms before and after a corrigendum.
+* **Bitemporal: two axes.** *Valid time:* a claim counts as of T only if its document existed by T: the date the
+  document prints (`Document.issued_day`, parsed at ingest), else the claim's `observed_day`; undated documents (CVs,
+  the portfolio, ISO certificates, ledgers) count from the corpus snapshot 2026-03-31 and are flagged in
+  `undated_kinds`. *Transaction time:* `recorded_at` (the corpus is the starting record at 0, since the base graph is
+  rebuilt at every boot) and `invalidated_at` when a decision sets the claim aside (its value stays). Decisions count
+  from their own `at` (corpus decisions: 0). `fact_as_of(key, predicate, as_of)` (`tools/impact.py`) returns the
+  believed value with `valid_basis` and each claim's recorded vs valid date; the latest decision made by T picks the
+  winner. The workflow eval checks it 5 ms before and after a corrigendum, and before the certificate's own date.
 * **Issuer is whoever issued the document.** Our own completion record quoting the client's grading is a *company*
   statement. The planted-conflict eval caught us attributing it to the client, which made the recency rule fire
   wrongly 11 times.
@@ -80,7 +82,7 @@ cover each step.
    - **Authority.** A gap of 20 or more on the ladder (client corrigendum 95 … CV 40 … LLM-read prose 30).
    - Otherwise a **resolve card** goes to a human. "Choose + learn rule" creates the PolicyRule.
 3. **Record.** A `(:Decision)` with `SELECTS` (winner), `BASED_ON` (all claims), `DECIDED_BY` (agent or user),
-   `SUPERSEDES` (earlier decisions on the same fact) and `APPLIED_RULE`. Loser claims become `superseded` (recency)
+   `SUPERSEDES` (earlier decisions on the same fact) and `APPLIED_RULE`; the winning claim `PREVAILS_OVER` each claim it set aside. Loser claims become `superseded` (recency)
    or `rejected` (authority). The property is re-materialized and the graph version is bumped.
 4. **Ripple** (`tools/case.py::blast_radius`). Find every open clause whose *candidate set* could include the subject,
    re-run it, and report flips. We re-check failing clauses as well as satisfied ones, because a corrigendum can make
@@ -97,7 +99,7 @@ clause can explain which figure it used.
 
 ## 5. Tools (`bidbrain/tools/`): why tools instead of free Cypher
 
-* The Q&A agent gets **23 named tools** (a subset of the 31 in the registry) rather than writing Cypher; a read-only
+* The Q&A agent gets **26 named tools** (23 during the benchmark runs) (a subset of the 31 in the registry) rather than writing Cypher; a read-only
   `cypher_readonly` escape hatch is among them, for questions no tool covers. Each tool is a tested multi-hop traversal with exact
   arithmetic and evidence attached. Raw NL→Cypher is our *baseline* (`text2cypher`), and the benchmark shows the
   difference.
@@ -120,7 +122,7 @@ clause can explain which figure it used.
   - **Betweenness for the bus factor.** Domain edges are directed (`Work→Person`, `Work→Client`), so no shortest path
     ever passes *through* a person and everyone scored 0. We therefore build an explicit person⇄client projection
     (`WORKED_FOR` / `ENGAGED`), which is standard practice. `algo.betweenness` samples source nodes even when
-    `samplingSize` exceeds the 68 nodes, so its ranking changes with the seed (a 32-seed mean still swaps ranks 4-6).
+    `samplingSize` exceeds the 65 nodes, so its ranking changes with the seed (a 32-seed mean still swaps ranks 4-6).
     `key_people` therefore computes **exact** Brandes betweenness in one Cypher query: `allShortestPaths` over
     `WORKED_FOR*` for every pair, each inner node credited 1/n of the pair's n shortest paths (~0.1 s; identical to
     a Python Brandes). The sampled procedure is reported beside it as a cross-check (top 3 identical, 9/10 of the top 10).
@@ -152,9 +154,10 @@ clause can explain which figure it used.
     returns everything resting on one document and which facts it is the only source for. Most other tools are
     1-2-hop queries composed in Python.
 * **One registry, three consumers.** The same tool functions are called by the agents, exposed over MCP, and replayed
-  by the eval oracle. MCP exposes the 30 read-only tools (run as `GRAPH.RO_QUERY` on the base graph, annotated
-  `readOnlyHint`) plus one acting tool, `qualify_tender`, which runs the tender team on a session's own graph copy
-  and refuses any other graph. The registry's write tool `case_open` is not exposed.
+  by the eval oracle. MCP exposes 34 tools: 32 read-only (the registry's 31 read tools plus `list_actions`; run as
+  `GRAPH.RO_QUERY` on the base graph, or on an existing session's graph given `session_id`; annotated
+  `readOnlyHint`) and two acting tools: `qualify_tender`, which runs the tender team on a session's own graph copy
+  and refuses any other graph, and `transition_action`. Unknown arguments are errors. The registry's write tool `case_open` is not exposed.
 * **Change impact** (`tools/impact.py::change_impact`). Given a document, it reads from the graph alone: the claims
   the document carried, the decisions they triggered (policy, before → after), the ripple findings those decisions
   caused on open clauses, and the actions they triggered. The Change impact page is this tool. The workflow eval
@@ -194,7 +197,11 @@ clause can explain which figure it used.
     differently, the rule parser wins (the LLM once read ₹75 Cr as ₹750 Cr). A clause that still cannot be read
     falls back to the rule parser or becomes an explicit unparsed clause; it never aborts the case.
   - The **Verifier uses no LLM.** It recomputes every verdict from the graph. On a disagreement the EvidenceHunter
-    re-derives that clause once, and the case becomes NEEDS REVIEW only if the mismatch persists.
+    re-derives that clause once, and the case becomes NEEDS REVIEW only if the mismatch persists. It also runs an
+    independent amount accounting (`clauses.amount_check`, sharing nothing with the parser): every threshold must be
+    a stated amount or a stated percentage of one ("X% of the estimated cost" is resolved from the tender header),
+    and every amount in the text must be used, including cumulative `min_total`. A known clause that cannot be read
+    is NEEDS REVIEW, never a pass.
 
 ## 7. Memory and tenancy
 
@@ -228,7 +235,10 @@ clause can explain which figure it used.
   `(:ActionEvent {at, from, to, by, note})`. Kinds: `review_bid` (from a ripple), `request_reference_letter` (from an
   absence finding, assigned to the work's lead), `renew_credential` (from an expiry finding, one per named person),
   `publish_to_company_record` (from a decision).
-* **Lifecycle.** `pending → approved → executed`; `reject` from pending or approved. Each transition is a
+* **Lifecycle.** `pending → approved → executing → executed`; `reject` from pending or approved. Execute first
+  claims the action (CAS `approved → executing`). `superseded`: a stale `review_bid` whose case moved on, or a
+  finding that no longer applies (ripples re-derive findings and follow-up actions). `fulfilled`: an arriving
+  reference letter resolves the matching absence finding and fulfils the letter request. Each transition is a
   compare-and-set (`MATCH ... WHERE a.status IN $frm SET a.status = $to`): a stale transition returns 409; repeating
   the same transition returns the current state with no new event. Execute before approve is 409.
 * **Idempotent creation.** `MERGE (a:Action {idem:$idem})` with `idem` = hash(kind, case, trigger, target): a
@@ -242,17 +252,22 @@ clause can explain which figure it used.
 
 * **Why.** Workspaces are private copies, so a corrigendum accepted in one would otherwise never reach anyone else.
   Copying whole workspaces would leak private work.
-* **Publish.** An approved and executed `publish_to_company_record` action copies exactly one decided fact into
+* **Publish.** Needs two people: the session that queued it cannot approve it; its approve files a
+  `(:PublishRequest)` that a different session approves on the Memory page (or an `ORG_ADMIN_TOKEN` operator).
+  An approved and executed `publish_to_company_record` action copies exactly one decided fact into
   `bidbrain_org` as `(:OrgFact)`: subject, predicate, value, the claim and its source document (as JSON), the source
-  decision and policy, the publishing workspace's hashed tag, the approver and the time. Planted evaluation claims
+  decision and policy, the publishing workspace's hashed tag (`published_by`), the approver (`approved_by`) and the time. Planted evaluation claims
   are refused.
-* **Apply.** Whenever a workspace is opened (`sessions.graph_for`), `record.apply` writes each active fact it has not
+* **Apply.** Whenever a workspace that turned on "Use company memory" is opened (`sessions.graph_for`), `record.apply` writes each active fact it has not
   yet seen as a claim plus its source document and lets the conflict engine settle it (policy `company_record`).
-  `(:CompanyRecordRef {id})` marks it applied. Unlike company rules, published facts need no opt-in, because they
-  passed an approval gate.
+  `(:CompanyRecordRef {id})` marks it applied. Like company rules, published facts need the per-session opt-in
+  (off by default). The applied fact is an ordinary claim: newer or higher-authority evidence can beat it or open a
+  card, and a workspace can contest it (`POST /api/company/record/{id}/contest`), reopening its decisions there as
+  resolve cards. Nothing is auto-rejected.
 * **History and governance.** A newer fact for the same subject and predicate marks the older one `superseded`.
   Only the publishing workspace (or an operator with `ORG_ADMIN_TOKEN`) can retire a fact; a retired fact keeps its
-  row with status `retired` and is no longer applied. Workspaces that already applied it keep their decision.
+  row with status `retired`. Retiring propagates: each workspace that applied it notices on its next request, the
+  fact's claim is withdrawn (policy `record_withdrawn`), the engine decides again and the change ripples to cases.
 * **Persistence.** `bidbrain_org` is saved in FalkorDB's RDB snapshots and mirrored to `org_memory.json` after every
   publish and retire of a fact (and every promote, retire or contest of a rule); the mirror restores both at boot if
   the graph is missing.
@@ -261,9 +276,9 @@ clause can explain which figure it used.
 
 ## 8. Evaluation design
 
-* **Workflow evaluation first** (`eval/workflow.py`, no LLM, throwaway graphs): 79/79 cases across task completion
-  (15), impact recall (18, P = R = 1.0 against an independent recompute), adversarial conflicts (16), memory transfer
-  (9), isolation (9), temporal (4) and provenance (8). Expectations come from fixtures, separate Cypher or a re-run
+* **Workflow evaluation first** (`eval/workflow.py`, no LLM, throwaway graphs): 81/81 cases across task completion
+  (16), impact recall (18, P = R = 1.0 against an independent recompute), adversarial conflicts (16), memory transfer
+  (10), isolation (9), temporal (4) and provenance (8). Expectations come from fixtures, separate Cypher or a re-run
   of `qualify_clause`, never from the function under test. The first run was 78/79 and found a real bug (renewal
   actions for people the clause did not rely on), now fixed.
 * **Same model, same database, different context strategy:**
@@ -281,7 +296,7 @@ clause can explain which figure it used.
   answer" from "the agent planned badly". It also means Q333 flatters BidBrain, because our tools mirror the engine
   that produced its gold. Lead with S21, ABS and TND.
 * **Uncertainty.** Every set reports a 95% Wilson interval (`accuracy_ci95` in `qa_summary.json`). The final numbers
-  are two runs per system on the final code; BidBrain moved 2 of 21 on S21 between them, so read the mean. Two
+  are two runs per system on the final code; BidBrain moved 1 of 21 on S21 between them, so read the mean. Two
   regressions were found on S21 and fixed before those runs (see the README caveats). The benchmark model
   (Qwen3-32B on vLLM) is not the demo model pool (Groq gpt-oss-120b / qwen3.8-27b / gpt-oss-20b).
 * **Team on TND.** The deterministic team scored 136/144, then 144/144 after fixing a parser bug found on the test

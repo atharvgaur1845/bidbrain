@@ -3,14 +3,14 @@
 Recorded at 1440×900. A human narrates. Keep the graph and the workflow on screen the whole time; no architecture
 slides. Pause about 1 s on every number that matters.
 
-**The core path (0:00–1:30) uses no LLM.** It runs the same with an empty `.env`. The LLM is used only by **Ask**
+**The core path (0:00–1:48) uses no LLM.** It runs the same with an empty `.env`. The LLM is used only by **Ask**
 (free-text questions), by the ClauseParser for new or edited tender text, and by the bid-memo prose (template
 fallback). None of these is in the core path.
 
 **Before recording**
 * Browser 1: a fresh workspace (press **Reset graph**, top right). Browser 2: a private window, not opened yet.
 * Check that the company record is empty: **Memory** → *Company record* shows no active fact. Step 1:20 publishes a
-  fact that **every new workspace** will apply. After recording, retire it from browser 1's workspace with
+  fact that a workspace applies once it ticks **Use company memory**. After recording, retire it from browser 1's workspace with
   `POST /api/company/record/<id>/retire` and header `X-Session: <browser 1's session id>` (the UI has no retire
   button for facts yet). Only the publishing workspace can retire it.
 
@@ -62,25 +62,27 @@ Decision → SELECTS → the ₹188 Cr claim → FROM → DOC-DEMO-1, and the tw
 each with its document and page.
 **Say:** "Every settled fact keeps the policy, the decider and every source. Nothing was overwritten."
 
-### 1:20 – 1:30 · Publish to the company record (Decisions → Actions)
-**Click:** **Publish to company record** → **Open action** → **Approve** → **Execute** → **Confirm execute**.
-**Say:** "The bid manager makes this the company's truth. That is an action too, with the same approval gate."
+### 1:20 – 1:26 · Publish to the company record (Decisions → Actions)
+**Click:** **Publish to company record** → **Open action** → **Approve** (files a publish request; a second person
+must approve it).
+**Say:** "The bid manager proposes this as the company's truth. That is an action too, and it needs a second approver."
 
-### 1:30 – 1:45 · A clean second workspace (browser 2)
-**Click:** open browser 2 (private window) at the app. Sidebar **Memory**: *Company record* lists Pkg-113 = ₹188 Cr,
-**Applied**, with the source decision and document. Then **Decisions** → tab **Company record** → the row: the
+### 1:26 – 1:48 · A clean second workspace (browser 2)
+**Click:** open browser 2 (private window) at the app. Sidebar **Memory**: approve the pending publish request; tick
+**Use company memory in this session**. Back in browser 1, **Execute** → **Confirm execute**. In browser 2, *Company
+record* lists Pkg-113 = ₹188 Cr, **Applied**, with the source decision and document. Then **Decisions** → tab **Company record** → the row: the
 decision has policy *Company record* and its rationale names the OrgFact. **Control room**: *Open cases 0*.
-**Say:** "A new workspace starts from the new fact. It was applied through the same conflict engine, with a policy
+**Say:** "A second person approved it, and a workspace that opts in starts from the new fact. It was applied through the same conflict engine, with a policy
 that cites where it came from. Nothing private crossed over: no cases, no actions, no conversation."
 
 *(Optional, +15 s, company rule beat.)* In browser 1, **Live documents** → send *JV Experience Certificate —
 Residential Quarters* (DEMO-3); it lands as a card; **Choose and learn rule**; **Promote to company memory**. In
-browser 2, **Memory** → tick **Use company memory in this session**, then **Live documents** → send DEMO-4: it
+browser 2 (already opted in), **Live documents** → send DEMO-4: it
 resolves itself, citing the promoted rule.
 
-### 1:45 – 2:00 · Evidence (Benchmark)
+### 1:48 – 2:00 · Evidence (Benchmark)
 **Screen:** sidebar **Benchmark**. One beat each:
-* "The workflow evaluation runs this whole loop without an LLM: 79 of 79 checks. The bids it says flipped match an
+* "The workflow evaluation runs this whole loop without an LLM: 81 of 81 checks. The bids it says flipped match an
   independent before-and-after recompute exactly: precision and recall 1.0."
 * "Absence is proved, not guessed: 2 of Trishakti Power's 19 works have no reference letter, with the boundary
   attested three ways and all 132 letters accounted for."
