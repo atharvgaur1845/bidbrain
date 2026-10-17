@@ -1,12 +1,11 @@
 "use client";
 
-import { History as HistoryIcon } from "lucide-react";
 
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
-import { Card, Stat, Tabs } from "@/components/ui";
+import { Card, Skeleton, Stat, Tabs } from "@/components/ui";
 import { api, getSession } from "@/lib/api";
-import { CasesTab, CompanyMemory, CompanyMemoryToggle, ConversationTab, DecisionsTab, type Case, type Decision, type OrgRule, type Rule, type Turn } from "./parts";
+import { CasesTab, CompanyMemory, CompanyRecord, CompanyMemoryToggle, ConversationTab, DecisionsTab, type Case, type Decision, type OrgRule, type Rule, type Turn } from "./parts";
 
 type Conflicts = { cards?: unknown[]; decisions: Decision[]; rules: Rule[] };
 type Overview = {
@@ -90,7 +89,7 @@ export default function MemoryPage() {
 
   return (
     <div>
-      <PageHeader icon={<HistoryIcon size={19} strokeWidth={1.75} />} tone="lavender" title="Memory"
+      <PageHeader title="Memory"
         subtitle="Your session is a private GRAPH.COPY of the company graph in FalkorDB. It keeps your conversation, cases, decisions and learned rules, and persists on this browser. Rules you promote go to company memory, a separate graph every session reads."
         meta={ov ? (
           <>
@@ -104,16 +103,18 @@ export default function MemoryPage() {
 
       <Card className="mb-6">
         <div className="grid grid-cols-2 gap-x-6 gap-y-5 pt-3 md:grid-cols-4 [&>*]:md:border-l [&>*]:md:border-line [&>*]:md:pl-6 [&>*:first-child]:md:border-l-0 [&>*:first-child]:md:pl-0">
-          <Stat label="Your graph" value={<span className="text-[18px]" title={sid ? `session_${sid}` : undefined}>{sid ? `session_${sid}` : "…"}</span>}
+          <Stat label="Your graph" value={<span className="text-[18px]" title={sid ? `session_${sid}` : undefined}>{sid ? `session_${sid}` : "—"}</span>}
             sub="Private to this browser" />
-          <Stat label="Conversation turns" value={loaded.mem ? turns.length : "…"}
+          <Stat label="Conversation turns" value={loaded.mem ? turns.length : <Skeleton w={36} h={20} className="my-1" />}
             sub={loaded.mem ? (turns.length ? `${plural(asked, "question")}, ${plural(turns.length - asked, "answer")}` : "Nothing asked yet") : undefined} />
-          <Stat label="Cases" value={loaded.cases ? cases.length : "…"}
+          <Stat label="Cases" value={loaded.cases ? cases.length : <Skeleton w={36} h={20} className="my-1" />}
             sub={loaded.cases ? (cases.length ? verdictMix(cases) : "No tenders qualified yet") : undefined} />
-          <Stat label="Your decisions / learned rules" value={loaded.conf ? `${mine.length} / ${rules.length}` : "…"}
+          <Stat label="Your decisions / learned rules" value={loaded.conf ? `${mine.length} / ${rules.length}` : <Skeleton w={36} h={20} className="my-1" />}
             sub={loaded.conf ? (openCards ? `${plural(openCards, "conflict")} open` : "No open conflicts") : undefined} />
         </div>
       </Card>
+
+      <div className="mb-6"><CompanyRecord /></div>
 
       <div className="mb-6">
         <CompanyMemory rules={org.rules || []} cap={org.cap} graph={org.graph} ready={orgReady} onRetire={retire}

@@ -73,6 +73,24 @@ def publish(g: Graph, decision_id: str, by: str) -> dict:
             "summary": f"published {c['subject_key']} {c['predicate']} = {c['value']} to the company record as {fid}"}
 
 
+def retire(fid: str, session_graph: str | None, admin: bool = False, reason: str = "") -> dict:
+    """Withdraw a published fact. Only the publishing workspace (or an operator) may; the fact is kept with status
+    'retired' (history is never deleted), and workspaces stop applying it. Workspaces that already applied it keep
+    their decision, which now cites a retired record (`company_record_status`)."""
+    from bidbrain.conflicts.engine import session_tag
+    org = _org()
+    rows = org.read("MATCH (f:OrgFact {id:$id}) RETURN f.source_session AS s, f.status AS st", {"id": fid}) if org else []
+    if not rows:
+        raise LookupError(f"no published fact {fid}")
+    if not admin and (session_graph is None or session_tag(session_graph) != rows[0]["s"]):
+        raise PermissionError("only the workspace that published this fact can retire it")
+    if rows[0]["st"] == "retired":
+        return {"retired": fid, "already": True}
+    org.run("""MATCH (f:OrgFact {id:$id}) SET f.status = 'retired', f.retired_at = timestamp(), f.retire_reason = $r""",
+            {"id": fid, "r": reason[:300]})
+    return {"retired": fid, "already": False}
+
+
 def facts(status: str | None = "active") -> list[dict]:
     org = _org()
     if org is None:

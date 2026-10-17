@@ -24,7 +24,8 @@ from bidbrain.tools.registry import tool
       actions created. Param doc_id (e.g. 'DOC-DEMO-1-20827').""",
       {"doc_id": {"type": "string"}}, ["doc_id"])
 def change_impact(g: Graph, doc_id: str) -> dict:
-    doc = g.read("MATCH (d:Document {doc_id:$d}) RETURN d.doc_id AS doc_id, d.title AS title, d.doc_type AS doc_type",
+    doc = g.read("""MATCH (d:Document {doc_id:$d}) RETURN d.doc_id AS doc_id, d.title AS title, d.doc_type AS doc_type,
+                           d.issuer AS issuer, d.issued AS issued""",
                  {"d": doc_id})
     if not doc:
         raise ValueError(f"no document {doc_id} in this workspace")
@@ -43,6 +44,7 @@ def change_impact(g: Graph, doc_id: str) -> dict:
                       WHERE dec.id IN $ds
                       RETURN dec.id AS decision, c.id AS case_id, c.title AS case, k.ref AS clause, k.kind AS kind,
                              f.text AS what, f.severity AS severity, k.verdict AS verdict_now, c.verdict AS case_now,
+                             f.case_from AS case_before, f.case_to AS case_after,
                              c.approved_recommendation AS approved""", {"ds": decisions})
     acts = g.read("""MATCH (a:Action)-[:TRIGGERED_BY]->(dec:Decision) WHERE dec.id IN $ds
                      RETURN a.id AS id, a.kind AS kind, a.status AS status, a.title AS title, a.case_id AS case_id,

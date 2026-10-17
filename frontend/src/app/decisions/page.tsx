@@ -6,7 +6,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import GraphCanvas, { GData } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/Shell";
-import { Avatar, Badge, Card, Empty, Spinner, Tabs, useOpenDoc } from "@/components/ui";
+import { Avatar, Badge, Button, Card, Empty, Notice, Spinner, Tabs, useOpenDoc } from "@/components/ui";
+import { kindLabel } from "@/lib/actions";
 import { api } from "@/lib/api";
 
 const POLICIES: { id: string; label: string; tone: string }[] = [
@@ -15,6 +16,7 @@ const POLICIES: { id: string; label: string; tone: string }[] = [
   { id: "learned_rule", label: "Learned rule", tone: "violet" },
   { id: "org_rule", label: "Company memory", tone: "violet" },
   { id: "human", label: "Human", tone: "warn" },
+  { id: "company_record", label: "Company record", tone: "info" },
 ];
 
 const STATUS_TONE: Record<string, string> = { active: "ok", contested: "warn" };
@@ -51,11 +53,28 @@ export default function DecisionsPage() {
   const [trace, setTrace] = useState<any>(null);
   const openDoc = useOpenDoc();
 
-  useEffect(() => { api("/api/conflicts").then(setConf).finally(() => setLoaded(true)); }, []);
+  const [pub, setPub] = useState<{ id?: string; status?: string; title?: string; kind?: string; err?: string; busy?: boolean } | null>(null);
+  useEffect(() => {
+    api("/api/conflicts").then(setConf).finally(() => setLoaded(true));
+    const id = new URLSearchParams(window.location.search).get("id");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deep link ?id=<decision>
+    if (id) setSel(id);
+  }, []);
   useEffect(() => {
     if (!sel) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset per selection
+    setPub(null);
     api(`/api/decisions/${sel}/trace`).then(setTrace).catch(() => setTrace(null));
+    try { const u = new URL(window.location.href); u.searchParams.set("id", sel); window.history.replaceState(null, "", u); } catch {}
   }, [sel]);
+  async function publish() {
+    if (!sel) return;
+    setPub({ busy: true });
+    try {
+      const a = await api(`/api/decisions/${encodeURIComponent(sel)}/publish`, { method: "POST", body: "{}" });
+      setPub({ id: a.id, status: a.status, title: a.title, kind: a.kind });
+    } catch (e: any) { setPub({ err: e?.message || String(e) }); }
+  }
 
   const list = conf.decisions.filter((d: any) => filter === "all" || d.policy === filter);
   const counts = conf.decisions.reduce((a: any, d: any) => ({ ...a, [d.policy]: (a[d.policy] || 0) + 1 }), {});
@@ -84,7 +103,7 @@ export default function DecisionsPage() {
 
   return (
     <div>
-      <PageHeader icon={<GitBranchIcon size={19} strokeWidth={1.75} />} tone="rose" title="Decisions"
+      <PageHeader title="Decisions"
         subtitle="Every settled fact records the policy, the decider and both source documents."
         meta={loaded ? (
           <>
@@ -96,7 +115,14 @@ export default function DecisionsPage() {
           </>
         ) : undefined} />
 
-      <div className="scroll-thin contain-scroll mb-6 overflow-x-auto [&>[role=tablist]]:w-max [&>[role=tablist]]:min-w-full">
+      <div className="mb-4 sm:hidden">
+        <label htmlFor="policy-filter" className="mb-1 block text-[12px] text-ink-3">Policy</label>
+        <select id="policy-filter" className="field" value={filter} onChange={(e) => setFilter(e.target.value)}>
+          <option value="all">All ({conf.decisions.length})</option>
+          {POLICIES.map((p) => <option key={p.id} value={p.id}>{p.label} ({counts[p.id] || 0})</option>)}
+        </select>
+      </div>
+      <div className="mb-6 max-sm:hidden">
         <Tabs value={filter} onChange={setFilter}
           tabs={[{ id: "all", label: "All", count: conf.decisions.length },
             ...POLICIES.map((p) => ({ id: p.id, label: p.label, count: counts[p.id] || 0 }))]} />
@@ -113,12 +139,12 @@ export default function DecisionsPage() {
               <Empty title="No decisions of this kind yet" text="Decisions appear here once conflicting claims are settled." />
             ) : (
               <table className={clsx("kt table-fixed", EDGE_CELLS,
-                "[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-surface [&_th]:backdrop-blur-md")}>
+                "[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-surface")}>
                 <thead>
                   <tr>
                     <th>Decision</th>
                     <th className="w-[124px]">Policy</th>
-                    <th className="w-[84px]">By</th>
+                    <th className="w-[84px] max-sm:hidden">By</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -131,16 +157,16 @@ export default function DecisionsPage() {
                           <button type="button" onClick={(e) => { e.stopPropagation(); setSel(d.id); }}
                             aria-pressed={active}
                             className="block w-full min-w-0 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-kb">
-                            <span className="block truncate text-[13.5px] font-medium text-ink">
+                            <span className="block text-[13.5px] font-medium text-ink max-sm:break-words sm:truncate">
                               {d.subject || d.key}
                               <span className="num ml-2 text-[12px] font-normal text-ink-3">{d.predicate}</span>
                             </span>
-                            <span className="mt-1 block truncate text-[12.5px] text-ink-3">{d.rationale}</span>
+                            <span className="mt-1 line-clamp-2 text-[12.5px] text-ink-3 sm:truncate">{d.rationale}</span>
                             {d.review && <span className="mt-1 block truncate text-[12px] text-warn" title={d.review}>{d.review}</span>}
                           </button>
                         </td>
                         <td><PolicyBadge policy={d.policy} /></td>
-                        <td><Actor name={d.actor} kind={d.actor_kind} /></td>
+                        <td className="max-sm:hidden"><Actor name={d.actor} kind={d.actor_kind} /></td>
                       </tr>
                     );
                   })}
@@ -225,6 +251,21 @@ export default function DecisionsPage() {
                           <Link href="/live/" className="font-medium text-kb-ink hover:underline">Live documents</Link></>}
                       </p>
                     )}
+
+                    <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+                      {pub?.id ? (
+                        <Notice tone="info" title={`${kindLabel(pub.kind)} queued (${pub.status})`}
+                          action={<Link href={`/actions/?id=${encodeURIComponent(pub.id)}`} className="text-[12.5px] font-medium text-kb-ink hover:underline">Open action {pub.id}</Link>}>
+                          It goes through the approval gate before the company record changes.
+                        </Notice>
+                      ) : (
+                        <>
+                          <Button size="sm" loading={pub?.busy} onClick={publish}>Publish to company record</Button>
+                          <span className="text-[12px] text-ink-3">Queues an action; the company record changes only after approval and execution.</span>
+                        </>
+                      )}
+                      {pub?.err && <Notice tone="bad" title="Not queued">{pub.err}</Notice>}
+                    </div>
 
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-[12.5px] text-ink-3">
                       {trace.actor_kind === "User" && trace.actor && <Avatar name={trace.actor} size={20} />}

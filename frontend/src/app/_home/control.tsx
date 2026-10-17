@@ -29,6 +29,9 @@ type LiveDoc = { doc_id: string; title?: string; doc_type?: string; issued?: str
 type OrgMemory = { active: number; cap: number; use_company_memory?: boolean; rules: unknown[] };
 type Tender = { id: string; title: string; authority?: string; category?: string; estimated_cost?: number; bid_date?: string };
 type SampleEvent = { event_id: string; type: string; title: string; narrative?: string };
+type PendingAction = { id: string; kind: string; title: string; case_id?: string | null; created_at?: number };
+const ACTION_KIND: Record<string, string> = { review_bid: "Re-approve bid", request_reference_letter: "Request letter",
+  renew_credential: "Renew credential", publish_to_company_record: "Publish fact" };
 
 const LIVE_DOCS = `MATCH (d:Document) WHERE d.live = true
 OPTIONAL MATCH (c:Claim {source_doc: d.doc_id})
@@ -42,9 +45,9 @@ RETURN d.doc_id AS doc_id, d.title AS title, d.doc_type AS doc_type, d.issued AS
 type State = {
   ov: Overview | null; cases: CaseRow[] | null; details: Record<string, CaseDetail>; conflicts: Conflicts | null;
   docs: LiveDoc[] | null; org: OrgMemory | null; tenders: Tender[] | null; events: SampleEvent[] | null;
-  failed: Set<string>; at: number | null;
+  actions: PendingAction[] | null; failed: Set<string>; at: number | null;
 };
-const EMPTY: State = { ov: null, cases: null, details: {}, conflicts: null, docs: null, org: null, tenders: null, events: null,
+const EMPTY: State = { ov: null, cases: null, details: {}, conflicts: null, docs: null, org: null, tenders: null, events: null, actions: null,
   failed: new Set(), at: null };
 
 function useControlRoom(ov: Overview | null, ovFailed: boolean) {
@@ -54,7 +57,7 @@ function useControlRoom(ov: Overview | null, ovFailed: boolean) {
     setLoading(true);
     const failed = new Set<string>();
     const grab = <T,>(name: string, p: Promise<T>): Promise<T | null> => p.catch(() => { failed.add(name); return null; });
-    const [cases, conflicts, docs, org, tenders, events] = await Promise.all([
+    const [cases, conflicts, docs, org, tenders, events, actions] = await Promise.all([
       grab("cases", api<CaseRow[]>("/api/cases")),
       grab("conflicts", api<Conflicts>("/api/conflicts")),
       grab("docs", api<{ result: LiveDoc[] }>("/api/tool/cypher_readonly", { method: "POST", body: JSON.stringify({ query: LIVE_DOCS }) })
@@ -62,11 +65,12 @@ function useControlRoom(ov: Overview | null, ovFailed: boolean) {
       grab("org", api<OrgMemory>("/api/memory/org")),
       grab("tenders", api<Tender[]>("/api/tenders")),
       grab("events", api<SampleEvent[]>("/api/events")),
+      grab("actions", api<{ actions: PendingAction[] }>("/api/actions?status=pending").then((r) => r.actions || [])),
     ]);
     const details: Record<string, CaseDetail> = {};
     await Promise.all((cases || []).slice(0, 24).map((c) =>
       api<CaseDetail>(`/api/cases/${encodeURIComponent(c.id)}`).then((d) => { details[c.id] = d; }).catch(() => {})));
-    setS({ ov: null, cases, details, conflicts, docs, org, tenders, events, failed, at: Date.now() });
+    setS({ ov: null, cases, details, conflicts, docs, org, tenders, events, actions, failed, at: Date.now() });
     setLoading(false);
   }, []);
   useEffect(() => {
@@ -116,8 +120,13 @@ const cardHref = (id: string) => `/live/?card=${encodeURIComponent(id)}`;
 type Item = { key: string; rank: number; status: string; badge?: string; kind: string; title: string; why: React.ReactNode;
   next: string; href: string };
 
-function buildQueue(cards: ConflictCard[], cases: CaseRow[], details: Record<string, CaseDetail>): Item[] {
+function buildQueue(cards: ConflictCard[], cases: CaseRow[], details: Record<string, CaseDetail>, actions: PendingAction[] = []): Item[] {
   const items: Item[] = [];
+  for (const a of actions) {
+    items.push({ key: `action:${a.id}`, rank: 0.5, status: "pending", badge: "Approve", kind: "Action", title: a.title,
+      why: <>{ACTION_KIND[a.kind] || a.kind.replace(/_/g, " ")} · waiting for approval{a.created_at ? ` since ${ago(a.created_at)}` : ""} · <span className="mono text-[11.5px]">{a.id}</span></>,
+      next: "Review and approve", href: `/actions/?id=${encodeURIComponent(a.id)}` });
+  }
   for (const k of cards) {
     const [a, b] = k.claims;
     items.push({
@@ -241,9 +250,9 @@ export function ControlRoom({ ov, ovFailed, onSchema, onRetryOverview }:
   const cards = useMemo(() => d.conflicts?.cards || [], [d.conflicts]);
   const cases = useMemo(() => (d.cases || []).filter((c) => (c.status || "open") === "open"), [d.cases]);
   const docs = useMemo(() => [...(d.docs || [])].sort((a, b) => (b.at || 0) - (a.at || 0) || docSuffix(b.doc_id) - docSuffix(a.doc_id)), [d.docs]);
-  const queue = useMemo(() => buildQueue(cards, cases, d.details), [cards, cases, d.details]);
+  const queue = useMemo(() => buildQueue(cards, cases, d.details, d.actions || []), [cards, cases, d.details, d.actions]);
   const first = d.loading && d.at === null;
-  const fresh = !first && !cases.length && !docs.length && !cards.length;
+  const fresh = !first && !cases.length && !docs.length && !cards.length && !(d.actions || []).length;
 
   const byVerdict = (v: string) => cases.filter((c) => c.verdict === v).length;
   const docsSettled = docs.filter((x) => x.decisions > 0 && !x.cards.length).length;
@@ -290,7 +299,7 @@ export function ControlRoom({ ov, ovFailed, onSchema, onRetryOverview }:
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
           {/* ---- attention queue */}
           <Card title="Needs attention" pad={false}
-            subtitle="Open conflicts, failing cases and verdicts changed by new documents"
+            subtitle="Actions to approve, open conflicts, failing cases and verdicts changed by new documents"
             action={!first && <span className="num text-[12.5px] text-ink-3">{queue.length} item{queue.length === 1 ? "" : "s"}</span>}>
             {first ? <SkeletonRows rows={4} /> : queue.length ? (
               <ul aria-label="Needs attention">{queue.slice(0, 30).map((it) => <QueueRow key={it.key} it={it} />)}</ul>

@@ -870,6 +870,19 @@ def company_record(x_session: str | None = Header(None)):
     return {"facts": [{**f, "applied_here": f["id"] in applied} for f in record.facts(None)]}
 
 
+@app.post("/api/company/record/{fact_id}/retire")
+def company_record_retire(fact_id: str, body: dict | None = None, x_session: str | None = Header(None),
+                          x_admin_token: str | None = Header(None)):
+    from bidbrain.company import record
+    admin = bool(os.getenv("ORG_ADMIN_TOKEN")) and x_admin_token == os.getenv("ORG_ADMIN_TOKEN")
+    try:
+        return record.retire(fact_id, G(x_session).name if x_session else None, admin, (body or {}).get("reason", ""))
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc))
+
+
 # ------------------------------------------------------------------ MCP (streamable HTTP) + static UI
 
 if _MCP_APP is not None:

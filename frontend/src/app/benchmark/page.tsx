@@ -1,12 +1,11 @@
 "use client";
 
-import { BarChart3 as BarChart3Icon } from "lucide-react";
 
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { Card, Stat, Tabs } from "@/components/ui";
 import { api } from "@/lib/api";
-import { ConflictJson, ConflictPdf, CostTable, type EvalPayload, HopBars, Leaderboard, Method, SYSTEMS } from "./parts";
+import { ConflictJson, ConflictPdf, type EvalPayload, HopBars, Leaderboard, Limitations, Method, SYSTEMS } from "./parts";
 
 const TABS = [
   { id: "board", label: "Leaderboard" },
@@ -29,7 +28,7 @@ export default function BenchmarkPage() {
 
   return (
     <div>
-      <PageHeader icon={<BarChart3Icon size={19} strokeWidth={1.75} />} tone="sage" title="Benchmark"
+      <PageHeader title="Benchmark"
         subtitle="Same model, same database, different context strategy."
         meta={
           <>
@@ -63,8 +62,8 @@ export default function BenchmarkPage() {
                 sub="PDF subjects with varied titles" />
             </div>
           </Card>
-          <Leaderboard qa={qa} systems={systems} loading={loading} />
-          <CostTable qa={qa} systems={systems} />
+          <Leaderboard qa={qa} systems={systems} loading={loading} baselines={(summary as any)?.constant_baselines} />
+          <Limitations />
         </div>
       )}
 

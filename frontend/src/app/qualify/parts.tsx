@@ -1,9 +1,9 @@
 "use client";
 
 import clsx from "clsx";
-import { ShieldAlert, ShieldCheck, Building2, Droplets, Route, ScrollText, Waypoints } from "lucide-react";
+import { ShieldAlert, ShieldCheck } from "lucide-react";
 import type { GData } from "@/components/GraphCanvas";
-import { Badge, Empty, Spinner, Verdict, IconTile, type TileTone } from "@/components/ui";
+import { Empty, Spinner, Verdict } from "@/components/ui";
 import { fmtINR } from "@/lib/api";
 
 export const AGENTS = [
@@ -28,34 +28,22 @@ const humanize = (s: string) => (s || "").replace(/_/g, " ");
 
 // ======================================================================= tender picker
 
-const TENDER_TILE: [RegExp, TileTone, typeof Route][] = [
-  [/expressway|road|highway/i, "peach", Route], [/water|sewer|drain|irrigation/i, "teal", Droplets],
-  [/bridge|flyover/i, "lavender", Waypoints], [/building|quarters|complex/i, "sand", Building2],
-];
-function tenderTile(t: any): [TileTone, React.ReactNode] {
-  const hit = TENDER_TILE.find(([rx]) => rx.test(`${t.category || ""} ${t.title || ""}`));
-  const [tone, Icon] = hit ? [hit[1], hit[2]] : (["sage", ScrollText] as const);
-  return [tone, <Icon key="i" size={16} strokeWidth={1.75} />];
-}
-
 export function TenderList({ tenders, pickedId, onPick }:
   { tenders: any[]; pickedId?: string; onPick: (t: any) => void }) {
   if (!tenders.length) return <div className="py-2"><Spinner label="Loading tenders" /></div>;
   return (
-    <ul className="flex flex-col gap-1.5">
+    <ul className="-mx-4 -mt-4 divide-y divide-line border-b border-line">
       {tenders.map((t) => {
         const active = pickedId === t.id;
-        const [tone, icon] = tenderTile(t);
         return (
           <li key={t.id}>
             <button type="button" onClick={() => onPick(t)} aria-pressed={active}
-              className={clsx("flex w-full items-start gap-3 rounded-[10px] p-2.5 text-left transition-[background-color,box-shadow] duration-150 ease-out",
-                active ? "bg-surface-solid shadow-[0_0_0_1.5px_var(--kb),var(--shadow-border)]" : "hover:bg-well")}>
-              <IconTile tone={tone} size={32}>{icon}</IconTile>
+              className={clsx("flex w-full items-start gap-3 px-4 py-2.5 text-left transition-colors duration-100 ease-out focus-visible:outline-offset-[-2px]",
+                active ? "bg-kb-soft shadow-[inset_2px_0_0_var(--kb)]" : "hover:bg-surface-2")}>
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-medium leading-snug text-ink">{t.title}</span>
                 <span className="mt-0.5 block truncate text-[12px] text-ink-3">
-                  {t.authority} · due <span className="num">{t.bid_date}</span>
+                  <span className="mono">{t.id}</span> · {t.authority} · due <span className="num">{t.bid_date}</span>
                 </span>
               </span>
               <span className="num shrink-0 pt-px text-[12px] text-ink-2">{fmtINR(t.estimated_cost)}</span>
@@ -67,71 +55,104 @@ export function TenderList({ tenders, pickedId, onPick }:
   );
 }
 
-// ======================================================================= agent stepper
+// ======================================================================= agent pipeline (dense)
 
 function StatusDot({ st }: { st: AgentStatus }) {
   return (
-    <span className="grid h-4 w-4 place-items-center">
+    <span className="grid h-4 w-4 shrink-0 place-items-center" aria-hidden>
       <span className={clsx("h-2 w-2 rounded-full",
         st === "done" && "bg-ok",
-        st === "running" && "pulse-dot bg-kb shadow-[0_0_0_4px_var(--kb-soft)]",
+        st === "running" && "pulse-dot bg-kb",
         st === "idle" && "bg-line-strong",
         st === "skipped" && "border border-line-strong bg-transparent")} />
     </span>
   );
 }
 
-export function AgentPipeline({ status, summaries, plan, handoffs = [] }:
-  { status: Record<string, AgentStatus>; summaries: Record<string, string>; plan?: Plan | null; handoffs?: Handoff[] }) {
+export function AgentPipeline({ status, summaries, plan, handoffs = [], verified }:
+  { status: Record<string, AgentStatus>; summaries: Record<string, string>; plan?: Plan | null; handoffs?: Handoff[]; verified?: any }) {
   return (
-    <>
-      <ol className="flex flex-col">
-        {AGENTS.map((a, i) => {
-          const st = status[a.key] || "idle";
-          const last = i === AGENTS.length - 1;
-          const summary = summaries[a.key] || a.desc;
-          return (
-            <li key={a.key} className="relative flex gap-3 pb-4 last:pb-0" aria-current={st === "running" ? "step" : undefined}>
-              {!last && <span aria-hidden className="absolute bottom-0 left-[7.5px] top-5 w-px bg-line" />}
-              <span className="pt-[3px]"><StatusDot st={st} /></span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2">
-                  <span className={clsx("text-[13.5px] font-semibold", st === "idle" || st === "skipped" ? "text-ink-2" : "text-ink")}>{a.key}</span>
-                  <Badge tone="neutral">{a.llm ? "LLM" : "Graph"}</Badge>
-                  <span className="sr-only">{st}</span>
-                </span>
-                <span className={clsx("block truncate text-[12.5px]", summaries[a.key] ? "text-ink-2" : "text-ink-3")} title={summary}>
-                  {summary}
-                </span>
-              </span>
-              {!last && <span className="sr-only">hands off to {AGENTS[i + 1].key}</span>}
-            </li>
-          );
-        })}
-      </ol>
+    <div className="-mx-4 -my-4">
+      <table className="kt dense table-fixed">
+        <thead><tr><th className="w-[132px] pl-4!">Agent</th><th>Output</th><th className="w-[52px] pr-4! text-right!">Uses</th></tr></thead>
+        <tbody>
+          {AGENTS.map((a) => {
+            const st = status[a.key] || "idle";
+            return (
+              <tr key={a.key} aria-current={st === "running" ? "step" : undefined}>
+                <td className="pl-4!">
+                  <span className="flex items-center gap-1.5">
+                    <StatusDot st={st} />
+                    <span className={clsx("truncate text-[12.5px] font-medium", st === "idle" || st === "skipped" ? "text-ink-3" : "text-ink")}>{a.key}</span>
+                    <span className="sr-only">{st}</span>
+                  </span>
+                </td>
+                <td><span className={clsx("block truncate text-[12.5px]", summaries[a.key] ? "text-ink-2" : "text-ink-3")} title={summaries[a.key] || a.desc}>
+                  {st === "skipped" ? `skipped: ${plan?.skip?.[a.key] || ""}` : summaries[a.key] || a.desc}</span></td>
+                <td className="pr-4! text-right! text-[11.5px] text-ink-3">{a.llm ? "LLM" : "graph"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
       {plan && (
-        <p className="mt-4 border-t border-line pt-3 text-[12.5px] leading-relaxed text-ink-3">
-          <span className="font-medium text-ink-2">Plan: </span>
-          {plan.agents.join(" → ")}
-          {Object.entries(plan.skip).map(([a, why]) => <span key={a} className="block">Skipped {a}: {why}</span>)}
-        </p>
+        <div className="border-t border-line px-4 py-3">
+          <h3 className="text-[12px] font-medium text-ink-3">Plan <span className="font-normal">({plan.stage})</span></h3>
+          <dl className="mt-1 grid grid-cols-[112px_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-[12px]">
+            {Object.entries(plan.routes || {}).map(([agent, cl]) => (
+              <div key={agent} className="contents">
+                <dt className="truncate text-ink-2">{agent}</dt>
+                <dd className="num truncate text-ink-3" title={cl.join(", ")}>{cl.join(", ")}</dd>
+              </div>
+            ))}
+            {Object.entries(plan.skip || {}).map(([agent, why]) => (
+              <div key={agent} className="contents">
+                <dt className="truncate text-ink-3">{agent}</dt><dd className="text-ink-3">skipped: {why}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       )}
+
       {handoffs.length > 0 && (
-        <ul className="mt-3 flex flex-col gap-1.5 text-[12.5px] leading-snug text-ink-2">
-          {handoffs.map((h, i) => (
-            <li key={i} className="rounded-r-md border-l-2 border-kb bg-well px-3 py-2">
-              <span className="font-medium text-ink">{h.from} → {h.to}</span>
-              <span className="text-ink-3"> · clause {h.clauses.join(", ")}</span>
-              <span className="block">{h.reason}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="border-t border-line px-4 py-3">
+          <h3 className="text-[12px] font-medium text-ink-3">Hand-backs <span className="num font-normal">{handoffs.length}</span></h3>
+          <ul className="mt-1 flex flex-col gap-1.5">
+            {handoffs.map((h, i) => (
+              <li key={i} className="text-[12px] leading-snug">
+                <span className="font-medium text-ink">{h.from} → {h.to}</span>
+                <span className="num text-ink-3"> · {h.clauses.join(", ")}</span>
+                <span className="block text-ink-2">{h.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
-      <p className="mt-4 border-t border-line pt-3 text-[12.5px] leading-relaxed text-ink-3">
-        Each handoff is a graph write:{" "}
-        <span className="num text-[12px] text-ink-2">(:AgentRun)-[:HANDED_OFF_TO]-&gt;(:AgentRun)</span>
+
+      {verified && (
+        <div className="flex items-start gap-2 border-t border-line px-4 py-3 text-[12.5px]">
+          {verified.ok ? <ShieldCheck size={14} strokeWidth={1.75} className="mt-px shrink-0 text-ok" aria-hidden />
+            : <ShieldAlert size={14} strokeWidth={1.75} className="mt-px shrink-0 text-bad" aria-hidden />}
+          <div className="min-w-0">
+            <span className="font-medium text-ink">Verifier: </span>
+            <span className="text-ink-2">
+              {verified.ok ? <><span className="num">{verified.checked}</span> verdicts re-derived, all agree{verified.retried?.length ? <> (<span className="num">{verified.retried.length}</span> after a retry)</> : null}</>
+                : <><span className="num text-bad">{verified.mismatches.length}</span> disagree; case flagged for review</>}
+            </span>
+            {!verified.ok && (
+              <ul className="mt-1 text-ink-2">
+                {verified.mismatches.map((m: any, i: number) => <li key={i}><span className="num">{m.clause}</span>: {m.note || (m.reasons || []).join("; ")}</li>)}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
+      <p className="border-t border-line px-4 py-2 text-[12px] text-ink-3">
+        Each hand-off is a graph write: <span className="mono text-[11.5px] text-ink-2">(:AgentRun)-[:HANDED_OFF_TO]-&gt;(:AgentRun)</span>
       </p>
-    </>
+    </div>
   );
 }
 
@@ -141,10 +162,9 @@ const SEVERITY_BORDER = (sev?: string) => (sev === "high" ? "border-bad" : sev =
 
 function FindingNote({ f }: { f: Finding }) {
   return (
-    <div className={clsx("mt-2 rounded-r-md border-l-2 bg-well px-3 py-2 text-[12.5px] leading-snug text-ink-2", SEVERITY_BORDER(f.severity))}>
-      <span className="font-medium text-ink">{f.agent}</span>
-      <span className="text-ink-3"> · {humanize(f.kind)}</span>
-      <span className="block">{f.text}</span>
+    <div className={clsx("mt-1.5 border-l-2 pl-2.5 text-[12px] leading-snug text-ink-2", SEVERITY_BORDER(f.severity))}>
+      <span className="font-medium text-ink">{f.agent || "Finding"}</span>
+      <span className="text-ink-3"> · {humanize(f.kind)}: </span>{f.text}
     </div>
   );
 }
@@ -181,10 +201,8 @@ export function VerdictTable({ clauses, focus, onFocus, running }:
                   <div className={clsx("text-[13.5px] text-ink", active ? "whitespace-normal" : "truncate")} title={c.text}>{c.text}</div>
                   {c.basis && <div className="num mt-1 text-[12px] leading-snug text-ink-3">{c.basis}</div>}
                   {c.corrected && (
-                    <div className="mt-2 rounded-r-md border-l-2 border-warn bg-well px-3 py-2 text-[12.5px] leading-snug text-ink-2">
-                      <span className="font-medium text-ink">ClauseParser</span>
-                      <span className="text-ink-3"> · corrected</span>
-                      <span className="block">{c.corrected}</span>
+                    <div className="mt-1.5 border-l-2 border-warn pl-2.5 text-[12px] leading-snug text-ink-2">
+                      <span className="font-medium text-ink">ClauseParser corrected: </span>{c.corrected}
                     </div>
                   )}
                   {c.findings.map((f, k) => <FindingNote key={k} f={f} />)}
@@ -207,8 +225,8 @@ export function VerdictTable({ clauses, focus, onFocus, running }:
 export function VerifierBanner({ verified }: { verified: any }) {
   const ok = !!verified.ok;
   return (
-    <div role="status" className={clsx("flex items-start gap-2 rounded-[10px] px-4 py-3 text-[13.5px] leading-snug",
-      ok ? "bg-ok-soft" : "bg-bad-soft")}>
+    <div role="status" className={clsx("flex items-start gap-2 rounded-md border px-3 py-2 text-[13px] leading-snug",
+      ok ? "border-ok-line bg-ok-soft" : "border-bad-line bg-bad-soft")}>
       {ok
         ? <ShieldCheck size={16} strokeWidth={1.75} className="mt-px shrink-0 text-ok" />
         : <ShieldAlert size={16} strokeWidth={1.75} className="mt-px shrink-0 text-bad" />}

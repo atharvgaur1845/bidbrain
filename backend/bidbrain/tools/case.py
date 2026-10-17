@@ -309,6 +309,11 @@ def apply_flips(g: Graph, flips: list[dict], cause: str, evidence_changed: list[
         for f in flips:
             if f["case_id"] == cid:
                 f["case_from"], f["case_to"] = before, after
+    if decision_id:                     # the impact view reads before/after off the findings this decision caused
+        for c in changed:
+            g.run("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->()-[:HAS_FINDING]->(f:Finding {kind:'ripple'})
+                     -[:CAUSED_BY]->(:Decision {id:$d}) SET f.case_from = $b, f.case_to = $a""",
+                  {"c": c["case_id"], "d": decision_id, "b": c["from"], "a": c["to"]})
     for a in actions.from_ripple(g, changed, decision_id, cause, cause_doc):
         for c in changed:
             if c["case_id"] == g.scalar("MATCH (a:Action {id:$a}) RETURN a.case_id", {"a": a["id"]}):

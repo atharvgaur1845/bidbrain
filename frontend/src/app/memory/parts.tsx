@@ -4,8 +4,8 @@ import clsx from "clsx";
 import { Building2, FileText, GitBranch, ListChecks, MessageSquare, Scale } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Avatar, Badge, Button, Card, Empty, Markdown, Spinner, Verdict, useOpenDoc } from "@/components/ui";
-import { api } from "@/lib/api";
+import { Avatar, Badge, Button, Card, Empty, EmptyState, ErrorState, Markdown, SkeletonRows, Spinner, StatusBadge, Table, Td, Th, Verdict, useOpenDoc } from "@/components/ui";
+import { api, fmtINR } from "@/lib/api";
 
 // Table cells line up with the card's 20px gutter. `.kt` is unlayered CSS, so the overrides need `!`.
 // Cards that hold a table clip it (`overflow-hidden`) so the row hover tint follows the rounded corners.
@@ -306,7 +306,9 @@ export function CompanyMemoryToggle({ onChange }: { onChange?: (on: boolean, out
   const [on, setOn] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  useEffect(() => { api("/api/session/settings").then((s) => setOn(!!s.use_company_memory)).catch(() => {}); }, []);
+  useEffect(() => {
+    api("/api/session/settings").then((s) => setOn(!!s.use_company_memory)).catch((e) => setErr(`Setting unavailable: ${e?.message || e}`));
+  }, []);
   async function toggle() {
     if (on === null) return;
     setBusy(true); setErr("");
@@ -325,7 +327,7 @@ export function CompanyMemoryToggle({ onChange }: { onChange?: (on: boolean, out
         <span className="font-medium text-ink">Use company memory in this session</span>
       </label>
       <span className="text-ink-3">
-        {on === null ? "…" : on ? "On: company rules settle matching conflicts here, after your own rules."
+        {on === null ? (err ? null : "Checking this session's setting") : on ? "On: company rules settle matching conflicts here, after your own rules."
           : "Off: only this session's own rules apply."}
       </span>
       {err && <span className="text-bad">{err}</span>}
@@ -427,6 +429,78 @@ export function CompanyMemory({ rules, cap, graph, ready, onRetire, onContest, t
             </tbody>
           </table>
         </div>
+      )}
+    </Card>
+  );
+}
+
+// ======================================================================= company record
+
+export type OrgFact = { id: string; subject_label?: string; subject_key: string; predicate: string; value: string;
+  source_decision?: string; policy?: string; rationale?: string; approved_by?: string; published_at?: number; status?: string;
+  applied_here?: boolean; document?: string };
+
+/** Published facts (shared company record), with provenance and whether this workspace has applied each one. */
+export function CompanyRecord() {
+  const [facts, setFacts] = useState<OrgFact[] | null>(null);
+  const [err, setErr] = useState("");
+  const [asOf, setAsOf] = useState<Record<string, { busy?: boolean; text?: string }>>({});
+  useEffect(() => {
+    api("/api/company/record").then((r) => setFacts(r.facts || [])).catch((e) => setErr(e?.message || String(e)));
+  }, []);
+  async function before(f: OrgFact) {
+    // what this workspace believed just before the fact was published (transaction time)
+    setAsOf((m) => ({ ...m, [f.id]: { busy: true } }));
+    const t = new Date((f.published_at || Date.now()) - 1000).toISOString();
+    try {
+      const r = await api("/api/tool/fact_as_of", { method: "POST", body: JSON.stringify({ key: f.subject_key, predicate: f.predicate, as_of: t }) });
+      const v = r.result?.value;
+      setAsOf((m) => ({ ...m, [f.id]: { text: v == null ? "no claim recorded then" : `${v} (claim ${r.result?.claim?.claim || "?"})` } }));
+    } catch (e: any) {
+      setAsOf((m) => ({ ...m, [f.id]: { text: e?.message || String(e) } }));
+    }
+  }
+  const docOf = (f: OrgFact) => { try { return JSON.parse(f.document || "{}"); } catch { return {}; } };
+  return (
+    <Card title="Company record" pad={false}
+      subtitle="Facts decided in a workspace and published after approval. Every new workspace starts from them."
+      action={facts ? <span className="num text-[12.5px] text-ink-3">{facts.length}</span> : null}>
+      {err ? <ErrorState compact text={err} /> : !facts ? <SkeletonRows rows={2} /> : !facts.length ? (
+        <EmptyState compact title="Nothing published yet"
+          text={<>Approve and execute a “Publish to company record” action on <Link href="/actions/" className="text-kb-ink hover:underline">Actions</Link>.</>} />
+      ) : (
+        <Table label="Company record" dense>
+          <thead><tr><Th>Fact</Th><Th>Value</Th><Th className="max-md:hidden">Provenance</Th><Th width={110}>Here</Th></tr></thead>
+          <tbody>
+            {facts.map((f) => {
+              const d = docOf(f);
+              return (
+                <tr key={f.id}>
+                  <Td>
+                    <div className="text-[13px] text-ink">{d.title?.replace(/^.*?—\s*/, "") || f.subject_key}</div>
+                    <div className="mono text-[11.5px] text-ink-3">{f.subject_key}.{f.predicate} · {f.id}</div>
+                  </Td>
+                  <Td>
+                    <span className="num font-medium">{/^\d{7,}$/.test(f.value) ? fmtINR(Number(f.value)) : f.value}</span>
+                    <div className="mt-0.5">
+                      {asOf[f.id]?.text ? <span className="text-[11.5px] text-ink-3">before: {asOf[f.id].text}</span>
+                        : <button type="button" className="text-[11.5px] text-kb-ink hover:underline disabled:opacity-50" disabled={asOf[f.id]?.busy}
+                            onClick={() => before(f)}>{asOf[f.id]?.busy ? "Looking up" : "Value before publish"}</button>}
+                    </div>
+                  </Td>
+                  <Td muted className="text-[12px] max-md:hidden">
+                    <div>Decision{" "}
+                      {f.source_decision ? <Link href={`/decisions/?id=${encodeURIComponent(f.source_decision)}`} className="mono text-kb-ink hover:underline">{f.source_decision}</Link> : "—"}
+                      {f.policy ? ` · ${f.policy.replace(/_/g, " ")}` : ""}</div>
+                    <div>Approved by <span className="mono">{f.approved_by || "—"}</span> · {when(f.published_at)}</div>
+                    {d.doc_id && <div>Source <span className="mono">{d.doc_id}</span>{d.issuer ? ` · ${d.issuer}` : ""}</div>}
+                  </Td>
+                  <Td>{f.applied_here ? <StatusBadge status="executed" label="Applied" size="sm" /> : <StatusBadge status="pending" label="Not applied" size="sm" />}</Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </Table>
       )}
     </Card>
   );

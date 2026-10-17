@@ -88,3 +88,19 @@ def test_reject_and_stale_transitions(client):
     assert _act(client, h, a, "execute").status_code == 409
     assert _act(client, h, "ACT-nope", "approve").status_code == 404
     assert _act(client, h, a, "launch").status_code == 400
+
+
+def test_published_fact_can_only_be_retired_by_its_publisher(client):
+    h1 = client.new_session()
+    _result(client.post("/api/events/DEMO-1/fire", headers=h1))
+    pub = next(a for a in client.get("/api/actions", headers=h1).json()["actions"]
+               if a["kind"] == "publish_to_company_record")
+    client.post(f"/api/actions/{pub['id']}/approve", json={}, headers=h1)
+    of = client.post(f"/api/actions/{pub['id']}/execute", json={}, headers=h1).json()["result"]["org_fact"]
+    h2 = client.new_session()
+    assert client.post(f"/api/company/record/{of}/retire", json={}, headers=h2).status_code == 403
+    assert client.post(f"/api/company/record/{of}/retire", json={"reason": "test"}, headers=h1).json()["retired"] == of
+    h3 = client.new_session()
+    client.get("/api/cases", headers=h3)
+    g3 = Graph(f"session_{h3['X-Session']}")
+    assert g3.scalar("MATCH (d:Decision {policy:'company_record'}) RETURN count(d)") == 0

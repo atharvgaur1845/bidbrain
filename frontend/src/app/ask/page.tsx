@@ -180,7 +180,7 @@ export default function AskPage() {
               return (
                 <div key={i} className={clsx(turns.length > 1 && "cursor-pointer")} onClick={() => setSel(i)}>
                   <button type="button" aria-pressed={turns.length > 1 ? selected : undefined}
-                    className="ml-auto block w-fit max-w-[88%] rounded-2xl rounded-br-md bg-well px-4 py-2 text-left text-[13.5px] leading-snug text-ink">
+                    className="ml-auto block w-fit max-w-[88%] rounded-md border border-line bg-surface-2 px-3 py-2 text-left text-[13.5px] leading-snug text-ink">
                     {t.q}
                   </button>
 

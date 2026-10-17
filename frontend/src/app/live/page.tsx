@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import GraphCanvas, { GData, mergeGraph } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/Shell";
-import { Badge, Button, Card, Empty, EvidenceList, Spinner, Tabs, Verdict, useOpenDoc } from "@/components/ui";
+import { Badge, Button, Card, Empty, EmptyState, EvidenceList, Spinner, Tabs, Verdict, useOpenDoc } from "@/components/ui";
 import { API_BASE, api, stream } from "@/lib/api";
 import { CompanyMemoryToggle } from "@/app/memory/parts";
 
@@ -43,6 +43,8 @@ export default function LivePage() {
   const [tab, setTab] = useState("scenarios");
   const [dragOver, setDragOver] = useState(false);
   const [promoting, setPromoting] = useState<string | null>(null);
+  const [plantedAll, setPlantedAll] = useState(false);
+  const [focusCard, setFocusCard] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const openDoc = useOpenDoc();
 
@@ -54,7 +56,16 @@ export default function LivePage() {
     api("/api/events").then(setEvents).catch(() => {});
     api("/api/samples").then(setSamples).catch(() => {});
     refresh();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- deep link ?card=<id>
+    setFocusCard(new URLSearchParams(window.location.search).get("card"));
   }, [refresh]);
+  // scroll to and highlight the linked conflict card once it has loaded
+  useEffect(() => {
+    if (!focusCard || !(conf.cards || []).some((c: any) => c.id === focusCard)) return;
+    const el = document.getElementById(`card-${focusCard}`);
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    el?.focus({ preventScroll: true });
+  }, [focusCard, conf.cards]);
 
   const push = (kind: string, data: any) => setFeed((f) => [{ kind, at: Date.now(), data }, ...f].slice(0, 60));
 
@@ -69,6 +80,7 @@ export default function LivePage() {
     }
     if (ev.type === "result" && ev.data && !ev.data.decisions?.length && !ev.data.cards?.length && !ev.data.error)
       push("noconflict", ev.data);
+    if (ev.type === "actions") push("actions", ev);
     if (ev.type === "error") push("error", ev);
   };
 
@@ -212,7 +224,7 @@ export default function LivePage() {
                 <>
                   <p className="pt-3 text-[12.5px] text-ink-3">Includes hard negatives that should not raise a conflict.</p>
                   <ul className="scroll-thin contain-scroll max-h-[58vh] divide-y divide-line overflow-y-auto">
-                    {rest.map((e) => (
+                    {(plantedAll ? rest : rest.slice(0, 8)).map((e) => (
                       <li key={e.event_id} className="flex items-start gap-3 py-3">
                         <div className="min-w-0 flex-1">
                           <Badge>{TYPE_LABEL[e.type] || e.type}</Badge>
@@ -222,6 +234,13 @@ export default function LivePage() {
                       </li>
                     ))}
                   </ul>
+                  {rest.length > 8 && (
+                    <div className="border-t border-line pt-2">
+                      <Button size="sm" variant="ghost" onClick={() => setPlantedAll((v) => !v)}>
+                        {plantedAll ? "Show fewer" : `Show all ${rest.length}`}
+                      </Button>
+                    </div>
+                  )}
                 </>
               ) : <Empty title="No planted events" />
             )}
@@ -251,7 +270,8 @@ export default function LivePage() {
             {cards.length ? (
               <div className="-mt-1 divide-y divide-line">
                 {cards.map((c: any) => (
-                  <div key={c.id} className="py-4 first:pt-1 last:pb-0">
+                  <div key={c.id} id={`card-${c.id}`} tabIndex={-1}
+                    className={clsx("py-4 outline-none first:pt-1 last:pb-0", focusCard === c.id && "-mx-4 rounded-md bg-kb-soft px-4 shadow-[inset_2px_0_0_var(--kb)] first:pt-3 last:pb-3")}>
                     <div className="text-[13.5px] font-semibold leading-snug text-ink">{c.subject}</div>
                     <div className="num mt-1 text-[12px] text-ink-3">{c.predicate}</div>
                     {c.reopened_from && (
@@ -337,8 +357,14 @@ export default function LivePage() {
             )}
           </Card>
 
-          <Card title="Ripple" pad={false} className="overflow-hidden lg:col-span-2 xl:col-span-1">
-            <GraphCanvas data={graph} highlight={hl} height={260} emptyHint="Cases and bids touched by a change appear here." />
+          <Card title="Ripple" pad={false} className="overflow-hidden lg:col-span-2 xl:col-span-1"
+            action={graph.nodes.length ? <Link href="/impact/" className="text-[12.5px] font-medium text-kb-ink hover:underline">Change impact</Link> : null}>
+            {graph.nodes.length ? (
+              <GraphCanvas data={graph} highlight={hl} height={260} emptyHint="Cases and bids touched by a change appear here." />
+            ) : (
+              <EmptyState compact icon={<Waves size={16} strokeWidth={1.75} />} title="No ripple yet"
+                text="Cases and clauses a changed fact reaches appear here." />
+            )}
           </Card>
         </div>
       </div>
@@ -476,12 +502,18 @@ function FeedCard({ item, last }: { item: FeedItem; last?: boolean }) {
           </ul>
         )}
         {caseFlips.map((f: any) => (
-          <div key={f.case_id} className="mt-2 flex flex-wrap items-center gap-2 rounded-[10px] bg-kb-soft px-3 py-2 text-[13px]">
+          <div key={f.case_id} className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-info-line bg-kb-soft px-3 py-2 text-[13px]">
             <span className="min-w-0 font-semibold text-ink">Recommendation for “{f.case}”</span>
             <span className="ml-auto flex shrink-0 items-center gap-1">
               <Verdict v={f.case_from} size="sm" /><ArrowRight size={13} strokeWidth={1.75} className="text-kb-ink" /><Verdict v={f.case_to} size="sm" />
             </span>
           </div>
+        ))}
+        {(r.cases_changed || []).filter((c: any) => c.action).map((c: any) => (
+          <Link key={c.action} href={`/actions/?id=${encodeURIComponent(c.action)}`}
+            className="mt-1.5 flex items-center gap-1 text-[12.5px] font-medium text-kb-ink hover:underline">
+            Review action <span className="mono text-[11.5px]">{c.action}</span> queued <ArrowRight size={13} strokeWidth={1.75} aria-hidden />
+          </Link>
         ))}
         {!flips.length && <p className="mt-1 text-[12.5px] text-ink-3">No verdict changed.</p>}
       </Entry>
@@ -508,6 +540,15 @@ function FeedCard({ item, last }: { item: FeedItem; last?: boolean }) {
     );
   }
 
+  if (item.kind === "actions")
+    return (
+      <Entry {...base} icon={<Check {...ICON} className="text-kb" />} title="Actions queued for approval">
+        <p className="mt-1 text-[12.5px] leading-snug text-ink-2">
+          {d.summary}.{" "}
+          <Link href={(d.actions || []).length === 1 ? `/actions/?id=${encodeURIComponent(d.actions[0])}` : "/actions/"} className="font-medium text-kb-ink hover:underline">Open the action queue</Link>
+        </p>
+      </Entry>
+    );
   if (item.kind === "noconflict")
     return (
       <Entry {...base} icon={<CircleCheck {...ICON} className="text-ink-3" />} title="No contradiction">

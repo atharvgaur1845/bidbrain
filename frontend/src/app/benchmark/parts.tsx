@@ -36,6 +36,7 @@ export const SYSTEMS: Sys[] = [
   { id: "bidbrain_multi", name: "BidBrain multi-agent", desc: "Graph-tool workers checked by a verifier", color: "var(--bar-1)", planned: false },
   { id: "text2cypher", name: "LLM text-to-Cypher", desc: "Writes Cypher from the schema, answers from rows", color: "var(--bar-2)", planned: true },
   { id: "vector_rag", name: "Vector RAG", desc: "Top-k chunks from the FalkorDB vector index", color: "var(--bar-3)", planned: true },
+  { id: "team", name: "BidBrain team", desc: "Planner, graph-tool workers and a verifier", color: "var(--bar-1)", planned: false },
   { id: "graphrag_sdk", name: "GraphRAG-SDK", desc: "FalkorDB GraphRAG-SDK with an auto-extracted schema", color: "var(--bar-4)", planned: true },
 ];
 
@@ -64,142 +65,134 @@ const Pending = () => <span className="text-[12.5px] text-ink-3">pending</span>;
 
 // ======================================================================= leaderboard
 
-const MEDAL = ["#d4a72c", "#9ea7b3", "#c27c3e"]; // gold, silver, bronze
-
+/** Rank as plain tabular number; first place uses the accent token (no medal colours). */
 function Rank({ r }: { r: number | null }) {
-  if (!r) return <span className="num inline-grid h-7 w-7 place-items-center text-[13px] text-ink-3">–</span>;
-  const c = MEDAL[r - 1];
+  if (!r) return <span className="num text-[12.5px] text-ink-3">–</span>;
   return (
-    <span className={clsx("num inline-grid h-7 w-7 place-items-center rounded-full text-[12.5px] font-semibold", !c && "text-ink-2")}
-      style={c ? {
-        background: `color-mix(in oklab, ${c} 20%, transparent)`,
-        color: `color-mix(in oklab, ${c} 68%, var(--text))`,
-        boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${c} 42%, transparent)`,
-      } : undefined}>
-      {r}
-    </span>
+    <span className={clsx("num inline-grid h-5 min-w-5 place-items-center rounded-[4px] border px-1 text-[12px] font-medium",
+      r === 1 ? "border-info-line bg-kb-soft text-kb-ink" : "border-line bg-surface-2 text-ink-2")}>{r}</span>
   );
 }
 
 function Score({ v, top, title }: { v: number | null | undefined; top: number | null; title?: string }) {
   if (!isNum(v)) return <Pending />;
   return (
-    <span title={title} className={clsx("num text-[13.5px]", top !== null && v === top ? "font-semibold text-kb-ink" : "text-ink")}>
+    <span title={title} className={clsx("num text-[13px]", top !== null && v === top ? "font-semibold text-kb-ink" : "text-ink")}>
       {pct(v)}
     </span>
   );
 }
 
-export function rankSystems(qa: QA, systems: Sys[]) {
-  const has = (k: string) => systems.some((s) => isNum(qa[s.id]?.[k]?.accuracy));
-  const key = has("Q333") || !has("S21") ? "Q333" : "S21";
-  const score = (s: Sys): number | null => {
-    const v = qa[s.id]?.[key]?.accuracy;
-    return isNum(v) ? v : null;
-  };
+type SetRunFull = SetRun & { accuracy_ci95?: [number, number] | null; tokens_per_q?: number | null;
+  latency?: { p50?: number | null; p95?: number | null }; llm_calls?: number | null; tool_calls?: number | null; errors?: number };
+const run = (qa: QA, id: string, set: string) => qa[id]?.[set] as SetRunFull | undefined;
+
+export function rankSystems(qa: QA, systems: Sys[], key = "Q333") {
+  const score = (s: Sys): number | null => { const v = qa[s.id]?.[key]?.accuracy; return isNum(v) ? v : null; };
   const rows = systems.map((s, i) => ({ s, i, v: score(s) }));
   rows.sort((a, b) => (a.v === null ? 1 : 0) - (b.v === null ? 1 : 0) || (b.v ?? 0) - (a.v ?? 0) || a.i - b.i);
-  return {
-    key,
-    rows: rows.map(({ s, v }) => ({ s, rank: v === null ? null : 1 + rows.filter((o) => o.v !== null && o.v > v).length })),
-  };
+  return { key, rows: rows.map(({ s, v }) => ({ s, rank: v === null ? null : 1 + rows.filter((o) => o.v !== null && o.v > v).length })) };
 }
 
-export function Leaderboard({ qa, systems, loading }: { qa: QA; systems: Sys[]; loading: boolean }) {
-  const { key, rows } = rankSystems(qa, systems);
-  const top: Record<string, number | null> = Object.fromEntries(SETS.map((k) => [k, best(systems.map((s) => qa[s.id]?.[k]?.accuracy))]));
-  const topProp = best(systems.map((s) => qa[s.id]?.Q333?.proportional));
-  const anyRun = systems.some((s) => qa[s.id]);
+const kTok = (v: unknown) => (isNum(v) ? (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)) : "—");
 
+/** One evaluation set: accuracy with its 95% CI, proportional credit, tokens, latency and calls per question. */
+function SetTable({ qa, systems, set, title, subtitle, baseline }:
+  { qa: QA; systems: Sys[]; set: string; title: string; subtitle: string; baseline?: number | null }) {
+  const { rows: all } = rankSystems(qa, systems, set);
+  const rows = all.filter(({ s }) => s.planned || run(qa, s.id, set));
+  const top = best(systems.map((s) => qa[s.id]?.[set]?.accuracy));
+  const topProp = best(systems.map((s) => qa[s.id]?.[set]?.proportional));
+  const n = systems.map((s) => run(qa, s.id, set)?.n).find(isNum);
   return (
-    <Card title="Question answering" pad={false} className="overflow-hidden"
-      action={loading ? <Spinner label="Loading results" /> : <span className="hidden text-[12.5px] text-ink-3 sm:inline">Ranked by {key} exact match</span>}>
+    <Card title={title} subtitle={subtitle} pad={false} className="overflow-hidden"
+      action={n ? <span className="num text-[12.5px] text-ink-3">n = {n}</span> : null}>
       <div className="scroll-thin overflow-x-auto">
-        <table className={clsx("kt min-w-[860px]", EDGE_CELLS)}>
+        <table className="kt dense min-w-[860px]">
           <thead>
             <tr>
-              <th className="w-[56px]">#</th>
+              <th className="w-[44px]">#</th>
               <th>System</th>
-              {SETS.map((k) => <th key={k} className="w-[92px] text-right!">{k}</th>)}
-              <th className="w-[124px] text-right!" title="Official proportional credit on Q333">Proportional</th>
-              <th className="w-[96px] text-right!" title="Median seconds per Q333 question">p50</th>
+              <th className="w-[84px] text-right!">Accuracy</th>
+              <th className="w-[112px] text-right!" title="Wilson 95% confidence interval on exact-match accuracy">95% CI</th>
+              <th className="w-[100px] text-right!" title="Official proportional credit">Proportional</th>
+              <th className="w-[84px] text-right!">Tokens/q</th>
+              <th className="w-[72px] text-right!">p50</th>
+              <th className="w-[72px] text-right!">p95</th>
+              <th className="w-[88px] text-right!">LLM / tool</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(({ s, rank }) => {
-              const r = qa[s.id];
+              const r = run(qa, s.id, set);
+              const ci = r?.accuracy_ci95;
               return (
                 <tr key={s.id}>
                   <td><Rank r={rank} /></td>
                   <td className="max-w-0">
-                    <div className="truncate text-[14px] font-medium text-ink">{s.name}</div>
-                    <div className="truncate text-[12.5px] text-ink-3">{s.desc}</div>
+                    <div className="truncate text-[13px] font-medium text-ink">{s.name}</div>
+                    <div className="truncate text-[12px] text-ink-3">{s.desc}</div>
                   </td>
-                  {SETS.map((k) => (
-                    <td key={k} className="text-right">
-                      <Score v={r?.[k]?.accuracy} top={top[k]} title={isNum(r?.[k]?.n) ? `${r[k].n} questions` : undefined} />
-                    </td>
-                  ))}
-                  <td className="text-right"><Score v={r?.Q333?.proportional} top={topProp} /></td>
-                  <td className="text-right">
-                    {!r ? <Pending /> : <span className="num text-[13.5px] text-ink-2">{secs(r.latency?.p50) ?? "—"}</span>}
-                  </td>
+                  <td className="text-right"><Score v={r?.accuracy} top={top} /></td>
+                  <td className="num text-right text-[12.5px] text-ink-2">{ci ? `${pct(ci[0], 0)}–${pct(ci[1], 0)}` : r ? "—" : <Pending />}</td>
+                  <td className="text-right"><Score v={r?.proportional} top={topProp} /></td>
+                  <td className="num text-right text-[12.5px] text-ink-2">{r ? kTok(r.tokens_per_q) : <Pending />}</td>
+                  <td className="num text-right text-[12.5px] text-ink-2">{r ? secs(r.latency?.p50) ?? "—" : <Pending />}</td>
+                  <td className="num text-right text-[12.5px] text-ink-2">{r ? secs(r.latency?.p95) ?? "—" : <Pending />}</td>
+                  <td className="num text-right text-[12.5px] text-ink-2">{r ? `${isNum(r.llm_calls) ? r.llm_calls.toFixed(1) : "—"} / ${isNum(r.tool_calls) ? r.tool_calls.toFixed(1) : "—"}` : <Pending />}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
-      <p className="border-t border-line px-5 py-3 text-[12.5px] leading-relaxed text-ink-3">
-        {anyRun ? null : "No Q&A runs recorded yet; scores appear as each eval/run.py job finishes. "}
-        S21: 21 sample questions with verified answers. Q333: 333 hidden questions, near-gold. ABS: absence questions.
-        TND: tender clauses. Exact match within 0.5%.
-      </p>
+      {isNum(baseline) && (
+        <p className="border-t border-line px-4 py-2 text-[12px] text-ink-3">
+          Constant baseline (majority answer per type): <span className="num text-ink-2">{pct(baseline)}</span>
+        </p>
+      )}
     </Card>
   );
 }
 
-export function CostTable({ qa, systems }: { qa: QA; systems: Sys[] }) {
-  const { rows } = rankSystems(qa, systems);
-  const fix = (v: unknown) => (isNum(v) ? v.toFixed(1) : "—");
+export function Leaderboard({ qa, systems, loading, baselines }:
+  { qa: QA; systems: Sys[]; loading: boolean; baselines?: Record<string, { majority_per_type?: number }> }) {
+  if (loading) return <Card><Spinner label="Loading results" /></Card>;
   return (
-    <Card title="Cost per question" pad={false} className="overflow-hidden"
-      action={<span className="text-[12.5px] text-ink-3">Q333 averages</span>}>
-      <div className="scroll-thin overflow-x-auto">
-        <table className={clsx("kt min-w-[620px]", EDGE_CELLS)}>
-          <thead>
-            <tr>
-              <th>System</th>
-              <th className="w-[96px] text-right!">p50</th>
-              <th className="w-[96px] text-right!">p95</th>
-              <th className="w-[112px] text-right!">LLM calls</th>
-              <th className="w-[112px] text-right!">Tool calls</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ s }) => {
-              const r = qa[s.id];
-              return (
-                <tr key={s.id}>
-                  <td className="text-[13.5px] font-medium text-ink">{s.name}</td>
-                  {!r ? (
-                    [0, 1, 2, 3].map((i) => <td key={i} className="text-right"><Pending /></td>)
-                  ) : (
-                    <>
-                      <td className="num text-right text-ink-2">{secs(r.latency?.p50) ?? "—"}</td>
-                      <td className="num text-right text-ink-2">{secs(r.latency?.p95) ?? "—"}</td>
-                      <td className="num text-right text-ink-2">{fix(r.llm_calls)}</td>
-                      <td className="num text-right text-ink-2">{fix(r.tool_calls)}</td>
-                    </>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+    <div className="flex flex-col gap-4">
+      <SetTable qa={qa} systems={systems} set="S21" baseline={baselines?.S21?.majority_per_type}
+        title="Independent gold: S21" subtitle="The dataset's 21 sample questions with verified answers. Small: read the confidence interval, not the point." />
+      <SetTable qa={qa} systems={systems} set="Q333" baseline={baselines?.Q333?.majority_per_type}
+        title="Near-gold, engine-derived: Q333" subtitle="333 hidden questions labelled by our deterministic engine (99.775 on the public leaderboard), not by people." />
+      <div className="flex flex-col gap-4">
+        <SetTable qa={qa} systems={systems} set="ABS" baseline={baselines?.ABS?.majority_per_type}
+          title="Synthesized: ABS" subtitle="Absence questions; gold computed with Cypher." />
+        <SetTable qa={qa} systems={systems} set="TND" baseline={baselines?.TND?.majority_per_type}
+          title="Synthesized: TND" subtitle="Tender-clause verdicts; gold from Cypher and Python." />
       </div>
+    </div>
+  );
+}
+
+/** Limitations, always visible next to the numbers. */
+export function Limitations() {
+  return (
+    <Card title="Limitations" subtitle="Read these before quoting a number">
+      <ul className="list-disc space-y-1 pl-4 text-[12.5px] leading-relaxed text-ink-2">
+        <li>S21 is the only independent gold, and it has 21 questions: a one-question swing moves accuracy by about 5 points.</li>
+        <li>Q333 gold comes from the same deterministic engine whose logic the BidBrain graph tools share, so it favours tool-based systems. It is near-gold, not ground truth.</li>
+        <li>ABS and TND are synthesized by us from the graph; they test coverage of absence and tender reasoning, not generalisation.</li>
+        <li>All systems use the same model and database; latency is wall time on one shared vLLM server and varies with load.</li>
+        <li>Exact match is within 0.5%; proportional credit is the dataset&apos;s official partial score.</li>
+      </ul>
     </Card>
   );
+}
+
+/** Kept for the board tab: superseded by the per-set tables, which carry cost columns. */
+export function CostTable(_: { qa: QA; systems: Sys[] }) {
+  void _;
+  return null;
 }
 
 // ======================================================================= hop count

@@ -1,11 +1,13 @@
 "use client";
 
-import { ScrollText as ScrollTextIcon, Download } from "lucide-react";
+import { Download } from "lucide-react";
+import Link from "next/link";
 
 import { useEffect, useState } from "react";
 import GraphCanvas, { GData, mergeGraph } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/Shell";
-import { Button, Card, Empty, EvidenceList, Markdown, Spinner, Tabs, Verdict } from "@/components/ui";
+import { Button, Card, Empty, EvidenceList, Markdown, Notice, Spinner, StatusBadge, Tabs, Verdict } from "@/components/ui";
+import { ActionRow, kindLabel } from "@/lib/actions";
 import { api, stream } from "@/lib/api";
 import { AgentPipeline, AgentStatus, Clause, Handoff, Plan, TenderList, VerdictTable, VerifierBanner } from "./parts";
 
@@ -38,12 +40,49 @@ export default function QualifyPage() {
   const [ms, setMs] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("verdicts");
+  const [caseId, setCaseId] = useState<string | null>(null);
+  const [caseInfo, setCaseInfo] = useState<{ title?: string; verdict?: string; loaded?: boolean } | null>(null);
+  const [actions, setActions] = useState<ActionRow[]>([]);
 
-  useEffect(() => { api("/api/tenders").then((t) => { setTenders(t); setPick(t[0]); setText(t[0]?.text || ""); }); }, []);
+  const loadActions = (id: string) =>
+    api<{ actions: ActionRow[] }>(`/api/actions?case_id=${encodeURIComponent(id)}`).then((r) => setActions(r.actions || [])).catch(() => {});
+
+  /** Open a stored case (deep link ?case=<id>): clauses, findings, agent runs and memo from GET /api/cases/{id}. */
+  async function openCase(id: string, list: any[]) {
+    setErr(null);
+    try {
+      const d = await api(`/api/cases/${encodeURIComponent(id)}`);
+      const t = list.find((x) => x.id === d.case.tender_ref);
+      if (t) { setPick(t); setText(t.text || ""); }
+      setCaseId(id);
+      setCaseInfo({ title: d.case.title, verdict: d.case.verdict, loaded: true });
+      setClauses((d.clauses || []).map((c: any) => ({ clause_id: c.id, ref: c.ref, kind: c.kind, text: c.text, params: c.params,
+        verdict: c.verdict, basis: c.basis, corrected: c.corrected || undefined, evidence: c.evidence || [],
+        findings: (c.findings || []).map((f: any) => ({ kind: f.kind, text: f.text, severity: f.severity, agent: f.agent || "" })) })));
+      setStatus(Object.fromEntries((d.agent_runs || []).map((r: any) => [r.agent, r.status === "skipped" ? "skipped" : "done"])));
+      setSummaries(Object.fromEntries((d.agent_runs || []).filter((r: any) => r.summary).map((r: any) => [r.agent, r.summary])));
+      if (d.case.memo) setMemo({ markdown: d.case.memo, overall: d.case.verdict, method: "stored" });
+      loadActions(id);
+    } catch (e: any) {
+      setErr(`Case ${id}: ${e?.message || e}`);
+    }
+  }
+
+  useEffect(() => {
+    api("/api/tenders").then((t) => {
+      setTenders(t);
+      const q = new URLSearchParams(window.location.search);
+      const want = t.find((x: any) => x.id === q.get("tender")) || t[0];
+      setPick(want); setText(want?.text || "");
+      const c = q.get("case");
+      if (c) openCase(c, t);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on mount
+  }, []);
 
   async function run() {
     setRunning(true); setClauses([]); setGraph({ nodes: [], edges: [] }); setMemo(null); setVerified(null); setErr(null);
-    setStatus({}); setSummaries({}); setFocus(null); setMs(null); setPlan(null); setHandoffs([]);
+    setStatus({}); setSummaries({}); setFocus(null); setMs(null); setPlan(null); setHandoffs([]); setActions([]); setCaseInfo(null);
     const body = pick && text === pick.text ? { tender_id: pick.id } : { tender_id: pick?.id, text };
     await stream("/api/qualify", body, (ev) => {
       if (ev.type === "agent_start") setStatus((s) => ({ ...s, [ev.agent]: "running" }));
@@ -64,7 +103,13 @@ export default function QualifyPage() {
       }
       if (ev.type === "verified") { setVerified(ev); setStatus((s) => ({ ...s, Verifier: "done" })); setSummaries((s) => ({ ...s, Verifier: ev.ok ? `${ev.checked} verdicts checked, all agree` : `${ev.mismatches.length} mismatches: needs review` })); }
       if (ev.type === "memo") { setMemo({ markdown: ev.markdown, overall: ev.overall, method: ev.method, memo_check: ev.memo_check }); setStatus((s) => ({ ...s, Assembler: "done" })); setSummaries((s) => ({ ...s, Assembler: `memo (${ev.method})` })); }
+      if (ev.type === "case_open") { setCaseId(ev.case_id); setCaseInfo({ title: ev.title }); }
       if (ev.type === "done") setMs(ev.ms);
+      if (ev.type === "result" && ev.data?.case?.id) {
+        setActions(ev.data.actions || []);
+        loadActions(ev.data.case.id);
+        try { const u = new URL(window.location.href); u.searchParams.set("case", ev.data.case.id); u.searchParams.delete("tender"); window.history.replaceState(null, "", u); } catch {}
+      }
       if (ev.type === "error") setErr(ev.message);
     });
     setRunning(false);
@@ -94,7 +139,7 @@ export default function QualifyPage() {
 
   return (
     <div>
-      <PageHeader icon={<ScrollTextIcon size={19} strokeWidth={1.75} />} tone="teal"
+      <PageHeader
         title="Qualify a tender"
         subtitle="A planner routes six agents over one case graph. They read each other's findings there and hand work back when one finds a fix. Every verdict links back to its evidence."
         meta={meta}
@@ -105,7 +150,10 @@ export default function QualifyPage() {
         {/* ---------------------------------------------------------------- left: input + pipeline */}
         <div className="flex flex-col gap-5 xl:col-span-4">
           <Card title="Tender">
-            <TenderList tenders={tenders} pickedId={pick?.id} onPick={(t) => { setPick(t); setText(t.text); }} />
+            <TenderList tenders={tenders} pickedId={pick?.id} onPick={(t) => {
+              setPick(t); setText(t.text);
+              try { const u = new URL(window.location.href); u.searchParams.set("tender", t.id); u.searchParams.delete("case"); window.history.replaceState(null, "", u); } catch {}
+            }} />
 
             <div className="mt-5">
               <div className="mb-2 flex items-baseline gap-2">
@@ -125,8 +173,30 @@ export default function QualifyPage() {
           </Card>
 
           <Card title="Agent pipeline" action={ms !== null ? <span className="num text-[12.5px] text-ink-3">{ms.toFixed(0)} ms</span> : null}>
-            <AgentPipeline status={status} summaries={summaries} plan={plan} handoffs={handoffs} />
+            <AgentPipeline status={status} summaries={summaries} plan={plan} handoffs={handoffs} verified={verified} />
           </Card>
+
+          {caseId && (
+            <Card title="Actions for this case" pad={false}
+              subtitle={<span className="mono">{caseId}</span>}
+              action={<Link href="/actions/" className="text-[12.5px] font-medium text-kb-ink hover:underline">Queue</Link>}>
+              {actions.length ? (
+                <ul className="divide-y divide-line">
+                  {actions.map((a) => (
+                    <li key={a.id}>
+                      <Link href={`/actions/?id=${encodeURIComponent(a.id)}`} className="flex items-start gap-2 px-4 py-2 hover:bg-surface-2">
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[12px] text-ink-3">{kindLabel(a.kind)}</span>
+                          <span className="block text-[13px] leading-snug text-ink">{a.title}</span>
+                        </span>
+                        <StatusBadge status={a.status} size="sm" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="px-4 py-3 text-[12.5px] text-ink-3">No follow-up actions queued for this case.</p>}
+            </Card>
+          )}
         </div>
 
         {/* ---------------------------------------------------------------- right: results */}
@@ -138,7 +208,13 @@ export default function QualifyPage() {
               { id: "memo", label: "Memo" },
             ]} />
 
-          {err && <div role="alert" className="rounded-[10px] bg-bad-soft px-4 py-3 text-[13.5px] text-bad">{err}</div>}
+          {caseInfo?.loaded && !running && (
+            <Notice tone="info" title={<>Stored case <span className="mono">{caseId}</span></>}
+              action={caseInfo.verdict ? <Verdict v={caseInfo.verdict} size="sm" /> : null}>
+              {caseInfo.title}: clauses, findings and memo as they stand in the graph now. Run the agents to re-qualify.
+            </Notice>
+          )}
+          {err && <Notice tone="bad" title="Error">{err}</Notice>}
 
           {tab === "verdicts" && (
             <Card pad={false} className="overflow-hidden">
@@ -182,7 +258,7 @@ export default function QualifyPage() {
                 <div className="flex flex-col gap-4">
                   {verified && <VerifierBanner verified={verified} />}
                   {memo?.memo_check && !memo.memo_check.ok && (
-                    <div role="status" className="rounded-[10px] bg-warn-soft px-4 py-3 text-[13px] leading-snug text-ink-2">
+                    <div role="status" className="rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-[13px] leading-snug text-ink-2">
                       <span className="font-semibold text-ink">LLM memo rejected. </span>
                       It {memo.memo_check.problems.slice(0, 3).join("; ")}. This memo is assembled from the verified record instead.
                     </div>
