@@ -207,6 +207,14 @@ GLiNER extractor needed ~6 GB of RAM per run on our machine); 6 chunk-level rela
 
 Honest notes:
 
+* **Six-agent team on TND: 144/144 (95% CI .97–1.0), 0 LLM calls.** This measures the deterministic graph
+  pipeline (rule clause parser → EvidenceHunter → AbsenceAuditor → ConflictSentinel → Verifier), not an LLM. Its
+  first run scored 136/144; all 8 misses were one parser bug ("buildings" also matched "small buildings"), which we
+  fixed after seeing them, so treat this number as tuned on the test set. Four of the six agents are deterministic
+  graph agents; only ClauseParser and Assembler use an LLM.
+* 95% Wilson intervals are in `qa_summary.json` (e.g. BidBrain Q333 .59–.69). S21 (n=21) is too small to rank systems.
+  BidBrain spends ~10× the tokens of text-to-Cypher per question. JV works are credited at full value (the corpus has
+  no share %), and there is no bank-guarantee clause.
 * **Two BidBrain runs.** In the first run, BidBrain scored .313 on TND. The agent's one-line tool description for
   `qualify_clause` named no parameters, so the model invented keys (`thresholds`, `min_experience`) that the tool
   silently ignored. We then documented and validated the parameters. This fix applies to every question; nothing was
