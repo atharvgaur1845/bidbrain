@@ -3,6 +3,10 @@
     detect   two active claims about the same (subject, predicate) disagree beyond
              the coarser source's precision  ->  (a)-[:CONTRADICTS]->(b)
     resolve  claims are grouped by the value they state (within precision); in order:
+               0. a claim carrying a published company-record fact (opted-in sessions only) settles
+                  the claims its source decision already weighed (policy company_record); newer
+                  evidence is weighed against it on steps 1-4, and the record only breaks a tie
+                  against equal-or-lower authority (see _propose_with_record)
                1. a learned PolicyRule whose two kinds really disagree here, with no
                   third source in play                (procedural memory)
                2. same issuer, later document         (recency: corrigenda, re-issues)
@@ -34,6 +38,11 @@ label). Only the promoting session retires a rule; any other session can *contes
 rule out of play in that session only and reopens the decisions it made there as resolve cards. A
 promote, retire or contest re-checks the acting session: open cards of the rule's shape are re-run
 through the engine, and decisions made by a rule that is now retired or contested are reopened.
+A company rule whose promoting session is gone is retired automatically after ORG_ORPHAN_TTL.
+
+Transaction time. A claim set aside by a decision gets `invalidated_at` / `invalidated_by`; when a later
+decision, a reopened card or the company record puts it back in play, both are cleared and the set-aside
+interval is appended to `status_history`.
 """
 from __future__ import annotations
 
@@ -76,13 +85,34 @@ def _rounding_only(a: dict, b: dict) -> bool:
             and not _differs(a, b))
 
 
-CLAIMS_FOR = """MATCH (c:Claim)-[:ABOUT]->(s) WHERE c.status <> 'superseded' AND c.status <> 'rejected'
+# claims out of play: set aside by a decision, or withdrawn with the company-record fact that brought them
+OUT_OF_PLAY = ("superseded", "rejected", "withdrawn")
+
+CLAIMS_FOR = """MATCH (c:Claim)-[:ABOUT]->(s) WHERE NOT c.status IN ['superseded', 'rejected', 'withdrawn']
   AND ($keys IS NULL OR c.subject_key IN $keys)
 RETURN c.id AS id, c.subject_label AS subject_label, c.subject_key AS subject_key, c.predicate AS predicate,
        c.value AS value, c.value_str AS value_str, c.source_doc AS source_doc, c.source_kind AS source_kind,
        c.authority AS authority, c.precision AS precision, c.issuer AS issuer, c.observed_day AS observed_day,
-       c.page AS page, c.status AS status, c.planted AS planted, c.company_record AS company_record
+       c.page AS page, c.status AS status, c.planted AS planted, c.company_record AS company_record,
+       c.record_ruled AS record_ruled, c.record_published_at AS record_published_at, c.recorded_at AS recorded_at
 ORDER BY c.subject_key, c.predicate"""
+
+# Reactivating a claim that a decision had set aside: it is in play again, so `invalidated_at` is cleared (a
+# point-in-time read must see it as alive now); the interval it spent set aside is kept in `status_history`
+# as "<status>:<invalidated_at>-<reactivated_at>:<decision>" strings.
+_REACTIVATE = """MATCH (c:Claim) WHERE c.id IN $ids AND c.invalidated_at IS NOT NULL
+SET c.status_history = coalesce(c.status_history, []) +
+        [coalesce(c.status, '?') + ':' + toString(c.invalidated_at) + '-' + toString(timestamp()) + ':' +
+         coalesce(c.invalidated_by, '')],
+    c.invalidated_at = NULL, c.invalidated_by = NULL"""
+
+
+def reactivate(g: Graph, ids: list[str], status: str = "active") -> None:
+    """Put claims back in play (status `active` or `contested`), clearing `invalidated_at` with history."""
+    if not ids:
+        return
+    g.run(_REACTIVATE, {"ids": ids})
+    g.run("MATCH (c:Claim) WHERE c.id IN $ids SET c.status = $st", {"ids": ids, "st": status})
 
 
 def detect(g: Graph, subject_keys: list[str] | None = None) -> dict:
@@ -170,16 +200,69 @@ def propose(conflict: dict, rules: list[dict], org_rules: list[dict] | None = No
     """Decide (without writing) how a conflict should be resolved.
 
     Order: this session's learned rules, then company rules (promoted to `bidbrain_org`), then
-    recency (same issuer), then authority; otherwise a human decides."""
+    recency (same issuer), then authority; otherwise a human decides. A claim carrying a published
+    company-record fact takes part as one more claim (see `_propose_with_record`)."""
+    recs = [c for c in conflict["claims"] if c.get("company_record")]
+    if recs:
+        return _propose_with_record(conflict, rules, org_rules, recs)
+    return _ladder(conflict, rules, org_rules)
+
+
+def _same_issuer(a: dict, b: dict) -> bool:
+    return bool(a.get("issuer")) and (a.get("issuer") or "").lower() == (b.get("issuer") or "").lower()
+
+
+def _propose_with_record(conflict: dict, rules: list[dict], org_rules: list[dict] | None, recs: list[dict]) -> dict:
+    """A published company-record fact is one participant with its own authority, not a trump card.
+
+    * Claims the published decision already weighed (`record_ruled`: its BASED_ON claims, which are corpus
+      claims with the same ids in every workspace; and any older published value of the same fact) are not
+      re-litigated: if they are the only disagreement, the record settles it (policy `company_record`).
+    * Evidence the published decision never saw is weighed against the record claim on the ordinary ladder
+      (rules, same-issuer recency, authority). A newer same-issuer amendment or a stronger source can win.
+    * When the ladder cannot decide, the record breaks the tie, but only against claims of equal or lower
+      authority that are not a later statement by the record's own issuer; otherwise a person decides."""
+    cl = conflict["claims"]
+    rec = max(recs, key=lambda c: (c.get("record_published_at") or 0, str(c["id"])))
+    fid = rec["company_record"]
+    listed = rec.get("record_ruled")
+
+    def weighed(c: dict) -> bool:
+        if c.get("company_record"):                 # an older published value of the same fact
+            return True
+        if listed is None:                          # a fact published before its basis was recorded:
+            return not c.get("recorded_at")         # the corpus claims (recorded_at 0) were its basis
+        return c["id"] in listed
+
+    fresh = [c for c in cl if c is not rec and _differs(c, rec) and not weighed(c)]
+    origin = f"company record {fid} (published from another workspace; source {rec['source_doc']})"
+    if not fresh:
+        return {"auto": True, "policy": "company_record", "winner": rec, "record_fact": fid,
+                "rationale": f"{origin}: every claim here that disagrees with it was weighed by the decision it "
+                             f"was published from"}
+    sub = [rec] + [c for c in cl if c is not rec and not c.get("company_record") and not _differs(c, rec)] + fresh
+    p = _ladder({**conflict, "claims": sub}, rules, org_rules)
+    newer = ", ".join(f"{c['source_kind']} {c['source_doc']} ({c['authority']})" for c in fresh)
+    if p["auto"]:
+        if _differs(p["winner"], rec):
+            return {**p, "rationale": f"newer evidence outweighs {origin}: {p['rationale']}"}
+        return {**p, "policy": "company_record", "winner": rec, "record_fact": fid, "rule_id": None,
+                "org_rule": None, "rationale": f"{origin} stands against newer evidence {newer}: {p['rationale']}"}
+    stronger = [c for c in fresh if (c.get("authority") or 0) > (rec.get("authority") or 0)
+                or (_same_issuer(c, rec) and (c.get("observed_day") or 0) > (rec.get("observed_day") or 0))]
+    if not stronger:
+        return {"auto": True, "policy": "company_record", "winner": rec, "record_fact": fid,
+                "rationale": f"{origin} breaks the tie: the newer evidence ({newer}) has equal or lower authority "
+                             f"({p['rationale']})"}
+    return {**p, "suggested": rec,
+            "rationale": f"newer evidence ({newer}) disagrees with {origin} and is not weaker: a person decides "
+                         f"({p['rationale']})"}
+
+
+def _ladder(conflict: dict, rules: list[dict], org_rules: list[dict] | None = None) -> dict:
+    """The ordinary policy order: session rules, company rules, same-issuer recency, authority, else human."""
     cl = conflict["claims"]
     groups = _groups(cl)
-    # a fact the company already decided (published from another workspace) is not re-litigated here
-    rec = [c for c in cl if c.get("company_record")]
-    if rec:
-        win = rec[-1]
-        return {"auto": True, "policy": "company_record", "winner": win,
-                "rationale": f"company record {win['company_record']}: this fact was decided and published to the "
-                             f"company record from another workspace; its source is {win['source_doc']}"}
     for r in rules:
         if r["predicate"] != conflict["predicate"]:
             continue
@@ -269,7 +352,7 @@ def _decision(g: Graph, did: str, conflict_id: str, subject_key: str, predicate:
 
 def record(g: Graph, conflict: dict, winner_id: str, policy: str, rationale: str,
            actor: str = "policy-engine", actor_kind: str = "Agent", rule_id: str | None = None,
-           keep_card: str | None = None, org_rule: dict | None = None) -> dict:
+           keep_card: str | None = None, org_rule: dict | None = None, record_fact: str | None = None) -> dict:
     """Write the Decision, flip claim statuses, re-materialize the property.
 
     Only claims that *disagree* with the winner lose; claims stating the same value (within
@@ -295,14 +378,19 @@ def record(g: Graph, conflict: dict, winner_id: str, policy: str, rationale: str
                "pk": org_rule["prefer_kind"], "ok": org_rule["over_kind"], "by": org_rule.get("promoted_by"),
                "lab": org_rule.get("promoted_by_label"),
                "src": org_rule.get("source_decision"), "why": org_rule.get("rationale"), "d": did})
+    if record_fact:
+        # the published fact lives in the company graph: cite it through this workspace's reference node
+        g.run("""MATCH (d:Decision {id:$d}) SET d.company_record = $f, d.company_record_status = 'active'
+                 WITH d MATCH (r:CompanyRecordRef {id:$f}) MERGE (d)-[:APPLIED_RECORD]->(r)""",
+              {"d": did, "f": record_fact})
     losers = [c["id"] for c in conflict["claims"] if c["id"] != winner_id and _differs(c, win)]
     agree = [c["id"] for c in conflict["claims"] if c["id"] != winner_id and not _differs(c, win)]
     # transaction time: a set-aside claim keeps its value and records when, and by which decision, it stopped counting
     g.run("""MATCH (c:Claim) WHERE c.id IN $ids SET c.status = $st, c.invalidated_at = timestamp(),
              c.invalidated_by = $d""", {"ids": losers, "st": loser_status, "d": did})
-    g.run("MATCH (c:Claim) WHERE c.id IN $ids SET c.status = 'active'", {"ids": agree + [winner_id]})
+    reactivate(g, agree + [winner_id])           # back in play: invalidated_at cleared, history kept
     g.run("""MATCH (w:Claim {id:$w}) UNWIND $ids AS lid MATCH (l:Claim {id:lid})
-             WHERE NOT (w)-[:SUPERSEDES]->(l) CREATE (w)-[:SUPERSEDES {decision:$d}]->(l)""",
+             WHERE NOT (w)-[:PREVAILS_OVER]->(l) CREATE (w)-[:PREVAILS_OVER {decision:$d}]->(l)""",
           {"w": winner_id, "ids": losers, "d": did})
     g.run("""MATCH (w:Claim {id:$w}) UNWIND $ids AS aid MATCH (a:Claim {id:aid})
              WHERE NOT (a)-[:CORROBORATES]->(w) CREATE (a)-[:CORROBORATES {decision:$d}]->(w)""",
@@ -325,7 +413,7 @@ def open_card(g: Graph, conflict: dict, proposal: dict) -> dict:
     """Open a resolve card — or, if one is already open on this fact, fold the new claims into it
     (one fact never has two open cards that a human could resolve inconsistently)."""
     ids = [c["id"] for c in conflict["claims"]]
-    g.run("MATCH (c:Claim) WHERE c.id IN $ids SET c.status = 'contested'", {"ids": ids})
+    reactivate(g, ids, "contested")              # a claim in an open card is in play, not set aside
     existing = g.read("""MATCH (k:ConflictCard {subject_key:$sk, predicate:$p, status:'open'})
                          RETURN k.id AS id ORDER BY k.opened_at, k.id""",
                       {"sk": conflict["subject_key"], "p": conflict["predicate"]})
@@ -356,7 +444,7 @@ def run(g: Graph, subject_keys: list[str] | None = None) -> dict:
         prop = propose(cf, rules, orgs)
         if prop["auto"]:
             d = record(g, cf, prop["winner"]["id"], prop["policy"], prop["rationale"], rule_id=prop.get("rule_id"),
-                       org_rule=prop.get("org_rule"))
+                       org_rule=prop.get("org_rule"), record_fact=prop.get("record_fact"))
             decisions.append({**d, "conflict": _brief(cf)})
         else:
             cards.append({**open_card(g, cf, prop), "conflict": _brief(cf)})
@@ -370,7 +458,7 @@ def adopt_uncontested(g: Graph, claim_ids: list[str], skip: set[str] = frozenset
     rows = g.read("""MATCH (n:Claim)-[:ABOUT]->(s) WHERE n.id IN $ids AND n.status = 'active'
                      OPTIONAL MATCH (o:Claim)-[:ABOUT]->(s)
                      WHERE o.predicate = n.predicate AND o.id <> n.id
-                       AND o.status <> 'superseded' AND o.status <> 'rejected'
+                       AND NOT o.status IN ['superseded', 'rejected', 'withdrawn']
                      WITH n, count(o) AS rivals WHERE rivals = 0
                      RETURN n {.*} AS c""", {"ids": [i for i in claim_ids if i not in skip]})
     out = []
@@ -389,6 +477,27 @@ def adopt_uncontested(g: Graph, claim_ids: list[str], skip: set[str] = frozenset
     if out:
         g.run("MATCH (m:Meta {key:'meta'}) SET m.version = m.version + 1")
     return out
+
+
+def resettle(g: Graph, subject_label: str, subject_key: str, predicate: str, why: str,
+             policy: str = "record_withdrawn") -> dict:
+    """Decide a fact again from the claims still in play (after a company-record fact was withdrawn): the
+    engine settles a remaining disagreement as usual (decision or card); if nothing disagrees any more, the
+    strongest remaining claim is selected by a `policy` decision, which re-materializes the subject and closes
+    any open card on the fact. Returns {decisions, cards} in `run`'s format."""
+    out = run(g, [subject_key])
+    if any(x["conflict"]["predicate"] == predicate for x in out["decisions"] + out["cards"]):
+        return {"decisions": out["decisions"], "cards": out["cards"]}
+    rows = g.read("""MATCH (c:Claim)-[:ABOUT]->(s) WHERE c.subject_key = $k AND c.predicate = $p
+                       AND c.status IN ['active', 'contested'] RETURN c {.*} AS c""",
+                  {"k": subject_key, "p": predicate})
+    if not rows:
+        return {"decisions": out["decisions"], "cards": out["cards"]}
+    claims = sorted((r["c"] for r in rows), key=_rank_key)
+    cf = {"id": _id("CF-", subject_label, subject_key, predicate, *sorted(c["id"] for c in claims)),
+          "subject_label": subject_label, "subject_key": subject_key, "predicate": predicate, "claims": claims}
+    d = record(g, cf, claims[0]["id"], policy, why)
+    return {"decisions": out["decisions"] + [{**d, "conflict": _brief(cf)}], "cards": out["cards"]}
 
 
 def _brief(cf: dict) -> dict:
@@ -454,6 +563,11 @@ ORG_GRAPH = os.getenv("ORG_GRAPH", "bidbrain_org")
 ORG_MAX_ACTIVE = int(os.getenv("ORG_MAX_RULES", "50"))     # active company rules (a public sandbox)
 ORG_MAX_KEPT = 200                                         # retired rules kept for the audit trail
 ORG_MAX_CONTESTS = 100                                     # contests recorded per rule (one per session)
+# a company rule whose promoting session no longer exists is "orphaned": nobody can retire it but an operator.
+# It is retired automatically once it has been orphaned for ORG_ORPHAN_TTL seconds (default 24 h), so a
+# burst of throwaway sessions cannot keep the ORG_MAX_ACTIVE slots full; operators also see `orphaned` in
+# GET /api/memory/org and can retire any rule with the admin token.
+ORG_ORPHAN_TTL = int(os.getenv("ORG_ORPHAN_TTL", str(24 * 3600)))
 RULE_ID_RE = re.compile(r"^RULE-[0-9a-f]{10}$")
 ORG_ID_RE = re.compile(r"^ORG-[0-9a-f]{10}$")
 _ORG_LOCK = threading.RLock()
@@ -558,18 +672,19 @@ def recheck_open_cards(g: Graph) -> dict:
 
 def reopen_decision(g: Graph, decision_id: str, reason: str) -> dict | None:
     """Turn a settled decision back into a resolve card: its claims become contested again, the
-    claim-level SUPERSEDES / CORROBORATES edges it wrote are removed, and the Decision is kept (marked
+    claim-level PREVAILS_OVER / CORROBORATES edges it wrote are removed, and the Decision is kept (marked
     reopened, with the reason) for the audit trail. The subject keeps the old winner's value until a
     person resolves the card."""
     rows = g.read("""MATCH (d:Decision {id:$id})-[:BASED_ON]->(c:Claim)
                      OPTIONAL MATCH (d)-[:SELECTS]->(w:Claim)
                      RETURN d.conflict_id AS cid, d.subject_key AS sk, d.predicate AS p, w.id AS winner,
                             collect(DISTINCT c {.*}) AS claims""", {"id": decision_id})
-    if not rows or not rows[0]["claims"] or len(rows[0]["claims"]) < 2:
+    claims = [c for c in (rows[0]["claims"] if rows else []) if c.get("status") != "withdrawn"]
+    if len(claims) < 2:
         return None
     r = rows[0]
-    claims = sorted(r["claims"], key=_rank_key)
-    g.run("""MATCH (:Claim)-[e:SUPERSEDES]->(:Claim) WHERE e.decision = $d DELETE e""", {"d": decision_id})
+    claims = sorted(claims, key=_rank_key)
+    g.run("""MATCH (:Claim)-[e:PREVAILS_OVER]->(:Claim) WHERE e.decision = $d DELETE e""", {"d": decision_id})
     g.run("""MATCH (:Claim)-[e:CORROBORATES]->(:Claim) WHERE e.decision = $d DELETE e""", {"d": decision_id})
     cf = {"id": r["cid"] or _id("CF-", r["sk"], r["p"], decision_id), "subject_label": claims[0]["subject_label"],
           "subject_key": r["sk"], "predicate": r["p"], "claims": claims}
@@ -641,6 +756,43 @@ def sync_org_status(g: Graph) -> dict[str, str]:
     return out
 
 
+# ---- orphaned rules
+
+def live_session_tags() -> set[str]:
+    return {session_tag(n) for n in db().list_graphs() if n.startswith("session_")}
+
+
+def expire_orphan_rules(now_ms: int | None = None) -> list[str]:
+    """Stamp `orphaned_at` on active company rules whose promoting session is gone (clear it if the session is
+    back), and retire those orphaned for longer than ORG_ORPHAN_TTL (retired_by 'expired'). Returns the ids
+    retired. Run by the session reaper and before every promote."""
+    with _ORG_LOCK:
+        org = _org()
+        if org is None:
+            return []
+        rows = org.read("""MATCH (o:OrgRule) WHERE o.retired = false
+                           RETURN o.id AS id, o.source_session AS s, o.orphaned_at AS t""")
+        if not rows:
+            return []
+        live = live_session_tags()
+        now = now_ms if now_ms is not None else int(time.time() * 1000)
+        expired = []
+        for r in rows:
+            if r["s"] in live:
+                if r["t"] is not None:
+                    org.run("MATCH (o:OrgRule {id:$id}) SET o.orphaned_at = NULL", {"id": r["id"]})
+            elif r["t"] is None:
+                org.run("MATCH (o:OrgRule {id:$id}) SET o.orphaned_at = $now", {"id": r["id"], "now": now})
+            elif now - r["t"] >= ORG_ORPHAN_TTL * 1000:
+                org.run("""MATCH (o:OrgRule {id:$id}) SET o.retired = true, o.retired_at = $now,
+                               o.retired_by = 'expired', o.retire_reason = 'its promoting session no longer exists'""",
+                        {"id": r["id"], "now": now})
+                expired.append(r["id"])
+        if expired:
+            _export_locked()
+        return expired
+
+
 # ---- listing, promote, retire, contest
 
 def list_org(include_retired: bool = False, session_graph: str | None = None) -> list[dict]:
@@ -660,11 +812,15 @@ def list_org(include_retired: bool = False, session_graph: str | None = None) ->
                             r.promoted_at AS promoted_at, r.retired_at AS retired_at, r.retired_by AS retired_by,
                             r.retired_by_label AS retired_by_label,
                             r.source_rule AS source_rule, r.source_session AS source_session,
+                            r.orphaned_at AS orphaned_at, r.retire_reason AS retire_reason,
                             coalesce(r.promoted_by, u.key) AS promoted_by, r.promoted_by_label AS promoted_by_label,
                             contests,
                             d {.id, .rationale, .policy, .decided_by, .subject_key, .subject, .predicate,
                                .chosen_value, .source_doc, .at} AS learned_from
                      ORDER BY promoted_at DESC, id""", {"all": include_retired})
+    live = live_session_tags() if rows else set()
+    for r in rows:              # orphaned: its promoting session is gone (auto-retired after ORG_ORPHAN_TTL)
+        r["orphaned"] = not r.get("retired") and r["source_session"] not in live
     if session_graph:
         tag = session_tag(session_graph)
         for r in rows:
@@ -691,6 +847,10 @@ def promote(g: Graph, rule_id: str, user: str | None = None) -> dict:
     r, d = rows[0]["rule"], rows[0]["decision"] or {}
     if r.get("retired"):
         raise OrgMemoryError(f"{rule_id} was retired in this session (a later decision overrode it)")
+    try:
+        expire_orphan_rules()           # free the slots of rules whose sessions are long gone
+    except Exception:
+        pass
     with _ORG_LOCK:
         org = Graph(ORG_GRAPH)
         if _org() is not None:

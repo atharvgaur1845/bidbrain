@@ -22,7 +22,8 @@ Dimensions
                       formal same-issuer letter that must NOT win by recency), close-authority human cards,
                       expiry at the bid date, absence PROVEN vs UNPROVEN when corpus closure breaks, aliases
     memory_transfer   promoted rule applies in another session only after opt-in; contest/retire reopen;
-                      a published company fact applies in a new workspace (policy company_record)
+                      a published company fact applies in an opted-in workspace (policy company_record) and
+                      never in a fresh one; publishing is never self-approved
     isolation         session B sees none of A's cases, actions, turns, cards, uploads; cross-session ids
                       404; MCP qualify_tender refuses non-session graphs; base and real org untouched
     temporal          fact_as_of before / after the corrigendum; superseded claims keep value + invalidated_at
@@ -172,6 +173,19 @@ class Harness:
 
     def act(self, h: dict, aid: str, verb: str, **body):
         return self.client.post(f"/api/actions/{aid}/{verb}", json=body, headers=h)
+
+    def approve_publish(self, h: dict, aid: str):
+        """Four eyes: the publishing workspace's approve files a request (403); a second workspace approves it;
+        then the first approve succeeds. Returns (first status code, final response)."""
+        first = self.act(h, aid, "approve").status_code
+        other = self.session()
+        for r in self.client.get("/api/company/record", headers=other).json()["requests"]:
+            if not r["mine"] and r["status"] == "pending":
+                self.client.post(f"/api/company/record/requests/{r['id']}/approve", json={}, headers=other)
+        return first, self.act(h, aid, "approve")
+
+    def opt_in(self, h: dict) -> dict:
+        return self.client.post("/api/session/settings", json={"use_company_memory": True}, headers=h).json()
 
     # -- recording
     def mark(self) -> None:
@@ -347,7 +361,9 @@ def s_task_completion(H: Harness) -> None:
     pub = next(a for a in H.client.get(f"/api/impact/{doc}", headers=h).json()["result"]["actions"]
                if a["kind"] == "publish_to_company_record")
     dec = g.scalar("MATCH (:Action {id:$a})-[:TRIGGERED_BY]->(d:Decision) RETURN d.id", {"a": pub["id"]})
-    H.act(h, pub["id"], "approve")
+    first, _ = H.approve_publish(h, pub["id"])
+    H.check("tc.publish_not_self_approved", D, "the workspace that queued a publish cannot approve it alone (403); "
+            "a second workspace approves its request", 403, first)
     res = H.act(h, pub["id"], "execute").json()
     of = (res.get("result") or {}).get("org_fact")
     org = Graph(H.engine.ORG_GRAPH)
@@ -717,8 +733,9 @@ def s_memory_transfer(H: Harness) -> None:
     out = H.fire(hA, "DEMO-1")
     pub = next(a for a in H.client.get(f"/api/impact/{out['doc']['doc_id']}", headers=hA).json()["result"]["actions"]
                if a["kind"] == "publish_to_company_record")
-    H.act(hA, pub["id"], "approve")
-    hPre = H.session()                     # a workspace that exists before execution
+    H.approve_publish(hA, pub["id"])
+    hPre = H.session()                     # a workspace that exists (and opted in) before execution
+    H.opt_in(hPre)
     H.mark()
     gPre = H.g(hPre)
     base_v = Graph().scalar("MATCH (w:Work {key:$k}) RETURN w.value", {"k": PKG113})
@@ -726,9 +743,16 @@ def s_memory_transfer(H: Harness) -> None:
             "corpus value (independent read of the base graph)", base_v,
             gPre.scalar("MATCH (w:Work {key:$k}) RETURN w.value", {"k": PKG113}))
     of = H.act(hA, pub["id"], "execute").json()["result"]["org_fact"]
+    hF = H.session()                       # company memory off (the default): the record never applies
+    gF = H.g(hF)
+    H.client.get("/api/cases", headers=hF)
+    H.check("mt.company_fact_needs_opt_in", D, "a fresh workspace (company memory off) keeps the corpus value and "
+            "applies nothing, so it reproduces the scripted demo", {"value": base_v, "applied": 0},
+            {"value": gF.scalar("MATCH (w:Work {key:$k}) RETURN w.value", {"k": PKG113}),
+             "applied": gF.scalar("MATCH (r:CompanyRecordRef) RETURN count(r)")})
     hN = H.session()
     gN = H.g(hN)
-    H.client.get("/api/health", headers=hN)
+    H.opt_in(hN)
     dec = gN.read("""MATCH (d:Decision {subject_key:$k, predicate:'value', policy:'company_record'})-[:SELECTS]->(c:Claim)
                      RETURN d.rationale AS why, c.company_record AS rec""", {"k": PKG113})
     H.check("mt.company_fact_applies_in_new_session", D, "a new workspace starts from DEMO-1's value, decided by "
@@ -864,11 +888,18 @@ def s_temporal(H: Harness) -> None:
                     RETURN c.recorded_at AS t, c.id AS id""", {"k": PKG113})[0]
     tool = lambda as_of: H.client.post("/api/tool/fact_as_of", headers=h,
                                        json={"key": PKG113, "predicate": "value", "as_of": as_of}).json()["result"]
-    early = tool("2000-01-01")
-    H.check("tm.before_corrigendum_cert_value", D, "as of 2000-01-01 the company believed the certificate's value "
-            "(base-graph Cypher), with the corrigendum listed as learned later",
-            {"value": gold_old, "learned_later": True},
-            {"value": _num(early["value"]), "learned_later": any(r["claim"] == rec["id"] for r in early["learned_later"])})
+    # valid time: the certificate counts from the date its document prints (base-graph Cypher), not before
+    cert_day = base.scalar("""MATCH (c:Claim {subject_key:$k, predicate:'value', source_kind:'client_certificate'})
+                              -[:FROM]->(d:Document) RETURN d.issued""", {"k": PKG113})
+    early, before_doc = tool(cert_day), tool("2000-01-01")
+    H.check("tm.before_corrigendum_cert_value", D, "as of the certificate's own date the company believed the "
+            "certificate's value (base-graph Cypher), with the corrigendum listed as learned later; as of 2000-01-01, "
+            "before the certificate existed, nothing, with the certificate listed as not yet issued",
+            {"value": gold_old, "learned_later": True, "before_doc": None, "not_yet_issued": True},
+            {"value": _num(early["value"]), "learned_later": any(r["claim"] == rec["id"] for r in early["learned_later"]),
+             "before_doc": before_doc["value"],
+             "not_yet_issued": any(r["source_kind"] == "client_certificate" and r["valid_from"] == cert_day
+                                   for r in before_doc.get("not_yet_issued", []))})
     just_before, just_after = tool(_iso_ms(rec["t"] - 5)), tool(_iso_ms(rec["t"] + 5))
     H.check("tm.instant_before_vs_after", D, "5 ms before the corrigendum was recorded: the certificate value; "
             "5 ms after: the corrigendum value", [gold_old, new_v],

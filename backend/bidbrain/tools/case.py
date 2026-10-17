@@ -127,7 +127,8 @@ def case_get(g: Graph, case_id: str) -> dict:
            WITH c, k, collect(CASE WHEN x IS NULL THEN NULL ELSE {label: labels(x)[0], key: x.key,
                 name: coalesce(x.name, x.title, x.standard, x.key), credited: s.credited} END) AS sat
            OPTIONAL MATCH (k)-[:HAS_FINDING]->(f:Finding)
-           WITH c, k, sat, collect(CASE WHEN f IS NULL THEN NULL ELSE {kind: f.kind, text: f.text, severity: f.severity} END) AS fnd
+           WITH c, k, sat, collect(CASE WHEN f IS NULL THEN NULL ELSE {kind: f.kind, text: f.text, severity: f.severity,
+                status: coalesce(f.status, 'open'), resolution: f.resolution} END) AS fnd
            RETURN c {.id, .title, .bid_date, .tender_ref, .status, .verdict, .memo} AS case,
                   collect(CASE WHEN k IS NULL THEN NULL ELSE {id: k.id, ref: k.ref, text: k.text, kind: k.kind,
                           params: k.params, verdict: k.verdict, basis: k.basis, corrected: k.corrected,
@@ -223,11 +224,23 @@ def blast_radius(g: Graph, label: str, key: str, rerun: bool = True) -> dict:
             sat = satisfied_edges(c["kind"], out["result"])
             entry = {"case": c["case"], "case_id": c["case_id"], "clause": c["ref"], "kind": c["kind"],
                      "from": c["verdict"], "to": new, "basis": out["result"]["basis"],
-                     "clause_id": c["clause_id"], "satisfied": sat}
+                     "clause_id": c["clause_id"], "satisfied": sat,
+                     "detail": {f: out["result"].get(f) for f in _DETAIL if out["result"].get(f)}}
             if new != c["verdict"]:
                 flips.append(entry)
             elif sorted(k for _, k, _ in sat) != sorted(c["sat"]):
                 rewired.append(entry)       # same verdict, different evidence: still rewire SATISFIED_BY
+    if label == "Work":
+        # good news is a change too: a reference letter now on file for this work closes the absence
+        # findings that named it (apply_flips resolves them and fulfils the letter requests)
+        by_clause = {e["clause_id"]: e for e in flips + rewired}
+        for r in reference_closures(g, key):
+            if r["clause_id"] in by_clause:
+                by_clause[r["clause_id"]].setdefault("reference_letters", []).append(r["letter"])
+            else:
+                rewired.append({"case": r["case"], "case_id": r["case_id"], "clause": r["clause"],
+                                "kind": r["kind"], "from": r["verdict"], "to": r["verdict"], "basis": r["basis"],
+                                "clause_id": r["clause_id"], "reference_letters": [r["letter"]]})
     sg = {"nodes": [{"id": f"{label}:{key}", "label": label, "name": key}]
           + [{"id": f"Case:{d['case_id']}", "label": "Case", "name": d["case"]} for d in direct]
           + [{"id": f"Bid:{b['bid']}", "label": "Bid", "name": b["bid"]} for b in bids],
@@ -245,6 +258,25 @@ def blast_radius(g: Graph, label: str, key: str, rerun: bool = True) -> dict:
                        "RETURN c.id, c.bid_date, k.id, k.kind, k.params, k.verdict   // each is re-run with qualify_clause"]}
 
 
+_DETAIL = ("expiring_within_90d", "safe_alternates", "near_misses")
+
+
+def reference_closures(g: Graph, work_key: str) -> list[dict]:
+    """Open absence findings (in open cases) that name this work although a reference letter for it is now
+    on file: one row per finding, with the newest letter."""
+    rows = g.read("""MATCH (w:Work {key:$k})-[:HAS_REFERENCE]->(d:Document)
+                     MATCH (c:Case {status:'open'})-[:HAS_CLAUSE]->(k:Clause)-[:HAS_FINDING]->(f:Finding {kind:'absence'})
+                           -[:CITES]->(w)
+                     WHERE coalesce(f.status, 'open') <> 'resolved'
+                     WITH c, k, f, w, d ORDER BY d.issued DESC, d.doc_id DESC
+                     WITH c, k, f, w, collect(d.doc_id)[0] AS doc
+                     RETURN c.id AS case_id, c.title AS case, k.id AS clause_id, k.ref AS clause, k.kind AS kind,
+                            k.verdict AS verdict, k.basis AS basis, f.id AS finding, w.key AS work, w.title AS title,
+                            doc ORDER BY case_id, clause_id, finding""", {"k": work_key})
+    return [{**r, "letter": {"doc_id": r["doc"], "work": r["work"], "title": r["title"], "finding": r["finding"]}}
+            for r in rows]
+
+
 # finding kinds that describe the clause's *current* verdict (a gap closes, a ripple note is
 # history once the clause passes) and so do not hold a PASS clause back
 _VERDICT_BOUND = ("gap", "ripple")
@@ -256,9 +288,11 @@ def overall_verdict(g: Graph, case_id: str) -> str:
     NO-BID if any clause FAILs; BID WITH FIXES if any is AT_RISK or carries a live high-severity
     finding (on any clause, PASS included: a contested fact or a missing reference letter is a
     risk even where the clause passes); else BID. A 'conflict' finding stays live only while a
-    claim it cites is still contested."""
+    claim it cites is still contested; a finding marked resolved (the letter arrived, a ripple moved
+    the clause off what it named) is not live."""
     rows = g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause)
                      OPTIONAL MATCH (k)-[:HAS_FINDING]->(f:Finding {severity:'high'})
+                     WHERE coalesce(f.status, 'open') <> 'resolved'
                      OPTIONAL MATCH (f)-[:CITES]->(cl:Claim)
                      WITH k, f, collect(cl.status) AS cited
                      RETURN k.verdict AS v, collect(CASE WHEN f IS NULL THEN NULL
@@ -278,11 +312,18 @@ def apply_flips(g: Graph, flips: list[dict], cause: str, evidence_changed: list[
                 decision_id: str | None = None, cause_doc: str | None = None) -> list[dict]:
     """Write ripple results back: new verdicts *and* the evidence they now rest on (SATISFIED_BY is
     rebuilt), a 'ripple' finding naming the cause, and the case's recomputed overall recommendation.
-    `evidence_changed` (blast_radius's list of same-verdict clauses whose satisfying set moved) is
-    rewired too. The memo of every changed case is re-assembled (template, marked as superseding the one
-    written at qualification), so the bid pack matches the case. A case the Verifier could not verify stays
-    NEEDS REVIEW. With `decision_id`, each ripple finding is linked (Finding)-[:CAUSED_BY]->(Decision) and every
-    case whose recommendation changed gets a `review_bid` action (company.actions). Returns per-case before/after."""
+    `evidence_changed` (blast_radius's list of same-verdict clauses whose satisfying set moved, or that a newly
+    arrived reference letter strengthens) is rewired too.
+
+    Then the loop is closed the way a fresh qualification would close it, deterministically (no LLM): every
+    changed clause is re-audited (`reaudit`: absence / expiry / near-miss gap findings, the referenced-works
+    hand-back), findings that no longer apply are resolved (citing the reference letter when that is why),
+    their open follow-ups are superseded or fulfilled, and the action generator (`from_findings`) queues the
+    letter / renewal requests the new findings call for. The memo of every changed case is re-assembled
+    (template, marked as superseding the one written at qualification), so the bid pack matches the case. A
+    case the Verifier could not verify stays NEEDS REVIEW. With `decision_id`, each ripple finding is linked
+    (Finding)-[:CAUSED_BY]->(Decision); every case whose recommendation changed gets a `review_bid` action
+    (company.actions). Returns per-case before/after, with `follow_ups` (actions queued) and `closed_actions`."""
     from bidbrain.agents.orchestrator import rebuild_memo
     from bidbrain.company import actions
 
@@ -295,11 +336,19 @@ def apply_flips(g: Graph, flips: list[dict], cause: str, evidence_changed: list[
         caused(add_finding(g, f["clause_id"], "ripple", f"verdict changed {f['from']} -> {f['to']} because {cause}",
                            severity="high" if f["to"] == "FAIL" else "medium"))
     for f in evidence_changed or []:
-        _rewire(g, f)
-        caused(add_finding(g, f["clause_id"], "ripple", f"verdict {f['to']} unchanged, but the evidence it rests on "
-                                                        f"changed because {cause}", severity="info"))
+        if "satisfied" in f or "reference_letters" not in f:
+            _rewire(g, f)
+            caused(add_finding(g, f["clause_id"], "ripple", f"verdict {f['to']} unchanged, but the evidence it "
+                                                            f"rests on changed because {cause}", severity="info"))
+        for r in f.get("reference_letters") or []:
+            caused(add_finding(g, f["clause_id"], "ripple",
+                               f"a client reference letter for {r['title']} is now on file ({r['doc_id']}); the "
+                               f"absence finding that named it is resolved", severity="info",
+                               cites=[("Document", r["doc_id"])]))
+    touched = flips + list(evidence_changed or [])
+    audit = reaudit(g, sorted({f["clause_id"] for f in touched}), cause)
     changed = []
-    for cid in sorted({f["case_id"] for f in flips + list(evidence_changed or [])}):
+    for cid in sorted({f["case_id"] for f in touched}):
         row = g.read("MATCH (c:Case {id:$c}) RETURN c.verdict AS v, c.verified AS ok", {"c": cid})[0]
         before = row["v"]
         after = "NEEDS REVIEW" if row["ok"] is False else overall_verdict(g, cid)
@@ -318,6 +367,21 @@ def apply_flips(g: Graph, flips: list[dict], cause: str, evidence_changed: list[
         for c in changed:
             if c["case_id"] == g.scalar("MATCH (a:Action {id:$a}) RETURN a.case_id", {"a": a["id"]}):
                 c["action"] = a["id"]
+    # follow-ups: what the findings that no longer apply asked for is closed; what the new ones ask for is queued
+    closed = actions.close_for_findings(g, audit["resolved_moot"], f"the finding it was raised for no longer "
+                                                                   f"applies after {cause}")
+    for doc, works in sorted(audit["letters"].items()):
+        closed += actions.fulfil_reference(g, sorted(works), doc)
+    case_of = {r["id"]: r["c"] for r in g.read("MATCH (a:Action) WHERE a.id IN $ids RETURN a.id AS id, "
+                                               "a.case_id AS c", {"ids": closed})} if closed else {}
+    for c in changed:
+        c["follow_ups"] = [a["id"] for a in actions.from_findings(g, c["case_id"]) if a["created"]]
+        c["closed_actions"] = [a for a in closed if case_of.get(a) == c["case_id"]]
+        c["findings_opened"] = [x for x in audit["opened"] if x["case_id"] == c["case_id"]]
+        c["findings_resolved"] = [x for x in audit["resolved"] if x["case_id"] == c["case_id"]]
+    if closed and changed:              # a fulfilled request for a work cited in another case is still reported
+        rest = [a for a in closed if case_of.get(a) not in {c["case_id"] for c in changed}]
+        changed[0]["closed_actions"] += rest
     return changed
 
 
@@ -327,3 +391,137 @@ def _rewire(g: Graph, f: dict) -> None:
     else:                               # a flip computed by an older blast_radius: verdict only
         g.run("MATCH (k:Clause {id:$id}) SET k.verdict = $v, k.basis = $b",
               {"id": f["clause_id"], "v": f["to"], "b": f["basis"]})
+    if "detail" in f:                   # what the auditor reads (near misses, lapsing credentials), as the hunter writes it
+        g.run("MATCH (k:Clause {id:$id}) SET k.detail = $d", {"id": f["clause_id"],
+                                                               "d": json.dumps(f["detail"], default=str)})
+
+
+# ---- the AbsenceAuditor's checks, re-run deterministically on clauses a ripple changed -------------------
+
+_AUDITED = ("absence", "expiry", "gap")
+
+
+def _expected_findings(g: Graph, k: dict) -> list[dict]:
+    """The findings the AbsenceAuditor (agents/orchestrator.py, step 4) writes for this clause as it stands now:
+    same conditions, same wording, same citations. The referenced-works hand-back to the EvidenceHunter is
+    applied first (select(prefer_reference=True), kept only at an equal verdict), as in a fresh run."""
+    from bidbrain.agents.orchestrator import _cr, select
+    from bidbrain.tools.proof import prove_absence
+    params = json.loads(k["params"] or "{}")
+    detail = json.loads(k["detail"] or "{}") if isinstance(k["detail"], str) else (k["detail"] or {})
+    want = []
+    if k["kind"] == "similar_works":
+        sat = [r["key"] for r in g.read("MATCH (:Clause {id:$k})-[:SATISFIED_BY]->(w:Work) RETURN w.key AS key",
+                                        {"k": k["id"]})]
+        missing = g.read("MATCH (w:Work) WHERE w.key IN $k AND NOT (w)-[:HAS_REFERENCE]->() "
+                         "RETURN w.key AS key, w.title AS title ORDER BY key", {"k": sat}) if sat else []
+        if missing and not k["pref"] and k["verdict"] in ("PASS", "AT_RISK"):
+            try:
+                out, used_ref, _ = select(g, k["kind"], params, k["bid_date"], prefer_reference=True)
+            except Exception:
+                out, used_ref = None, False
+            if used_ref and out["result"]["verdict"] == k["verdict"]:
+                res = out["result"]
+                set_verdict(g, k["id"], res["verdict"], res["basis"], satisfied_edges(k["kind"], res))
+                g.run("MATCH (k:Clause {id:$k}) SET k.prefer_reference = true, k.detail = $d",
+                      {"k": k["id"], "d": json.dumps({f: res.get(f) for f in _DETAIL if res.get(f)}, default=str)})
+                add_finding(g, k["id"], "ripple", "re-selected referenced works for this clause (the works it "
+                                                  f"relied on have no reference letter); still {res['verdict']}",
+                            severity="info")
+                return _expected_findings(g, {**k, "pref": True})
+        if missing:
+            clients = [r["client"] for r in g.read(
+                """MATCH (w:Work)-[:FOR_CLIENT]->(c:Client) WHERE w.key IN $k
+                   RETURN DISTINCT c.key AS client ORDER BY client""", {"k": [m["key"] for m in missing]})]
+            checks = [prove_absence(g, "reference_letter", client=ck)["result"]["checks"] for ck in clients]
+            if checks:
+                txt = (f"No client reference letter on file for {', '.join(m['title'] for m in missing)} "
+                       f"(proof across {len(checks)} client(s): {checks[0]['corpus_closure']}; boundary "
+                       f"{', '.join(str(ch['boundary_attested_by_3_views']) for ch in checks)} attested). "
+                       f"Request letters from the client before submission or cite alternates.")
+                want.append({"kind": "absence", "text": txt, "cites": [("Work", m["key"]) for m in missing],
+                             "severity": "high" if "reference" in (k["text"] or "").lower() else "medium"})
+        if k["verdict"] == "FAIL" and detail.get("near_misses"):
+            nm = detail["near_misses"][:3]
+            cats = " / ".join(params.get("categories") or []) or "similar-works"
+            txt = ("No qualifying combination. Closest works: " +
+                   "; ".join(f"{w['title']} ({_cr(w['value'])})" for w in nm) +
+                   f". Consider a JV with a partner holding a larger {cats} credential.")
+            want.append({"kind": "gap", "text": txt, "cites": [("Work", w["key"]) for w in nm], "severity": "high"})
+    if k["kind"] == "key_personnel":
+        credited = {r["name"] for r in g.read("MATCH (:Clause {id:$k})-[:SATISFIED_BY]->(p:Person) RETURN p.name AS name",
+                                              {"k": k["id"]})}
+        exp = [e for e in detail.get("expiring_within_90d") or [] if e["name"] in credited]
+        if exp:
+            alts = ", ".join(a["name"] for a in detail.get("safe_alternates", []))
+            txt = (f"PMP of {', '.join(e['name'] + ' (to ' + e['valid_through'] + ')' for e in exp)} lapses "
+                   f"within 90 days of the bid date. Renew now, or propose {alts or 'alternates'} (valid well beyond).")
+            keys = [r["key"] for r in g.read("MATCH (p:Person) WHERE p.name IN $n RETURN p.key AS key",
+                                             {"n": [e["name"] for e in exp]})]
+            want.append({"kind": "expiry", "text": txt, "cites": [("Person", x) for x in keys],
+                         "severity": "high" if k["verdict"] == "AT_RISK" else "low"})
+    return want
+
+
+def reaudit(g: Graph, clause_ids: list[str], cause: str) -> dict:
+    """Re-run the AbsenceAuditor's checks on these clauses and reconcile their findings with the result.
+
+    A finding still called for (same kind, same cited works or people) is kept as it is; a new one is written
+    (raised_by 'ripple'); one no longer called for is resolved, citing the reference letter(s) when a letter is
+    why (RESOLVED_BY), otherwise "no longer applies after <cause>". Returns {opened, resolved, resolved_moot
+    (finding ids whose follow-ups should be superseded), letters ({doc_id: works} to fulfil)}."""
+    out = {"opened": [], "resolved": [], "resolved_moot": [], "letters": {}}
+    if not clause_ids:
+        return out
+    clauses = g.read("""MATCH (c:Case)-[:HAS_CLAUSE]->(k:Clause) WHERE k.id IN $ids AND k.kind IN $kinds
+                        RETURN k.id AS id, k.ref AS ref, k.kind AS kind, k.text AS text, k.params AS params,
+                               k.verdict AS verdict, k.detail AS detail, coalesce(k.prefer_reference, false) AS pref,
+                               c.id AS case_id, c.bid_date AS bid_date ORDER BY id""",
+                     {"ids": clause_ids, "kinds": ["similar_works", "key_personnel"]})
+    for k in clauses:
+        want = _expected_findings(g, k)
+        have = g.read("""MATCH (:Clause {id:$k})-[:HAS_FINDING]->(f:Finding) WHERE f.kind IN $kinds
+                           AND coalesce(f.status, 'open') <> 'resolved'
+                         OPTIONAL MATCH (f)-[:CITES]->(x) WHERE x:Work OR x:Person
+                         RETURN f.id AS id, f.kind AS kind, collect(x.key) AS cites""",
+                      {"k": k["id"], "kinds": list(_AUDITED)})
+        sig = lambda kind, keys: (kind, tuple(sorted(keys)))
+        have_by = {sig(h["kind"], h["cites"]): h["id"] for h in have}
+        kept = set()
+        for w in want:
+            s = sig(w["kind"], [key for _, key in w["cites"]])
+            if s in have_by:
+                kept.add(have_by[s])
+                continue
+            fid = add_finding(g, k["id"], w["kind"], w["text"], w["severity"], w["cites"])
+            g.run("""MATCH (f:Finding {id:$f}) SET f.status = 'open', f.raised_by = 'ripple', f.cause = $c,
+                         f.resolution = null""", {"f": fid, "c": cause})
+            kept.add(fid)
+            out["opened"].append({"case_id": k["case_id"], "clause": k["ref"], "finding": fid, "kind": w["kind"],
+                                  "text": w["text"]})
+        for h in have:
+            if h["id"] in kept:
+                continue
+            letters = []
+            if h["kind"] == "absence" and h["cites"]:
+                letters = g.read("""MATCH (w:Work)-[:HAS_REFERENCE]->(d:Document) WHERE w.key IN $w
+                                    WITH w, d ORDER BY d.issued DESC, d.doc_id DESC
+                                    RETURN w.key AS work, collect(d.doc_id)[0] AS doc""", {"w": h["cites"]})
+                if len(letters) < len(h["cites"]):
+                    letters = []            # not every work it named has a letter: moot for another reason
+            if letters:
+                docs = sorted({r["doc"] for r in letters})
+                why = f"resolved: client reference letter on file ({', '.join(docs)})"
+                for r in letters:
+                    out["letters"].setdefault(r["doc"], set()).add(r["work"])
+                    g.run("MATCH (f:Finding {id:$f}), (d:Document {doc_id:$d}) MERGE (f)-[:RESOLVED_BY]->(d)",
+                          {"f": h["id"], "d": r["doc"]})
+            else:
+                why = f"resolved: no longer applies after {cause}"
+                out["resolved_moot"].append(h["id"])
+            g.run("""MATCH (f:Finding {id:$f}) SET f.status = 'resolved', f.resolution = $why,
+                         f.resolved_at = timestamp(), f.severity_before = f.severity, f.severity = 'info',
+                         f.text = f.text + ' [' + $why + ']'""", {"f": h["id"], "why": why})
+            out["resolved"].append({"case_id": k["case_id"], "clause": k["ref"], "finding": h["id"],
+                                    "kind": h["kind"], "resolution": why})
+    return out

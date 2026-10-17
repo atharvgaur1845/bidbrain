@@ -187,13 +187,14 @@ def _years_before(as_of: str, years: int) -> str:
         return d.replace(year=d.year - years, day=28).isoformat()
 
 
-PARAMS = {"similar_works": {"categories", "estimated_cost", "min_value", "count", "options", "lookback_years",
-                           "govt_levels", "include_jv", "require_reference"},
+PARAMS = {"similar_works": {"categories", "estimated_cost", "min_value", "count", "options", "min_total",
+                           "lookback_years", "govt_levels", "include_jv", "require_reference"},
           "turnover": {"years", "min_average", "min_each_year"},
           "key_personnel": {"credential", "count", "min_experience_years", "categories"},
           "certification": {"standard"},
           "years_in_business": {"min_years"}}
-NEEDS = {"similar_works": ({"estimated_cost", "min_value", "options"}, "estimated_cost, min_value or options"),
+NEEDS = {"similar_works": ({"estimated_cost", "min_value", "options", "min_total"},
+                          "estimated_cost, min_value, options or min_total"),
          "turnover": ({"min_average", "min_each_year"}, "min_average or min_each_year")}
 
 
@@ -225,6 +226,8 @@ def _check_options(params: dict) -> list[dict]:
       similar_works {categories, ONE OF: estimated_cost (CPWD rule: 1 work >= 80% OR 2 >= 60% OR 3 >= 40%)
         | min_value + count | options [{count, min_value}, ...] (either/or alternatives, e.g. "one work
         >= 50 Cr or two works >= 40 Cr each": any one option passing is enough; the result names which),
+        min_total (aggregate value: the works in scope must ALSO sum to at least this, e.g. "one work >= 30 Cr
+        and a cumulative value of INR 500 Cr"; alone it is the whole requirement),
         lookback_years (default 7), govt_levels, include_jv (default true), require_reference (default false)};
       turnover {min_average (rupees) over last `years` FY (default 3) | min_each_year};
       key_personnel {credential (e.g. PMP), min_experience_years, count (default 1),
@@ -247,6 +250,12 @@ def qualify_clause(g: Graph, kind: str, params: dict, bid_date: str | None = Non
         raise ValueError(f"{kind} needs {NEEDS[kind][1]}")
     if kind == "similar_works" and "options" in params:
         params["options"] = _check_options(params)
+    if kind == "similar_works" and "min_total" in params:
+        try:
+            if int(params["min_total"]) <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError(f"min_total must be a positive amount in rupees; got {params['min_total']!r}") from None
     bid_date = bid_date or config.AS_OF
     fn = {"similar_works": _q_similar, "turnover": _q_turnover, "key_personnel": _q_personnel,
           "certification": _q_cert, "years_in_business": _q_years}[kind]
@@ -300,12 +309,36 @@ def _q_similar(g, p, bid_date) -> dict:
         basis = ("either/or: " + "; ".join(f"{c['option']}: found {c['found']}" for c in checked)
                  + (f" -> option {met['option'][:3]} met" if met else " -> no alternative met"))
         extra = {"options_checked": checked, "option_met": met["option"] if met else None}
-    else:
+    elif p.get("min_value"):
         mv, cnt = int(p.get("min_value", 0)), int(p.get("count", 1))
         qual = [w for w in works if w["value"] >= mv]
         sat, met = qual[:cnt], len(qual) >= cnt
         near = sorted([w for w in works if w["value"] < mv], key=lambda w: -w["value"])[:3]
         basis = f"need {cnt} work(s) >= {mv:,}; found {len(qual)}"
+    else:                                   # an aggregate-value requirement only
+        sat, met, near, basis = [], True, [], ""
+    if p.get("min_total"):
+        # the aggregate value of the works in scope, on top of any single-work threshold: credited are the
+        # works already relied on plus the largest others until the total is reached
+        need_total = int(p["min_total"])
+        total = sum(w["value"] for w in works)
+        total_ok = total >= need_total
+        chosen, run = list(sat), sum(w["value"] for w in sat)
+        for w in sorted(works, key=lambda w: -w["value"]):
+            if run >= need_total:
+                break
+            if all(w["key"] != c["key"] for c in chosen):
+                chosen.append(w)
+                run += w["value"]
+        part = (f"cumulative value of {len(works)} work(s) in scope = {total:,} vs required {need_total:,}"
+                + ("" if total_ok else f" (short by {need_total - total:,})"))
+        basis = f"{basis}; {part}" if basis else part
+        extra = {**extra, "cumulative_value": total, "min_total": need_total, "cumulative_met": total_ok}
+        if met and total_ok:
+            sat = chosen
+        elif met and not total_ok:
+            near = sorted(works, key=lambda w: -w["value"])[:5]
+        met = bool(met) and total_ok
     passed = bool(met)
     risky = [w["key"] for w in sat if w["key"] in contested]
     verdict = "PASS" if passed and not risky else ("AT_RISK" if passed else "FAIL")

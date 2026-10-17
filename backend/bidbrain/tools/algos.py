@@ -14,7 +14,8 @@ SEEDS = 32           # seeded algo.betweenness runs averaged for the cross-check
 
 # Exact betweenness (Brandes' definition) in one Cypher statement: for every pair of people/clients, every shortest
 # path between them over WORKED_FOR (allShortestPaths, a variable-length match), and each inner node gets 1/n of the
-# pair's n shortest paths. 68 nodes, 2,278 pairs, ~0.1 s; it matches a Python Brandes implementation to the decimal.
+# pair's n shortest paths. 65 nodes (37 people and 28 clients with a WORKED_FOR edge), 2,080 pairs, ~0.1 s; it matches
+# a Python Brandes implementation to 1e-12.
 BETWEENNESS_EXACT = """
 MATCH (a) WHERE (a:Person OR a:Client) AND (a)-[:WORKED_FOR]-()
 WITH collect(a) AS ns
@@ -27,7 +28,7 @@ UNWIND inner AS path_inner UNWIND path_inner AS v
 WITH v, sum(1 / n) AS score WHERE v:Person
 RETURN v.key AS key, score"""
 
-# FalkorDB's own procedure. It samples source nodes: even with samplingSize >= the 68 nodes the scores change with
+# FalkorDB's own procedure. It samples source nodes: even with samplingSize >= the 65 nodes the scores change with
 # samplingSeed, so it cannot give the exact ranking. It is kept as a cross-check (mean of SEEDS seeded runs).
 BETWEENNESS_ALGO = """CALL algo.betweenness({nodeLabels:['Person','Client'], relationshipTypes:['WORKED_FOR','ENGAGED'],
                                      samplingSize:100000, samplingSeed:$seed})
@@ -68,7 +69,8 @@ def key_people(g: Graph, algo: str = "betweenness", client: str | None = None,
                MATCH (p)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
                WHERE ($c IS NULL OR c.key = $c) AND ($cat IS NULL OR w.category = $cat)
                RETURN p.key AS key, p.name AS name, p.designation AS designation, round(10 * s.score) / 10 AS score,
-                      count(DISTINCT c) AS clients, count(w) AS works, sum(w.value) AS value
+                      count(DISTINCT c) AS clients, count(w) AS works, sum(w.value) AS value,
+                      collect(DISTINCT c.name) AS client_names
                ORDER BY score DESC, key LIMIT $lim"""
         rows = g.read(q, {"scores": [{"key": k, "score": v} for k, v in exact.items()], "c": ck, "cat": cat,
                           "lim": int(limit)})
@@ -81,7 +83,8 @@ def key_people(g: Graph, algo: str = "betweenness", client: str | None = None,
         q = """MATCH (p:Person)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
                WHERE ($c IS NULL OR c.key = $c) AND ($cat IS NULL OR w.category = $cat)
                RETURN p.key AS key, p.name AS name, p.designation AS designation, count(DISTINCT c) AS score,
-                      count(DISTINCT c) AS clients, count(w) AS works, sum(w.value) AS value
+                      count(DISTINCT c) AS clients, count(w) AS works, sum(w.value) AS value,
+                      collect(DISTINCT c.name) AS client_names
                ORDER BY score DESC, works DESC LIMIT $lim"""
     rows = g.read(q, {"c": ck, "cat": cat, "lim": int(limit)})
     sg = {"nodes": [_node("Person", r["key"], r["name"], score=r["score"]) for r in rows], "edges": []}
@@ -152,22 +155,30 @@ WCC_SCOPES = {
         "labels": ["Document", "Work", "Client", "Person", "Credential"],
         "rels": ["EVIDENCED_BY", "HAS_REFERENCE", "FOR_CLIENT", "LED_BY", "HOLDS"],
         "doc_types": ["completion_certificate", "company_completion_certificate", "reference_letter", "cv",
-                      "personnel_certificate", "past_performance_portfolio"]},
+                      "personnel_certificate", "past_performance_portfolio"],
+        "connectors": []},
     # every document, and every entity that should be traceable to one. Hub edges that are not evidence
     # (Company-OWNS/EMPLOYS, FOR_FY, IN_STATE, IN_CATEGORY) are left out: they would join everything and
-    # hide an entity that has no source document.
+    # hide an entity that has no source document. The claim layer is evidence too: a document that enters at
+    # run time (a corrigendum, a re-issued certificate) is cited by its claims, (Claim)-[:FROM]->(Document) and
+    # (Claim)-[:ABOUT]->(subject), not by EVIDENCED_BY. A tender qualified at run time is reached through its
+    # case: (Case)-[:FOR_TENDER]->(Tender), (Case)-[:HAS_CLAUSE]->(Clause)-[:SATISFIED_BY]->(evidence).
     "corpus": {
         "labels": ["Document", "Company", "Work", "Client", "Person", "Credential", "Certification", "Tender",
                    "Requirement", "Bond", "Bank", "Contract", "BOQItem", "Measurement", "Invoice",
-                   "FinancialStatement", "AnnualReport", "TBLine", "LedgerAccount", "Asset", "Bid"],
+                   "FinancialStatement", "AnnualReport", "TBLine", "LedgerAccount", "Asset", "Bid",
+                   "Claim", "Case", "Clause"],
         "rels": ["EVIDENCED_BY", "HAS_REFERENCE", "FOR_CLIENT", "LED_BY", "HOLDS", "SECURES", "ISSUED_BY",
                  "REQUIRES", "CITES_CERT", "BILLED_TO", "HAS_ITEM", "MEASURES", "FOR_TENDER", "CITES",
-                 "PROPOSES", "TO_CLIENT", "SECURED_BY"],
-        "doc_types": None},
+                 "PROPOSES", "TO_CLIENT", "SECURED_BY", "FROM", "ABOUT", "HAS_CLAUSE", "SATISFIED_BY"],
+        "doc_types": None,
+        # claims, cases and clauses connect evidence to what it evidences; they are not counted as entities
+        "connectors": ["Claim", "Case", "Clause"]},
 }
 
 WCC = """
 CALL algo.WCC({nodeLabels:$labels, relationshipTypes:$rels}) YIELD node, componentId
+WITH node, componentId WHERE NOT labels(node)[0] IN $connectors
 WITH node, componentId WHERE NOT node:Document OR $doc_types IS NULL OR node.doc_type IN $doc_types
 WITH componentId, labels(node)[0] AS label, node.doc_type AS doc_type, collect(node) AS ns
 WITH componentId, sum(size(ns)) AS size,
@@ -252,6 +263,10 @@ def isolated_entities(g: Graph, scope: str = "provenance") -> dict:
 def _wcc_text(cfg: dict) -> str:
     """The WCC query with its parameters inlined, as shown in explain mode and docs/CYPHER.md."""
     q = WCC.replace("$labels", str(cfg["labels"])).replace("$rels", str(cfg["rels"]))
+    if cfg["connectors"]:
+        q = q.replace("$connectors", str(cfg["connectors"]))
+    else:
+        q = q.replace("WITH node, componentId WHERE NOT labels(node)[0] IN $connectors\n", "")
     if cfg["doc_types"]:
         return q.replace("$doc_types IS NULL OR ", "").replace("$doc_types", str(cfg["doc_types"]))
     return q.replace("WITH node, componentId WHERE NOT node:Document OR $doc_types IS NULL OR node.doc_type IN $doc_types\n", "")

@@ -11,15 +11,22 @@ follow-up with its trigger, its evidence, its owner and its lifecycle:
         -[:ASSIGNED_TO]->(:Person)         the accountable person, when the graph knows one
         -[:HAS_EVENT]->(:ActionEvent {at, from, to, by, note})   the audit trail
 
-    pending --approve--> approved --execute--> executed
-       |                    |
-       +------reject--------+--> rejected
+    pending --approve--> approved --execute--> executing --> executed --(letter arrives)--> fulfilled
+       |                    |                     |
+       +------reject--------+--> rejected         +--> superseded   (review_bid whose case moved on)
+       +--(the finding it was raised for no longer applies / the letter arrived)--> superseded | fulfilled
 
 Rules:
 * Creation is idempotent: the same (kind, case, trigger, target) is MERGEd on `idem`, so a retried ripple
   never doubles the queue.
 * Every transition is a compare-and-set on the current status; a stale click gets a 409, a repeated one
-  gets the same answer.
+  (or a concurrent identical one) gets the same answer.
+* Execute claims the action first (CAS approved -> executing), then runs the executor, then CAS
+  executing -> executed. Reject is allowed only from pending/approved, so it can never interleave with a
+  running executor, and every executor write is conditioned on `status = 'executing'` and MERGEd on keys
+  derived from the action, so a retry never duplicates a side effect and nothing is written under a
+  rejected action. A failed executor hands the action back (executing -> approved); one left `executing`
+  by a crashed process can be re-claimed after EXECUTING_LEASE_MS.
 * Only deterministic code here executes an action, and an action is `executed` only after its executor
   returned. Nothing is reported as sent that was not: the reference-letter request is an internal
   DocumentRequest node, because there is no email integration.
@@ -28,11 +35,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 
 from bidbrain.graph.client import Graph
 
 TRANSITIONS = {"approve": ("pending", "approved"), "reject": (("pending", "approved"), "rejected"),
                "execute": ("approved", "executed")}
+# statuses after which nothing more happens to an action (execute on them returns the stored outcome)
+DONE = ("executed", "superseded", "fulfilled")
+EXECUTING_LEASE_MS = 120_000        # an `executing` claim older than this was left by a dead process
+EXECUTE_WAIT_S = 10.0               # a concurrent execute waits this long for the running one to finish
 
 KINDS = {
     "review_bid": "Re-approve an open bid whose recommendation changed",
@@ -46,6 +58,15 @@ class ActionError(ValueError):
     def __init__(self, msg: str, status: int = 409):
         super().__init__(msg)
         self.status = status
+
+
+class Superseded(Exception):
+    """Raised by an executor that finds the action no longer describes the graph: nothing was done."""
+
+    def __init__(self, reason: str, **extra):
+        super().__init__(reason)
+        self.reason = reason
+        self.extra = extra
 
 
 def _idem(*parts) -> str:
@@ -107,6 +128,14 @@ def from_ripple(g: Graph, changed: list[dict], decision_id: str | None, cause: s
                           title=f"Re-approve {title}: {c['from']} → {c['to']}",
                           detail=f"The recommendation changed because {cause}. Re-verify every clause against "
                                  f"the current graph and approve the new recommendation before submission."))
+        # an older review of this case that asked to approve a different recommendation is now stale
+        for old in g.read("""MATCH (a:Action {kind:'review_bid', case_id:$c}) WHERE a.status IN ['pending', 'approved']
+                               AND a.id <> $new AND NOT a.target ENDS WITH $to
+                             RETURN a.id AS id, a.target AS target""",
+                          {"c": c["case_id"], "new": out[-1]["id"], "to": f"->{c['to']}"}):
+            supersede(g, old["id"], "system",
+                      f"the case's recommendation is now {c['to']} (because {cause}), not the "
+                      f"{old['target'].split('->')[-1]} this review was raised to approve; {out[-1]['id']} replaces it")
     return out
 
 
@@ -160,6 +189,59 @@ def for_decision(g: Graph, decision_id: str) -> dict | None:
                   payload={"decision_id": decision_id})
 
 
+# ---- closure: the graph moved on, so the follow-up is no longer needed ------------------------------
+
+def _close(g: Graph, aid: str, frm: tuple[str, ...], to: str, by: str, note: str, result: dict) -> bool:
+    """CAS one action from any of `frm` to a terminal `to`, with an audit event. False if it had moved."""
+    rows = g.run("""MATCH (a:Action {id:$a}) WHERE a.status IN $frm
+                     WITH a, a.status AS before
+                     SET a.status = $to, a.updated_at = timestamp(), a.closed_at = timestamp(), a.closed_by = $by,
+                         a.closure = $r, a.result = coalesce(a.result, $r)
+                     RETURN before""",
+                 {"a": aid, "frm": list(frm), "to": to, "by": by, "r": json.dumps(result, default=str)})
+    if rows:
+        _event(g, aid, rows[0]["before"], to, by, note)
+    return bool(rows)
+
+
+def supersede(g: Graph, aid: str, by: str, reason: str) -> bool:
+    """A pending/approved action that no longer describes the graph is closed without running."""
+    return _close(g, aid, ("pending", "approved"), "superseded", by, f"superseded: {reason}",
+                  {"superseded": True, "reason": reason, "summary": f"superseded, nothing executed: {reason}"})
+
+
+def close_for_findings(g: Graph, finding_ids: list[str], reason: str) -> list[str]:
+    """Supersede the open follow-ups raised for findings that no longer apply (a ripple moved the clause
+    off the work or person they named). Returns the actions closed."""
+    rows = g.read("""MATCH (a:Action)-[:TRIGGERED_BY]->(f:Finding) WHERE f.id IN $f
+                       AND a.status IN ['pending', 'approved'] RETURN DISTINCT a.id AS id""", {"f": finding_ids})
+    return [r["id"] for r in rows if supersede(g, r["id"], "system", reason)]
+
+
+def fulfil_reference(g: Graph, work_keys: list[str], doc_id: str, by: str = "system") -> list[str]:
+    """A reference letter for these works is now on file (`doc_id`): every request_reference_letter for them
+    is fulfilled (pending/approved: no request needs sending any more; executed: the request was answered)
+    and the internal DocumentRequest it created is marked fulfilled by that document. Returns the actions."""
+    acts = g.read("""MATCH (a:Action {kind:'request_reference_letter'})
+                     WHERE a.target IN $w AND a.status IN ['pending', 'approved', 'executed']
+                     RETURN a.id AS id, a.target AS work, a.status AS status ORDER BY id""", {"w": work_keys})
+    g.run("""MATCH (r:DocumentRequest {kind:'reference_letter'})-[:FOR_WORK]->(w:Work) WHERE w.key IN $w
+               AND r.status = 'requested'
+             MATCH (d:Document {doc_id:$d})
+             SET r.status = 'fulfilled', r.fulfilled_at = timestamp(), r.fulfilled_by = $d
+             MERGE (r)-[:FULFILLED_BY]->(d)""", {"w": work_keys, "d": doc_id})
+    out = []
+    for a in acts:
+        what = ("no request needs sending" if a["status"] != "executed" else "the request was answered")
+        note = f"fulfilled: reference letter {doc_id} for {a['work']} is now on file; {what}"
+        if _close(g, a["id"], (a["status"],), "fulfilled", by, note,
+                  {"fulfilled_by": doc_id, "work": a["work"], "was": a["status"], "summary": note}):
+            g.run("MATCH (a:Action {id:$a}), (d:Document {doc_id:$d}) MERGE (a)-[:FULFILLED_BY]->(d)",
+                  {"a": a["id"], "d": doc_id})
+            out.append(a["id"])
+    return out
+
+
 # ---- lifecycle -----------------------------------------------------------------------------------
 
 def transition(g: Graph, aid: str, verb: str, by: str, note: str = "") -> dict:
@@ -172,27 +254,75 @@ def transition(g: Graph, aid: str, verb: str, by: str, note: str = "") -> dict:
         raise ActionError(f"no action {aid}", 404)
     if cur == to:
         return get(g, aid)                      # a repeated click: same answer, no second event
+    if verb == "approve":                       # four eyes on publish_to_company_record (see company/record.py)
+        from bidbrain.company import record
+        record.check_publish_approval(g, aid, by)
     rows = g.run("""MATCH (a:Action {id:$a}) WHERE a.status IN $frm
-                     SET a.status = $to, a.updated_at = timestamp(), a.decided_by = $by RETURN a.id AS id""",
+                     WITH a, a.status AS before
+                     SET a.status = $to, a.updated_at = timestamp(), a.decided_by = $by RETURN before""",
                   {"a": aid, "frm": list(frm), "to": to, "by": by})
     if not rows:
-        raise ActionError(f"{aid} is {cur}; cannot {verb} it")
-    _event(g, aid, cur, to, by, note or verb)
+        now = g.scalar("MATCH (a:Action {id:$a}) RETURN a.status", {"a": aid})
+        if now == to:
+            return get(g, aid)                  # a concurrent identical click won the CAS: same answer
+        raise ActionError(f"{aid} is {now}; cannot {verb} it"
+                          + (" while it is being executed" if now == "executing" else ""))
+    _event(g, aid, rows[0]["before"], to, by, note or verb)
     return get(g, aid)
 
 
-def execute(g: Graph, aid: str, by: str) -> dict:
+def execute(g: Graph, aid: str, by: str, wait_s: float = EXECUTE_WAIT_S) -> dict:
+    """approved -> executing (CAS: exactly one caller wins) -> executor -> executing -> executed.
+
+    A repeat on a finished action returns its stored outcome; a call that finds another one running waits
+    for it (up to `wait_s`) and then returns the same outcome. An executor that finds the action stale
+    (Superseded) closes it as `superseded` without doing anything; one that fails hands it back to
+    `approved`, so it can be retried (every executor is idempotent)."""
+    deadline = time.monotonic() + wait_s
+    while True:
+        a = get(g, aid)
+        st = a["status"]
+        if st in DONE:
+            return a                            # idempotent: the stored outcome, nothing re-run
+        if st == "executing":
+            if g.run("""MATCH (a:Action {id:$a}) WHERE a.status = 'executing'
+                          AND coalesce(a.executing_since, 0) < timestamp() - $lease
+                        SET a.executing_since = timestamp(), a.executing_by = $by RETURN a.id AS id""",
+                     {"a": aid, "lease": EXECUTING_LEASE_MS, "by": by}):
+                break                           # the claim was left by a dead process: take it over
+            if time.monotonic() >= deadline:
+                raise ActionError(f"{aid} is being executed by another request; retry shortly")
+            time.sleep(0.05)
+            continue
+        if st != "approved":
+            raise ActionError(f"{aid} is {st}; only an approved action can be executed")
+        if g.run("""MATCH (a:Action {id:$a}) WHERE a.status = 'approved'
+                    SET a.status = 'executing', a.executing_since = timestamp(), a.executing_by = $by,
+                        a.updated_at = timestamp() RETURN a.id AS id""", {"a": aid, "by": by}):
+            break                               # this call owns the execution
+        # lost the CAS (a concurrent execute or reject moved it): look again
     a = get(g, aid)
-    if a["status"] == "executed":
-        return a                                # idempotent: the stored result, nothing re-run
-    if a["status"] != "approved":
-        raise ActionError(f"{aid} is {a['status']}; only an approved action can be executed")
-    result = EXECUTORS[a["kind"]](g, a, by)
-    rows = g.run("""MATCH (a:Action {id:$a}) WHERE a.status = 'approved'
-                     SET a.status = 'executed', a.updated_at = timestamp(), a.executed_at = timestamp(),
-                         a.executed_by = $by, a.result = $r RETURN a.id AS id""",
-                  {"a": aid, "by": by, "r": json.dumps(result, default=str)})
-    if rows:
+    try:
+        result = EXECUTORS[a["kind"]](g, a, by)
+    except Superseded as exc:
+        result = {"superseded": True, "reason": exc.reason, **exc.extra,
+                  "summary": f"superseded, nothing executed: {exc.reason}"}
+        if g.run("""MATCH (a:Action {id:$a}) WHERE a.status = 'executing'
+                    SET a.status = 'superseded', a.updated_at = timestamp(), a.closed_at = timestamp(),
+                        a.closed_by = $by, a.result = $r, a.closure = $r, a.executing_since = null
+                    RETURN a.id AS id""", {"a": aid, "by": by, "r": json.dumps(result, default=str)}):
+            _event(g, aid, "approved", "superseded", by, result["summary"])
+        return get(g, aid)
+    except Exception as exc:
+        if g.run("""MATCH (a:Action {id:$a}) WHERE a.status = 'executing'
+                    SET a.status = 'approved', a.updated_at = timestamp(), a.executing_since = null
+                    RETURN a.id AS id""", {"a": aid}):
+            _event(g, aid, "approved", "approved", by, f"execution failed, nothing recorded as done: {exc}")
+        raise
+    if g.run("""MATCH (a:Action {id:$a}) WHERE a.status = 'executing'
+                SET a.status = 'executed', a.updated_at = timestamp(), a.executed_at = timestamp(),
+                    a.executed_by = $by, a.result = $r, a.executing_since = null RETURN a.id AS id""",
+             {"a": aid, "by": by, "r": json.dumps(result, default=str)}):
         _event(g, aid, "approved", "executed", by, result.get("summary", "executed"))
     return get(g, aid)
 
@@ -204,6 +334,19 @@ def _exec_review_bid(g: Graph, a: dict, by: str) -> dict:
     case = g.read("MATCH (c:Case {id:$c}) RETURN c.bid_date AS bd, c.verdict AS v", {"c": a["case_id"]})
     if not case:
         raise ActionError(f"case {a['case_id']} no longer exists", 410)
+    # the action asks to approve one specific change (from -> to); if the case has moved on since, approving
+    # "whatever the verdict is now" would sign off something nobody reviewed
+    frm, _, to = (a.get("target") or "").partition("->")
+    if to and case[0]["v"] != to:
+        newer = g.scalar("""MATCH (n:Action {kind:'review_bid', case_id:$c}) WHERE n.id <> $a
+                              AND n.status IN ['pending', 'approved', 'executing', 'executed']
+                              AND n.target ENDS WITH $now
+                            RETURN n.id ORDER BY n.created_at DESC LIMIT 1""",
+                         {"c": a["case_id"], "a": a["id"], "now": f"->{case[0]['v']}"})
+        raise Superseded(f"this review was raised to approve {frm} -> {to}, but the case's recommendation is "
+                         f"now {case[0]['v']}" + (f"; {newer} covers the current change" if newer else
+                                                  "; re-run the review for the current recommendation"),
+                         case_verdict=case[0]["v"], expected=to, replaced_by=newer)
     clauses = g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause)
                         RETURN k.id AS id, k.ref AS ref, k.kind AS kind, k.params AS params, k.verdict AS verdict""",
                      {"c": a["case_id"]})
@@ -222,8 +365,9 @@ def _exec_review_bid(g: Graph, a: dict, by: str) -> dict:
     if mismatches:
         raise ActionError(f"re-verification disagrees with the stored verdicts on {len(mismatches)} clause(s): "
                           f"{mismatches}; re-run the tender team before approving", 409)
-    g.run("""MATCH (c:Case {id:$c}) SET c.approved_recommendation = $r, c.reviewed_at = timestamp(),
-             c.reviewed_by = $by""", {"c": a["case_id"], "r": rec, "by": by})
+    g.run("""MATCH (a:Action {id:$a}) WHERE a.status = 'executing'
+             MATCH (c:Case {id:$c}) SET c.approved_recommendation = $r, c.reviewed_at = timestamp(),
+             c.reviewed_by = $by, c.reviewed_action = $a""", {"a": a["id"], "c": a["case_id"], "r": rec, "by": by})
     return {"clauses_checked": checked, "recommendation": rec,
             "summary": f"re-verified {checked} clause(s) against the graph; recommendation {rec} approved"}
 
@@ -231,10 +375,14 @@ def _exec_review_bid(g: Graph, a: dict, by: str) -> dict:
 def _exec_renewal(g: Graph, a: dict, by: str) -> dict:
     p = json.loads(a.get("payload") or "{}")
     rid = "REQ-" + _idem("renewal", p.get("person"), a.get("case_id"))[:10]
-    g.run("""MERGE (r:DocumentRequest {id:$id}) ON CREATE SET r.key = $id, r.kind = 'credential_renewal',
-                 r.status = 'requested', r.requested_at = timestamp(), r.requested_by = $by, r.channel = 'internal'
-             WITH r MATCH (p:Person {key:$p}) MERGE (r)-[:FOR_PERSON]->(p)
-             WITH r MATCH (a:Action {id:$a}) MERGE (a)-[:CREATED]->(r)""",
+    # one statement, conditioned on this action holding the execution claim: nothing is written for an
+    # action that is not executing, and a retry MERGEs onto the same nodes and edges
+    g.run("""MATCH (a:Action {id:$a}) WHERE a.status = 'executing'
+             MERGE (r:DocumentRequest {id:$id}) ON CREATE SET r.key = $id, r.kind = 'credential_renewal',
+                 r.status = 'requested', r.requested_at = timestamp(), r.requested_by = $by, r.channel = 'internal',
+                 r.action_id = $a
+             MERGE (a)-[:CREATED]->(r)
+             WITH r MATCH (p:Person {key:$p}) MERGE (r)-[:FOR_PERSON]->(p)""",
           {"id": rid, "by": by, "p": p.get("person"), "a": a["id"]})
     return {"request_id": rid, "channel": "internal",
             "summary": f"renewal proof requested from the employee as {rid} (internal queue; nothing was emailed)"}
@@ -243,12 +391,16 @@ def _exec_renewal(g: Graph, a: dict, by: str) -> dict:
 def _exec_request_letter(g: Graph, a: dict, by: str) -> dict:
     p = json.loads(a.get("payload") or "{}")
     rid = "REQ-" + _idem("letter", p.get("work"))[:10]
-    g.run("""MERGE (r:DocumentRequest {id:$id}) ON CREATE SET r.key = $id, r.kind = 'reference_letter',
-                 r.status = 'requested', r.requested_at = timestamp(), r.requested_by = $by, r.channel = 'internal'
+    # one request per work (two bids relying on the same letter share it), written only while this action
+    # holds the execution claim; MERGE makes a retry a no-op
+    g.run("""MATCH (a:Action {id:$a}) WHERE a.status = 'executing'
+             MERGE (r:DocumentRequest {id:$id}) ON CREATE SET r.key = $id, r.kind = 'reference_letter',
+                 r.status = 'requested', r.requested_at = timestamp(), r.requested_by = $by, r.channel = 'internal',
+                 r.action_id = $a
+             MERGE (a)-[:CREATED]->(r)
              WITH r MATCH (w:Work {key:$w}) MERGE (r)-[:FOR_WORK]->(w)
              WITH r, w OPTIONAL MATCH (w)-[:FOR_CLIENT]->(c:Client) FOREACH (_ IN CASE WHEN c IS NULL THEN [] ELSE [1] END |
-                 MERGE (r)-[:ADDRESSED_TO]->(c))
-             WITH r MATCH (a:Action {id:$a}) MERGE (a)-[:CREATED]->(r)""",
+                 MERGE (r)-[:ADDRESSED_TO]->(c))""",
           {"id": rid, "by": by, "w": p.get("work"), "a": a["id"]})
     return {"request_id": rid, "channel": "internal",
             "summary": f"request {rid} recorded in the internal queue (no email integration: nothing was sent)"}
@@ -283,8 +435,9 @@ def get(g: Graph, aid: str) -> dict:
     out = {k: v for k, v in r["a"].items() if k not in ("idem", "key")}
     out.update(trigger={"label": r["tl"], "id": r["tid"]} if r["tid"] else None,
                assignee={"key": r["pk"], "name": r["pn"]} if r["pk"] else None, cites=r["docs"], events=ev)
-    if out.get("result"):
-        out["result"] = json.loads(out["result"])
+    for k in ("result", "closure"):
+        if out.get(k):
+            out[k] = json.loads(out[k])
     return out
 
 
@@ -294,6 +447,7 @@ def list_actions(g: Graph, status: str | None = None, case_id: str | None = None
                      RETURN a.id AS id, a.kind AS kind, a.status AS status, a.title AS title, a.owner AS owner,
                             p.name AS assignee, a.case_id AS case_id, a.created_at AS created_at,
                             a.updated_at AS updated_at
-                     ORDER BY CASE a.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, a.created_at DESC""",
+                     ORDER BY CASE a.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 WHEN 'executing' THEN 1
+                              ELSE 2 END, a.created_at DESC""",
                   {"s": status, "c": case_id})
     return rows

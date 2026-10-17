@@ -25,6 +25,14 @@ to the next bucket and, if every bucket rejects it, raises with the real reason.
   Another bucket serves only when the pinned one rejects the request, is not configured, or stays
   parked beyond the wait; the reply then says why in `Reply.switched`. `run_agent` pins the bucket
   that served its first step and moves the pin (once, recorded) only on such a switch.
+  Why a pin used to break (round 3, qwen -> gpt-oss-20b mid-answer): Groq's free tier gives each model
+  8,000 tokens a minute and a Q&A step sends 4-6k, so the second step's 429 asked for 45-60 s, just past
+  the old 45 s wait; the default wait now covers a whole per-minute window (62 s). And a Groq 400
+  `tool_use_failed` (the model wrote a tool call that failed the server's schema check) is the model's
+  own reply, not a rejected request: it comes back as `Reply(malformed=True)` holding the failed
+  generation, from the same bucket, so the loop recovers the call or re-asks that model instead of
+  handing the answer to another one. An unpinned lookup (the first step) skips a cached reply from a
+  bucket that cannot serve the next step (not configured, or parked beyond the wait).
 * Errors that leave this module are redacted (`redact`): no organization / request ids, keys or URLs
   from a provider's error body reach a client, only the kind and a short message.
 * Reasoning is kept short: gpt-oss gets reasoning_effort=low, Qwen gets
@@ -56,7 +64,9 @@ ENDPOINTS = {
 }
 DEFAULT_POOL = "groq:openai/gpt-oss-120b,groq:qwen/qwen3.8-27b,groq:openai/gpt-oss-20b,cerebras:gpt-oss-120b"
 REPLAY = os.getenv("BIDBRAIN_REPLAY", "0") == "1"
-MAX_WAIT = float(os.getenv("LLM_MAX_WAIT", "45"))      # seconds a call may wait for a rate limit to reset
+# seconds a call may wait for a rate limit to reset: a whole per-minute token window (Groq: 8k TPM per model; a
+# 4-6k token step after another one is told to retry in 45-60 s) so a pinned model is waited for, not swapped
+MAX_WAIT = float(os.getenv("LLM_MAX_WAIT", "62"))
 MIN_PARK = 1.0          # a 429 with 'retry-after: 0' must not turn into a tight retry loop
 SHORT_PARK = 5.0        # 5xx, timeouts, connection errors: the endpoint is briefly unwell
 AUTH_PARK = 3600.0      # 401/403: the key is wrong or lacks access; retrying soon will not help
@@ -97,6 +107,7 @@ class Reply:
     cached: bool
     ms: float
     switched: str | None = None     # set when `prefer` was given and another bucket served: why
+    malformed: bool = False         # the server refused the model's own tool call; `content` is what it wrote
 
 
 # ── redaction ────────────────────────────────────────────────────────────────
@@ -258,18 +269,44 @@ def _prefer_first(buckets: list[tuple[str, str]], prefer: str | None) -> list[tu
     return sorted(buckets, key=lambda pm: f"{pm[0]}:{pm[1]}" != prefer) if prefer else list(buckets)
 
 
+def _serviceable(bucket: str, now: float | None = None) -> bool:
+    """Whether `bucket` could serve a live call within the wait: configured and not parked beyond MAX_WAIT."""
+    prov = bucket.split(":", 1)[0]
+    if prov not in ENDPOINTS or _client(prov) is None:
+        return False
+    return _parked.get(bucket, 0) <= (now or time.time()) + MAX_WAIT
+
+
 def _hit(messages, tools, temperature, max_tokens, prefer: str | None = None) -> dict | None:
     """A cached completion. With `prefer`, only that bucket's entry counts (one model per answer); the
-    rest of the pool is consulted only in replay mode, where nothing can go live instead."""
+    rest of the pool is consulted only in replay mode, where nothing can go live instead. Without `prefer`
+    (a run's first step, which picks the pin), a bucket that could not serve the *next* step live is skipped:
+    pinning a run to it would force a switch one step later."""
     buckets = [f"{p}:{m}" for p, m in _prefer_first(POOL, prefer)]
     if prefer and not REPLAY:
         buckets = [b for b in buckets if b == prefer]
+    elif not REPLAY:
+        now = time.time()
+        buckets = [b for b in buckets if _serviceable(b, now)]
     for b in buckets:
         if hit := _cache.get(_key(b, messages, tools, temperature, max_tokens)):
             return hit
     if REPLAY:
         return _cache.get(_legacy_key(messages, tools, temperature))
     return None
+
+
+def _failed_generation(exc) -> str | None:
+    """The model's own text when the server refused its tool call (Groq 400 `tool_use_failed`, with the text
+    in `failed_generation`), else None. That is a reply from this model, not a request every model rejects."""
+    if getattr(exc, "status_code", None) != 400:
+        return None
+    body = getattr(exc, "body", None)
+    err = body.get("error") if isinstance(body, dict) and isinstance(body.get("error"), dict) else body
+    if not isinstance(err, dict) or err.get("code") != "tool_use_failed":
+        return None
+    text = err.get("failed_generation")
+    return text if isinstance(text, str) and text.strip() else None
 
 
 def _fail(errors: list[tuple[str, str]], why: str) -> LLMUnavailable:
@@ -355,6 +392,13 @@ def chat(messages: list[dict], tools: list[dict] | None = None, temperature: flo
                 resp = _client(prov).chat.completions.create(**kw)
             except Exception as exc:
                 kind, wait = _classify(exc)
+                if kind == "request" and tools and (text := _failed_generation(exc)):
+                    # the model's malformed tool call: hand it back (never cached) so the caller re-asks the
+                    # same model, instead of treating it as a request no model could serve
+                    return Reply(content=redact(text).strip(), tool_calls=[], provider=bucket, model=model,
+                                 usage={"prompt": 0, "completion": 0}, cached=False,
+                                 ms=round((time.perf_counter() - t0) * 1000, 1),
+                                 switched=switched if bucket != prefer else None, malformed=True)
                 desc = _describe(bucket, exc, kind)
                 errors.append((kind, desc))
                 if kind == "request":

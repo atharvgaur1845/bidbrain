@@ -255,12 +255,54 @@ def get_entity(g: Graph, key: str, kind: str) -> dict:
         raise LookupError(f"no {label} with key {key}")
     node = {k: v for k, v in rows[0]["node"].items() if k not in ("embedding", "_id", "_labels")}
     links = rows[0]["links"]
+    for l in links:                 # a Bid is a past tender submission, never an open bid
+        if l.get("label") == "Bid":
+            l["kind"] = "past_bid"
     sg = {"nodes": [_node(label, key, node.get("name") or node.get("title"))]
           + [_node(l["label"], l["key"], l["name"]) for l in links if l.get("key")],
           "edges": [_edge(f"{label}:{key}", f"{l['label']}:{l['key']}", l["rel"]) if l["out"]
                     else _edge(f"{l['label']}:{l['key']}", f"{label}:{key}", l["rel"])
                     for l in links if l.get("key")]}
     return {"result": {"entity": node, "links": links}, "resolved_as": res, "subgraph": sg, "cypher": [q]}
+
+
+@tool("list_cases",
+      """This workspace's bid qualification cases: the open bids the tender team is working on (not the
+      past Bid submissions, which are history). For each case: case_id, title, tender, bid date, status,
+      the team's current recommendation (BID / BID WITH FIXES / NO-BID / NEEDS REVIEW), the recommendation a
+      person approved (and whether the current one differs from it), clause verdict counts and the open
+      (unresolved) findings. Optional status filter (e.g. 'open'). Read one case in full with case_get.""",
+      {"status": {"type": "string"}})
+def list_cases(g: Graph, status: str | None = None) -> dict:
+    q = """MATCH (c:Case) WHERE $s IS NULL OR c.status = $s
+           OPTIONAL MATCH (c)-[:HAS_CLAUSE]->(k:Clause)
+           WITH c, collect(k.verdict) AS verdicts
+           RETURN c.id AS case_id, c.title AS title, c.tender_ref AS tender, c.bid_date AS bid_date,
+                  c.status AS status, c.verdict AS recommendation, c.approved_recommendation AS approved,
+                  verdicts, c.created_at AS created_at
+           ORDER BY created_at DESC"""
+    rows = g.read(q, {"s": status})
+    fq = """MATCH (c:Case)-[:HAS_CLAUSE]->(k:Clause)-[:HAS_FINDING]->(f:Finding)
+            WHERE c.id IN $ids AND coalesce(f.status, 'open') <> 'resolved'
+            RETURN c.id AS case_id, k.ref AS clause, f.kind AS kind, f.severity AS severity, f.text AS text
+            ORDER BY clause"""
+    found = g.read(fq, {"ids": [r["case_id"] for r in rows]}) if rows else []
+    cases = []
+    for r in rows:
+        counts: dict[str, int] = {}
+        for v in r.pop("verdicts") or []:
+            counts[v] = counts.get(v, 0) + 1
+        r.pop("created_at", None)
+        cases.append({**r, "kind": "case", "clause_verdicts": counts,
+                      "changed_since_approval": bool(r["approved"]) and r["approved"] != r["recommendation"],
+                      "open_findings": [{k: (f[k][:240] if k == "text" and f[k] else f[k])
+                                         for k in ("clause", "kind", "severity", "text")}
+                                        for f in found if f["case_id"] == r["case_id"]]})
+    sg = {"nodes": [_node("Case", c["case_id"], c["title"]) for c in cases], "edges": []}
+    return {"result": {"n": len(cases), "cases": cases,
+                       "note": None if cases else "no qualification cases in this workspace yet (run a tender "
+                                                  "on the Qualify page); past Bid submissions are not cases"},
+            "subgraph": sg, "cypher": [q, fq]}
 
 
 # --------------------------------------------------------------------------

@@ -17,6 +17,7 @@ const POLICIES: { id: string; label: string; tone: string }[] = [
   { id: "org_rule", label: "Company memory", tone: "violet" },
   { id: "human", label: "Human", tone: "warn" },
   { id: "company_record", label: "Company record", tone: "info" },
+  { id: "record_withdrawn", label: "Record withdrawn", tone: "warn" },
 ];
 
 const STATUS_TONE: Record<string, string> = { active: "ok", contested: "warn" };
@@ -242,6 +243,24 @@ export default function DecisionsPage() {
                         <span className="num text-ink-2">{trace.org_rule.id}</span>
                         <span>prefer {trace.org_rule.prefer_kind} over {trace.org_rule.over_kind}</span>
                         {trace.org_rule.source_decision && <span>· learned from <span className="num">{trace.org_rule.source_decision}</span></span>}
+                      </div>
+                    )}
+                    {trace.company_record && (
+                      <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-3">
+                        <Badge tone={trace.company_record_status === "active" ? "info" : "warn"}>
+                          Company record {trace.company_record_status || ""}
+                        </Badge>
+                        <span className="num text-ink-2">{trace.company_record}</span>
+                        {trace.contestable && (
+                          <Button size="sm" variant="ghost" title="Stop this published fact counting here and reopen this decision as a card"
+                            onClick={async () => {
+                              try {
+                                await api(`/api/company/record/${trace.company_record}/contest`, { method: "POST", body: "{}" });
+                              } catch (e: any) { alert(`Contest: ${e?.message || e}`); }
+                              api(`/api/decisions/${encodeURIComponent(trace.decision.id)}/trace`).then(setTrace).catch(() => {});
+                              api("/api/conflicts").then(setConf).catch(() => {});
+                            }}>Contest</Button>
+                        )}
                       </div>
                     )}
                     {trace.review && (

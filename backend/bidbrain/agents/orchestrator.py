@@ -17,11 +17,16 @@ conclusions there (HANDED_OFF_TO links the runs, in the order they actually ran)
   runs again, re-selects preferring referenced works (kept only if the clause passes as well with them)
   and marks the finding resolved. A Verifier mismatch is likewise a request: the EvidenceHunter re-derives
   that clause once and the Verifier re-checks; NEEDS REVIEW only if the mismatch persists.
-* The **Verifier** does not replay the EvidenceHunter: it re-reads each clause's text with the rule parser
-  and compares the thresholds with the params the team used (a disagreement that would change the verdict
-  persists -> NEEDS REVIEW), recomputes every credited value from the winning claims rather than the
-  materialized property, and re-derives the verdict. The Assembler rejects an LLM memo that cites a DOC or
-  a ₹ amount it was not given (amounts are formatted as ₹X.XX Cr in Python before the model sees them).
+* The **Verifier** does not replay the EvidenceHunter: it checks each clause's params against the amounts
+  written in its text with a reading that shares nothing with the parser (`clauses.amount_check`: every
+  threshold must be a stated amount or a stated percentage of one, every amount in the text must be used),
+  compares the structure with a rule-parser re-read, recomputes every credited value from the winning claims
+  rather than the materialized property, and re-derives the verdict. A disagreement that would change the
+  verdict persists -> NEEDS REVIEW; a clause it cannot check is 'unverified' -> NEEDS REVIEW (never
+  verified=true). A requirement the parser could not read is NEEDS REVIEW, never DECLARE.
+  The Assembler rejects an LLM memo that cites a DOC or a ₹ amount it was not given, or that ties a figure
+  or a conflict to a clause whose own record does not carry it (amounts are formatted as ₹X.XX Cr in Python
+  before the model sees them).
 
 Only two steps need language: reading the tender (ClauseParser) and writing the memo (Assembler). Both
 degrade to deterministic fallbacks, so a demo can never be stopped by a rate limit.
@@ -52,7 +57,7 @@ RANK = {"PASS": 2, "AT_RISK": 1}                          # verdicts that pass, 
 CLAIM_PRED = {"Work": "value", "FinancialStatement": "revenue_operations", "Person": "experience_years"}
 MONEY_LABELS = {"Work", "FinancialStatement"}             # SATISFIED_BY.credited is rupees for these
 # the params that decide a threshold (what a params/text disagreement can change)
-THRESHOLD_KEYS = {"estimated_cost", "min_value", "count", "options", "lookback_years", "min_average",
+THRESHOLD_KEYS = {"estimated_cost", "min_value", "count", "options", "min_total", "lookback_years", "min_average",
                   "min_each_year", "years", "min_experience_years", "min_years", "credential"}
 AUDITABLE = {"similar_works", "key_personnel"}            # clauses that cite works or people
 PIPELINE = ["EvidenceHunter", "AbsenceAuditor", "ConflictSentinel", "Verifier", "Assembler"]
@@ -147,6 +152,9 @@ class _Team:
         self.g, self.tender, self.case_id, self.emit, self.M = g, tender, case_id, emit, M
         self.bid_date = tender.get("bid_date")
         self.plan: dict = {}
+        # the tender's estimated cost as its own text states it (for 'X% of the estimated cost' clauses);
+        # read by the Verifier's independent amount reading, not the parser
+        self.est = clause_mod.stated_estimate(tender.get("text") or "")
 
     # ── plan, kept on the Case node ─────────────────────────────────────────
     def save_plan(self, stage: str, **extra) -> None:
@@ -209,6 +217,14 @@ class _Team:
         used referenced?) pair the caller already computed with `select`."""
         g = self.g
         if c["kind"] == "other":
+            # DECLARE is only for a genuine self-declaration / document to enclose; a requirement of a known
+            # kind the parser could not read is for a person to confirm, and blocks a BID
+            kk = (c.get("params") or {}).get("unparsed") or clause_mod.known_kind(c.get("text") or "", self.est)
+            if kk:
+                why = (c.get("params") or {}).get("reason") or "could not read its threshold"
+                self.needs_review(kid, c, run, f"a {kk.replace('_', ' ')} requirement the parser {why}: a person "
+                                               f"must read it before any recommendation")
+                return None
             C.set_verdict(g, kid, "DECLARE", "self-declaration / document to enclose — not provable from records",
                           [], run)
             self.emit({"type": "verdict", "agent": "EvidenceHunter", "clause_id": kid, "ref": c["id"],
@@ -220,11 +236,9 @@ class _Team:
             else:
                 out, used_ref, n = select(g, c["kind"], c["params"], self.bid_date, prefer_reference)
         except Exception as exc:        # one unreadable clause must not abort the whole case
-            msg = f"could not check this clause automatically ({exc}); verify by hand"
-            C.set_verdict(g, kid, "DECLARE", msg, [], run)
             g.run("MATCH (k:Clause {id:$k}) SET k.kind = 'other'", {"k": kid})
-            self.emit({"type": "verdict", "agent": "EvidenceHunter", "clause_id": kid, "ref": c["id"],
-                       "kind": c["kind"], "verdict": "DECLARE", "basis": msg})
+            self.needs_review(kid, c, run, f"could not check this {c['kind'].replace('_', ' ')} clause automatically "
+                                           f"({exc}); a person must verify it")
             return None
         self.M.tool(n)
         res = out["result"]
@@ -238,6 +252,17 @@ class _Team:
                    **({"selection": "referenced works preferred"} if used_ref else {})})
         res["_referenced"] = used_ref
         return res
+
+    def needs_review(self, kid: str, c: dict, run: str, why: str) -> None:
+        """A requirement nobody could check: verdict NEEDS REVIEW plus a high-severity finding, so every
+        path that recomputes the recommendation (the ripple, review_bid) also refuses a plain BID."""
+        C.set_verdict(self.g, kid, "NEEDS REVIEW", why, [], run)
+        self.g.run("MATCH (k:Clause {id:$k}) SET k.verification = 'needs_review'", {"k": kid})
+        C.add_finding(self.g, kid, "needs_review", why, "high", [], run)
+        self.emit({"type": "verdict", "agent": "EvidenceHunter", "clause_id": kid, "ref": c["id"],
+                   "kind": c["kind"], "verdict": "NEEDS REVIEW", "basis": why})
+        self.emit({"type": "finding", "agent": "EvidenceHunter", "clause_id": kid, "kind": "needs_review",
+                   "severity": "high", "text": why})
 
     # ── AbsenceAuditor helpers ──────────────────────────────────────────────
     def referenced_alternates(self, params: dict, exclude: list[str]) -> list[str]:
@@ -328,6 +353,9 @@ class _Team:
             alts = clause_mod.alternatives(p) or set()
             if alts and not any(sum(v >= mv for v in vals) >= n for n, mv in alts):
                 out.append("the credited works' claimed values meet none of the clause's alternatives")
+            if p.get("min_total") and sum(vals) < int(p["min_total"]):
+                out.append(f"the credited works' claimed values sum to {_cr(sum(vals))}, below the required "
+                           f"cumulative {_cr(p['min_total'])}")
         elif s["kind"] == "turnover" and vals:
             if p.get("min_each_year"):
                 ok = all(v >= int(p["min_each_year"]) for v in vals)
@@ -352,8 +380,15 @@ class _Team:
             if s["kind"] == "other":
                 continue
             checked += 1
-            reasons = [] if s["id"] in immaterial else \
-                [f"text: {d}" for d in clause_mod.reading_diff(s["kind"], s["params"], s["text"] or "")]
+            reasons = []
+            if s["id"] not in immaterial:
+                amt = clause_mod.amount_check(s["kind"], s["params"], s["text"] or "", self.est)
+                if amt["status"] == "unverified":
+                    reasons += [f"unverified: {d}" for d in amt["problems"]]
+                else:
+                    reasons += [f"amounts: {d}" for d in amt["problems"]]
+                reasons += [f"text: {d}" for d in clause_mod.reading_diff(s["kind"], s["params"], s["text"] or "",
+                                                                          self.est)]
             reasons += [f"claims: {d}" for d in self.claim_check(s)]
             try:
                 out, _, n = select(self.g, s["kind"], s["params"], self.bid_date, bool(s["pref"]))
@@ -366,17 +401,22 @@ class _Team:
             stored_keys = sorted(k for k in s["sat"] if k and not k.startswith("FS-") and k != "company")
             if not (fresh["verdict"] == s["verdict"] and (not fresh_keys or fresh_keys == stored_keys)):
                 reasons.append(f"re-derived {fresh['verdict']} vs stored {s['verdict']}")
+            status = ("unverified" if reasons and all(r.startswith("unverified:") for r in reasons)
+                      else "mismatch" if reasons else "verified")
+            self.g.run("MATCH (k:Clause {id:$k}) SET k.verification = $v", {"k": s["id"], "v": status})
             if reasons:
                 mismatches.append({"clause": s["ref"] or s["id"], "clause_id": s["id"], "stored": s["verdict"],
-                                   "fresh": fresh["verdict"], "reasons": reasons})
+                                   "fresh": fresh["verdict"], "reasons": reasons, "status": status})
         return mismatches, checked
 
     def text_verdict(self, k: dict) -> str | None:
         """The verdict the clause would get under its text's reading (thresholds from the rule parser, the
         rest of the clause as the team had it): does a params/text disagreement change the outcome?"""
-        rules = [r for r in clause_mod.parse_rules(k["text"] or "") if r["kind"] == k["kind"]]
+        rules = [r for r in clause_mod.parse_rules(k["text"] or "", self.est) if r["kind"] == k["kind"]]
         if len(rules) != 1:
             return None
+        if clause_mod.amount_check(k["kind"], rules[0]["params"], k["text"] or "", self.est)["status"] != "verified":
+            return None             # the parser's own reading leaves amounts unaccounted: no trusted text reading
         params = {x: v for x, v in k["params"].items() if x not in THRESHOLD_KEYS}
         params.update({x: v for x, v in rules[0]["params"].items() if x in THRESHOLD_KEYS})
         try:
@@ -399,7 +439,7 @@ class _Team:
         for k in self.clauses(ids):
             res = self.hunt(k["id"], {"id": k["ref"], "kind": k["kind"], "params": k["params"]}, run, bool(k["pref"]))
             m = by_id.get(k["id"]) or {}
-            if any(r.startswith("text:") for r in m.get("reasons", [])):
+            if any(r.startswith(("text:", "amounts:")) for r in m.get("reasons", [])):
                 now = (res or {}).get("verdict", k["verdict"])
                 alt = self.text_verdict(k)
                 M.tool()
@@ -407,10 +447,13 @@ class _Team:
                     immaterial.add(k["id"])
                     notes[k["id"]] = (f"its params and its text disagree, but both readings give {now}; "
                                       f"the params were kept")
-                else:
-                    notes[k["id"]] = (f"its params give {now} but its own text reads {alt or 'differently'}: "
+                elif alt:
+                    notes[k["id"]] = (f"its params give {now} but its own text reads {alt}: "
                                       f"a person must confirm which reading applies")
-                    m["fresh"] = alt or m.get("fresh")
+                    m["fresh"] = alt
+                else:
+                    notes[k["id"]] = (f"its params give {now}, but the amounts in its text do not match them and "
+                                      f"no reading of the text accounts for every amount: a person must confirm it")
         M.done(rederived=len(ids))
         self.emit({"type": "agent_done", "agent": "EvidenceHunter", "summary": f"re-derived {len(ids)} clause(s)"})
         rv = M.start("Verifier", uses_llm=False, requested_by="EvidenceHunter", reason="re-verify")
@@ -610,17 +653,30 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
     # 6 ── Verifier (no LLM), with one re-derivation on a mismatch ───────────
     r5 = M.start("Verifier", uses_llm=False)
     emit({"type": "agent_start", "agent": "Verifier", "run": r5})
-    first, checked = T.verify(T.assigned("Verifier"))
+    found, checked = T.verify(T.assigned("Verifier"))
+    # a clause the Verifier could not check at all is not retried (a re-derivation cannot make it checkable):
+    # it is 'unverified' and the case NEEDS REVIEW
+    unverified = [m for m in found if m.get("status") == "unverified"]
+    first = [m for m in found if m.get("status") != "unverified"]
+    for m in unverified:
+        m["note"] = "the Verifier could not check this clause against its own text"
+        C.add_finding(g, m["clause_id"], "unverified", f"Verifier could not check this clause: "
+                      f"{'; '.join(r.split(': ', 1)[1] for r in m['reasons'])}. A person must confirm its "
+                      f"threshold before any recommendation.", "high", [], r5)
     for m in first:
         fid = C.add_finding(g, m["clause_id"], "verification_failed",
                             f"Verifier: {'; '.join(m['reasons'])} (case says {m['stored']}); asked the "
                             f"EvidenceHunter to re-derive it once.", "high", [], r5)
         T.request(fid, "rederive", r5)
-    M.done(mismatches=len(first))
-    mismatches = T.rederive(first) if first else []
-    g.run("MATCH (c:Case {id:$c}) SET c.verified = $v", {"c": case_id, "v": not mismatches})
-    emit({"type": "verified", "agent": "Verifier", "ok": not mismatches, "mismatches": mismatches,
-          "checked": checked, "retried": first})
+    M.done(mismatches=len(first), unverified=len(unverified))
+    mismatches = (T.rederive(first) if first else []) + unverified
+    review = [r["ref"] for r in g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause)
+                                          WHERE k.verdict = 'NEEDS REVIEW' RETURN k.ref AS ref""", {"c": case_id})]
+    ok = not mismatches and not review
+    g.run("MATCH (c:Case {id:$c}) SET c.verified = $v", {"c": case_id, "v": ok})
+    emit({"type": "verified", "agent": "Verifier", "ok": ok, "mismatches": mismatches,
+          "checked": checked, "retried": first, "unverified": [m["clause"] for m in unverified],
+          "needs_review": review})
     T.save_plan("final", handoffs=T.plan["handoffs"])
 
     # 7 ── Assembler ─────────────────────────────────────────────────────────
@@ -632,8 +688,9 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
     for p in prec.get("result", [])[:2]:
         g.run("MATCH (c:Case {id:$c}), (b:Bid {key:$b}) MERGE (c)-[:PRECEDENT]->(b)", {"c": case_id, "b": p["bid"]})
     overall = C.overall_verdict(g, case_id)      # the same rule the ripple recomputes with
-    if mismatches:
-        # the Verifier's re-derivation still disagrees after one retry: never recommend on that record
+    if mismatches or review:
+        # the Verifier's re-derivation still disagrees after one retry, a clause could not be checked, or a
+        # requirement could not be read: never recommend on that record (the ripple keeps it, c.verified=false)
         overall = "NEEDS REVIEW"
     evidence = _evidence(g, case_id)
     memo, how, check = None, "template", None
@@ -653,7 +710,8 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
             if res.final and not res.error:
                 # what the model saw: the record it was given and what its own tools returned
                 seen = full[:16000] + json.dumps(res.evidence, default=str)
-                problems = memo_problems(res.final, seen)
+                problems = memo_problems(res.final, seen, clauses=rec["clauses"], evidence=evidence,
+                                         mismatches=mismatches)
                 check = {"ok": not problems, "problems": problems}
                 if problems:
                     emit({"type": "memo_check", "agent": "Assembler", "ok": False, "problems": problems,
@@ -743,16 +801,105 @@ def _money_facts(x, key: str = ""):
     return x
 
 
-def memo_problems(memo: str, facts: str) -> list[str]:
+def memo_problems(memo: str, facts: str, clauses: list[dict] | None = None, evidence: list[dict] | None = None,
+                  mismatches: list[dict] | None = None) -> list[str]:
     """An LLM memo is kept only if every DOC id it cites and every ₹ amount it states is in what it was
-    given (the case record, its evidence table and its own tool results); amounts within ₹0.01 Cr."""
+    given (the case record, its evidence table and its own tool results); amounts within ₹0.01 Cr.
+
+    With the clause table (`clauses`, `evidence`), each statement is also checked against the clause it is
+    about: a clause reference must name a clause in the table, a ₹ figure in a statement that names a clause
+    must be one of THAT clause's figures (its params, basis, correction, findings, evidence rows), and a
+    conflict / mismatch claimed for a clause must be on that clause's record. A figure that exists somewhere
+    in the facts but belongs to another clause is a wrong claim built from given figures."""
     allowed_docs = set(_DOC.findall(facts))
     bad_docs = sorted(set(_DOC.findall(memo)) - allowed_docs)
     known = {round(v / 1e5) for v in clause_mod._amounts(facts)}
     bad_amounts = sorted({_cr(v) for v in clause_mod._amounts(memo)
                           if not ({round(v / 1e5) - 1, round(v / 1e5), round(v / 1e5) + 1} & known)})
-    return ([f"cites {d}, which is not in the case evidence" for d in bad_docs]
-            + [f"states {a}, which is not among the figures it was given" for a in bad_amounts])
+    out = ([f"cites {d}, which is not in the case evidence" for d in bad_docs]
+           + [f"states {a}, which is not among the figures it was given" for a in bad_amounts])
+    if clauses is not None:
+        out += [p for p in _memo_clause_problems(memo, clauses, evidence or [], mismatches or []) if p not in out]
+    return out
+
+
+_CONFLICT_WORDS = re.compile(r"conflict|contradict|mismatch|disagree|inconsisten|discrepan|contested|"
+                             r"does not match|doesn't match", re.I)
+_REF_KEYWORD = re.compile(r"\b(?:clause|cl\.|criterion|criteria|item|requirement|req\.)\s*(?:no\.?\s*)?"
+                          r"\(?([A-Za-z]?\d+(?:\.\d+)*[a-z]?|[ivxl]{1,5}|[A-Z])\)?(?![\w.])", re.I)
+_REF_CODE = re.compile(r"(?<![\w.₹-])([A-Z]\d{1,2}[a-z]?)(?![\w])")
+_REF_DOTTED = re.compile(r"(?<![\w.₹,-])(\d{1,2}\.\d{1,2}[a-z]?)(?![\w.%,])")
+
+
+def _clause_figures(c: dict, evidence: list[dict]) -> set[int]:
+    """Every rupee figure (in lakh) a clause's own record carries: params (and the thresholds they imply),
+    basis, correction note, findings, and the evidence rows for that clause."""
+    params = c.get("params") or {}
+    if isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except ValueError:
+            params = {}
+    implied = [v for _, v in clause_mod._thresholds(c.get("kind") or "", params)]
+    rec = {k: c.get(k) for k in ("params", "basis", "corrected", "findings")}
+    rows = [e for e in evidence if str(e.get("clause")) == str(c.get("ref"))]
+    blob = json.dumps(_money_facts({"clause": rec, "evidence": rows}), default=str, ensure_ascii=False)
+    lakh = {round(v / 1e5) for v in clause_mod._amounts(blob)} | {round(v / 1e5) for v in implied}
+    return {x + d for x in lakh for d in (-1, 0, 1)}
+
+
+def _memo_clause_problems(memo: str, clauses: list[dict], evidence: list[dict], mismatches: list[dict]) -> list[str]:
+    refs = {str(c.get("ref")): c for c in clauses if c.get("ref") is not None}
+    figures = {r: _clause_figures(c, evidence) for r, c in refs.items()}
+    flagged = {str(m.get("clause")) for m in mismatches}
+
+    def resolve(tok: str) -> str | None:
+        if tok in refs:
+            return tok
+        for cand in (tok.lstrip("Cc"), tok.lower(), tok.upper()):
+            if cand in refs:
+                return cand
+        return None
+
+    out = []
+    units = []
+    for line in memo.splitlines():
+        if line.lstrip().startswith("|"):
+            units.append(line)
+        else:
+            units += [u for u in re.split(r"(?<=[.;!?])\s+(?=[A-Z(*#\[-])", line) if u.strip()]
+    for u in units:
+        money_spans = [(a, b) for a, b, _ in clause_mod._money_spans(u)]
+        inside = lambda i: any(a <= i < b for a, b in money_spans)
+        named, unknown = set(), set()
+        toks = [m.group(1) for m in _REF_KEYWORD.finditer(u)] + [m.group(1) for m in _REF_CODE.finditer(u)]
+        for t in toks:
+            r = resolve(t)
+            (named.add(r) if r else unknown.add(t))
+        for m in _REF_DOTTED.finditer(u):
+            if not inside(m.start(1)) and m.group(1) in refs:
+                named.add(m.group(1))
+        cell = re.match(r"\s*\|\s*\**([^|*\s]+)", u)
+        if cell and not re.fullmatch(r"-+|:?-+:?|Clause|#", cell.group(1), re.I):
+            r = resolve(cell.group(1))
+            if r:
+                named.add(r)
+        for t in sorted(unknown):
+            out.append(f"refers to clause {t}, which is not in the clause table")
+        if not named:
+            continue
+        allowed = set().union(*(figures[r] for r in named))
+        for v in clause_mod._amounts(u):
+            if round(v / 1e5) not in allowed:
+                out.append(f"states {_cr(v)} for clause {', '.join(sorted(named))}, which is not a figure of that "
+                           f"clause's record")
+        if _CONFLICT_WORDS.search(u) and not any(
+                r in flagged or refs[r].get("corrected") or any(
+                    (f or {}).get("kind") in ("conflict", "verification_failed", "unverified", "needs_review")
+                    for f in refs[r].get("findings") or []) for r in named):
+            out.append(f"claims a conflict / mismatch on clause {', '.join(sorted(named))}, which that clause's "
+                       f"record does not have")
+    return out
 
 
 def rebuild_memo(g: Graph, case_id: str, cause: str, before: str | None, after: str) -> str:
@@ -784,6 +931,12 @@ def _template_memo(tender: dict, rec: dict, overall: str, precedents: list, evid
         if c.get("corrected"):
             basis += f" (parser correction: {_fmt_text(c['corrected'])})"
         lines.append(f"| {c['ref']} {c['kind']} | {c['verdict']} | {basis.replace('|', '/')} |")
+    review = [c for c in rec["clauses"] if c.get("verdict") == "NEEDS REVIEW"]
+    if review:
+        lines += ["", "> **Needs review:** " + "; ".join(f"{c['ref']} ({_fmt_text(c.get('basis') or '')})"
+                                                       for c in review)
+                  + ". These requirements could not be checked automatically; a person must confirm them "
+                    "before a recommendation is made."]
     if mismatches:
         lines += ["", "> **Verifier:** independent checks still disagree for "
                   + "; ".join(f"{m['clause']} (case {m['stored']}: {m.get('note') or '; '.join(m.get('reasons') or [])})"

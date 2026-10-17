@@ -81,8 +81,20 @@ def _money_spans(s: str) -> list[tuple[int, int, int]]:
 
 
 PCT_RE = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)\s*(?:%|per\s*cent\b|percent\b)", re.I)
-EST_RE = re.compile(r"estimated\s+(?:cost|value)(?:\s+of\s+the\s+(?:work|project|contract))?[\s(:,-]*"
-                    r"(?:(?:of|is|i\.e\.?|being|namely)\s+)?", re.I)
+EST_RE = re.compile(r"estimated\s+(?:cost|value)(?:\s+of\s+the\s+(?:work|project|contract))?[\s(:,=-]*"
+                    r"(?:\((?:put\s+to\s+tender|approx\w*\.?)\)[\s:,=-]*)?"
+                    r"(?:(?:of|is|i\.e\.?|being|namely|approx\w*\.?|about)\s+)?", re.I)
+# 'X% of the estimated cost' with no amount after it: the estimate is stated elsewhere in the tender
+PCT_OF_EST = re.compile(r"\s*of\s+(?:the\s+)?(?:estimated|tender(?:ed)?|contract|project)\s+(?:cost|value|amount)\b",
+                        re.I)
+# 'a cumulative value of INR 500 Cr', 'total road works of INR 120 Cr', 'aggregate value of ... not less than'
+# ('total' only of works in the plural: 'one work of total value INR 50 Cr' is a single-work value)
+CUMULATIVE_RE = re.compile(r"\b(?:(?:cumulative|aggregate)\s+(?:[\w&/-]+\s+){0,3}?"
+                           r"(?:value|cost|amount|worth|works?|contracts?)"
+                           r"|total\s+(?:(?:value|cost|amount|worth)\s+of\s+(?:all\s+|such\s+|the\s+)?)?"
+                           r"(?:[\w&/-]+\s+){0,2}?(?:works|contracts|projects))\b", re.I)
+# a line that only states the tender's estimated cost ('Estimated cost Rs 2000 Cr'): context, not a requirement
+EST_LINE_RE = re.compile(r"^(?:\(?(?:[ivxl]+|[a-z]|\d+(?:\.\d+)*)[.)]\s*)?(?:the\s+)?estimated\s+(?:cost|value)\b", re.I)
 
 
 def _estimate(s: str) -> tuple[int | None, int | None]:
@@ -94,8 +106,16 @@ def _estimate(s: str) -> tuple[int | None, int | None]:
     return None, None
 
 
-def _pct_of(s: str) -> list[int]:
-    """'X% of [the estimated cost of] INR Y Cr' -> X% of Y, for each such phrase."""
+def tender_estimate(text: str) -> int | None:
+    """The tender's estimated cost wherever it is stated (a header line 'Estimated cost Rs 2000 Cr', or
+    another clause '... 80% of the estimated cost of INR 250 Cr'): what 'X% of the estimated cost' means in a
+    clause that does not repeat the amount."""
+    return _estimate(text or "")[0]
+
+
+def _pct_of(s: str, est: int | None = None) -> list[int | None]:
+    """'X% of [the estimated cost of] INR Y Cr' -> X% of Y, for each such phrase; 'X% of the estimated cost'
+    with no amount after it -> X% of `est` (the tender's estimate), or None when the tender states none."""
     out, spans = [], _money_spans(s)
     for m in PCT_RE.finditer(s):
         after = s[m.end():m.end() + 70]
@@ -104,13 +124,49 @@ def _pct_of(s: str) -> list[int]:
         nxt = next(((a, v) for a, _, v in spans if a >= m.end()), None)
         if nxt and nxt[0] - m.end() <= 70 and not PCT_RE.search(s[m.end():nxt[0]]):
             out.append(int(round(float(m.group(1)) / 100 * nxt[1])))
+        elif PCT_OF_EST.match(after):
+            out.append(int(round(float(m.group(1)) / 100 * est)) if est else None)
     return out
 
 
-def _threshold(s: str) -> int | None:
-    """The amount a clause requires: 'X% of INR Y Cr' is X% of Y, otherwise the first amount written."""
-    pct = _pct_of(s)
-    return pct[0] if len(pct) == 1 else _money(s)
+def _threshold(s: str, est: int | None = None) -> int | None:
+    """The amount a clause requires: 'X% of INR Y Cr' is X% of Y (or X% of the tender's estimate), otherwise
+    the first amount written. None when a percentage cannot be resolved or there are several of them (the
+    first amount would then be a guess)."""
+    pct = _pct_of(s, est)
+    if not pct:
+        return None if PCT_RE.search(s) and not _amounts(s) else _money(s)
+    return pct[0] if len(pct) == 1 else None
+
+
+def _cumulative(s: str, est: int | None = None) -> tuple[int | None, tuple[int, int] | None, bool]:
+    """An aggregate-value requirement ('and a cumulative value of INR 500 Cr'): (rupees, the span holding the
+    phrase and its amount, whether the phrase was seen at all). A phrase with no readable amount comes back as
+    (None, None, True): the clause must not silently lose it."""
+    m = CUMULATIVE_RE.search(s)
+    if not m:
+        return None, None, False
+    window = s[m.start():m.end() + 100]
+    stop = re.search(r"[.;](?:\s|$)", window[m.end() - m.start():])
+    if stop:
+        window = window[:m.end() - m.start() + stop.start()]
+    pm = PCT_RE.search(window)
+    am = next(iter(_money_spans(window)), None)
+    if pm and (not am or pm.start() < am[0]):
+        v = _pct_of(window[pm.start():], est)
+        if v and v[0]:
+            end = m.start() + pm.end()
+            if am and am[0] >= pm.end() and am[0] - pm.end() <= 70:
+                end = m.start() + am[1]
+            return v[0], (m.start(), end), True
+        return None, None, True
+    if am:
+        return am[2], (m.start(), m.start() + am[1]), True
+    return None, None, True
+
+
+def _blank(s: str, span: tuple[int, int] | None) -> str:
+    return s if not span else s[:span[0]] + " " * (span[1] - span[0]) + s[span[1]:]
 
 
 def unambiguous_amount(s: str) -> bool:
@@ -128,12 +184,14 @@ def _opt_count(seg: str) -> int:
     return v or 1
 
 
-def similar_options(raw: str) -> tuple[list[tuple[int, int]], int | None] | None:
+def similar_options(raw: str, context_est: int | None = None) -> tuple[list[tuple[int, int]], int | None] | None:
     """Either/or alternatives of a similar-works clause, in the tender's order, as (count, min_value):
     'one work of at least INR 50 Cr, or two works each of at least INR 40 Cr' -> [(1, 50 Cr), (2, 40 Cr)].
-    Percentages are resolved against the estimated cost. Only when every pair of consecutive amounts is
-    separated by an 'or' (so 'X and a total of Y' is not read as alternatives). Returns (options, estimate)."""
+    Percentages are resolved against the estimated cost (the clause's own, else `context_est`, the tender's).
+    Only when every pair of consecutive amounts is separated by an 'or' (so 'X and a total of Y' is not read
+    as alternatives). Returns (options, estimate)."""
     est, est_at = _estimate(raw)
+    est = est or context_est
     toks = [(a, b, v) for a, b, v in _money_spans(raw) if a != est_at]
     for m in PCT_RE.finditer(raw):
         if not est:
@@ -189,9 +247,24 @@ def _num(pattern: str, s: str, default=None):
 
 
 def _unparsed(cid: str, raw: str, kind: str, what: str) -> dict:
-    """A clause whose threshold the rules cannot read must not pass vacuously: it becomes a clause for a
-    human to confirm (kind 'other' -> DECLARE), carrying what was not understood."""
+    """A clause whose threshold the rules cannot read must not pass vacuously, and is not a declaration
+    either: it is kept for a person to confirm (kind 'other' with `unparsed` = the kind it is: the team
+    marks it NEEDS REVIEW, which blocks a BID), carrying what was not understood."""
     return {"id": cid, "text": raw, "kind": "other", "params": {"unparsed": kind, "reason": f"could not read {what}"}}
+
+
+KNOWN_KINDS = ("turnover", "similar_works", "key_personnel", "certification", "years_in_business")
+
+
+def known_kind(text: str, context_est: int | None = None) -> str | None:
+    """The eligibility kind the rule parser recognises in a text (whether or not it could read the
+    threshold), or None for a declaration / document to enclose. A text of a known kind is never DECLARE."""
+    for r in parse_rules(text or "", context_est):
+        if r["kind"] in KNOWN_KINDS:
+            return r["kind"]
+        if r["params"].get("unparsed") in KNOWN_KINDS:
+            return r["params"]["unparsed"]
+    return None
 
 
 def _chunks(text: str) -> list[str]:
@@ -229,19 +302,24 @@ def _turnover_sentence(raw: str) -> str:
     return " ".join(x for x in sents if "turnover" in x.lower()) or raw
 
 
-def parse_rules(text: str) -> list[dict]:
-    """Split on numbered/lettered items and classify each line."""
+def parse_rules(text: str, context_est: int | None = None) -> list[dict]:
+    """Split on numbered/lettered items and classify each line. 'X% of the estimated cost' in a clause that
+    does not state the amount is resolved against `context_est`, or the estimate stated anywhere in `text`."""
     clauses = []
+    est = context_est or tender_estimate(text)
     for i, raw in enumerate(_chunks(text)):
         if len(raw) < 12:
             continue
         low = raw.lower()
         ref = re.match(r"\(?([ivxl]+|[a-z]|\d+(?:\.\d+)*)[.)]?\s", raw, re.I)
         cid = ref.group(1) if ref else f"C{i}"
+        if EST_LINE_RE.match(raw) and len(raw) < 140 and not re.search(
+                r"turnover|similar|experience|shall|must|should|required|minimum|at least|not less", low):
+            continue                        # 'Estimated cost Rs 2000 Cr': context for the clauses, not one
         money = _money(raw)
         if "turnover" in low:
             ts = _turnover_sentence(raw)
-            money = _threshold(ts) or _threshold(raw)
+            money = _threshold(ts, est) or _threshold(raw, est)
             if not money:
                 clauses.append(_unparsed(cid, raw, "turnover", "the turnover amount"))
                 continue
@@ -266,25 +344,40 @@ def parse_rules(text: str) -> list[dict]:
             clauses.append({"id": cid, "text": raw, "kind": "key_personnel", "params": p})
         elif "similar" in low or ("experience" in low and ("work" in low or "project" in low)):
             p = {"categories": _cats(raw), "lookback_years": _num(LAST_YEARS, raw, 7) or 7}
-            amts = _amounts(raw)
-            opts = similar_options(raw)
+            # an aggregate value ('and a cumulative value of INR 500 Cr') is its own requirement, read first
+            # and blanked out so it is not mistaken for a single-work threshold or an alternative
+            total, span, seen = _cumulative(raw, est)
+            if seen and not total:
+                clauses.append(_unparsed(cid, raw, "similar_works", "the cumulative / aggregate value"))
+                continue
+            main = _blank(raw, span)
+            amts = _amounts(main)
+            opts = similar_options(main, est)
+            pcts = {round(float(x)) for x in PCT_RE.findall(main)}
+            clause_est = _estimate(main)[0] or est
             if opts and len(opts[0]) >= 2:
                 # either/or alternatives: any one is enough (never two must-pass clauses)
-                est = cpwd_estimate(*opts)
-                if est:
-                    p["estimated_cost"] = est
+                cp = cpwd_estimate(*opts)
+                if cp:
+                    p["estimated_cost"] = cp
                 else:
                     p["options"] = [{"count": c, "min_value": v} for c, v in opts[0]]
-            elif re.search(r"\b(?:80|60|40)\s*%", raw):
-                est = re.search(r"estimated\s+cost", raw, re.I)
-                after = _amounts(raw[est.end():est.end() + 60]) if est else []
-                p["estimated_cost"] = after[0] if after else money
-            elif len(amts) == 3 and amts[0] > amts[1] > amts[2] > 0:
-                p["estimated_cost"] = int(round(amts[0] / 0.8))      # CPWD 80/60/40 written as amounts
-            elif money:
-                p.update(min_value=_threshold(raw),
-                         count=_num(rf"\b{NUM}{GLOSS}\s+(?:\w+\s+){{0,3}}works?\b", raw, 1) or 1)
-            if not (p.get("estimated_cost") or p.get("min_value") or p.get("options")):
+            elif {80, 60, 40} <= pcts and clause_est:
+                # the CPWD 1 x 80% / 2 x 60% / 3 x 40% structure, written without 'or' between the options
+                p["estimated_cost"] = clause_est
+            elif len(amts) == 3 and cpwd_estimate([(1, amts[0]), (2, amts[1]), (3, amts[2])]):
+                p["estimated_cost"] = cpwd_estimate([(1, amts[0]), (2, amts[1]), (3, amts[2])])
+            elif amts or PCT_RE.search(main):
+                # one threshold: 'one road work ... not less than 40% of the estimated cost of INR 80 Cr' is
+                # one work of 32 Cr (40% of 80), not the CPWD rule on an 80 Cr estimate
+                mv = _threshold(main, est)
+                if not mv:
+                    clauses.append(_unparsed(cid, raw, "similar_works", "the work value"))
+                    continue
+                p.update(min_value=mv, count=_num(rf"\b{NUM}{GLOSS}\s+(?:[\w-]+\s+){{0,3}}works?\b", main, 1) or 1)
+            if total:
+                p["min_total"] = total
+            if not (p.get("estimated_cost") or p.get("min_value") or p.get("options") or p.get("min_total")):
                 clauses.append(_unparsed(cid, raw, "similar_works", "a work value or estimated cost"))
                 continue
             levels = [lv for lv, words in {"central": ["central"], "state": ["state"], "psu": ["psu"],
@@ -311,7 +404,8 @@ def parse_rules(text: str) -> list[dict]:
 
 
 # a clause of these kinds without one of these params would pass for anyone
-THRESHOLDS = {"turnover": ("min_average", "min_each_year"), "similar_works": ("estimated_cost", "min_value", "options"),
+THRESHOLDS = {"turnover": ("min_average", "min_each_year"),
+              "similar_works": ("estimated_cost", "min_value", "options", "min_total"),
               "years_in_business": ("min_years",)}
 
 
@@ -320,7 +414,10 @@ _SYNONYMS = {"min_experience": "min_experience_years", "experience_years": "min_
              "years_lookback": "lookback_years", "period_years": "lookback_years", "min_turnover": "min_average",
              "average_turnover": "min_average", "num_people": "count", "certificate": "standard",
              "estimated_value": "estimated_cost", "cost": "estimated_cost", "value": "min_value",
-             "alternatives": "options"}
+             "alternatives": "options", "cumulative_value": "min_total", "aggregate_value": "min_total",
+             "total_value": "min_total", "min_cumulative": "min_total", "min_cumulative_value": "min_total",
+             "min_aggregate": "min_total", "min_aggregate_value": "min_total", "min_total_value": "min_total",
+             "cumulative": "min_total", "aggregate": "min_total", "total": "min_total"}
 REFERENCE_WORDS = re.compile(r"referen|letter|testimonial", re.I)
 
 
@@ -435,11 +532,12 @@ def _reconcile(c: dict, rule: dict) -> dict:
     return {**c, "params": params, "corrected": "; ".join(filter(None, [c.get("corrected"), *notes]))}
 
 
-def text_reading(kind: str, text: str) -> dict | None:
+def text_reading(kind: str, text: str, context_est: int | None = None) -> dict | None:
     """What the rule parser reads from a clause's own text for the params that decide its verdict (only
     what the text states, not the parser's defaults), or None when it cannot read that kind from the text.
-    The Verifier compares this with the params the team actually used."""
-    rules = [r for r in parse_rules(text or "") if r["kind"] == kind]
+    The Verifier compares this with the params the team actually used (a second opinion on structure:
+    counts, either/or; the amounts are checked independently by `amount_check`)."""
+    rules = [r for r in parse_rules(text or "", context_est) if r["kind"] == kind]
     if not rules:
         return None
     if kind == "certification":
@@ -450,6 +548,8 @@ def text_reading(kind: str, text: str) -> dict | None:
     stated_window = re.search(LAST_YEARS, text, re.I)
     if kind == "similar_works":
         out["alternatives"] = alternatives(rp)
+        if rp.get("min_total"):
+            out["min_total"] = rp["min_total"]
         if stated_window:
             out["lookback_years"] = rp.get("lookback_years")
     elif kind == "turnover":
@@ -465,10 +565,10 @@ def text_reading(kind: str, text: str) -> dict | None:
     return {k: v for k, v in out.items() if v not in (None, [], set())}
 
 
-def reading_diff(kind: str, params: dict, text: str) -> list[str]:
+def reading_diff(kind: str, params: dict, text: str, context_est: int | None = None) -> list[str]:
     """Differences between a clause's params and what its own text says (empty when they agree, or when the
     rule parser cannot read the text). Money within 0.5%, counts and years exactly."""
-    want = text_reading(kind, text)
+    want = text_reading(kind, text, context_est)
     if not want:
         return []
     out = []
@@ -481,6 +581,10 @@ def reading_diff(kind: str, params: dict, text: str) -> list[str]:
         if not _same_alts(have, want["alternatives"]):
             fmt = lambda alts: " or ".join(f"{c} x >= {v / 1e7:.2f} Cr" for c, v in sorted(alts))
             out.append(f"threshold {fmt(have) or 'none'} vs text {fmt(want['alternatives'])}")
+    if kind == "similar_works" and (want.get("min_total") or params.get("min_total")):
+        a, b = int(params.get("min_total") or 0), int(want.get("min_total") or 0)
+        if not (a and b and _near(a, b)):
+            out.append(f"min_total {_crs(a) if a else 'none'} vs text {_crs(b) if b else 'none'}")
     for k in ("min_average", "min_each_year"):
         if k in want and not (params.get(k) and abs(int(params[k]) - want[k]) <= 0.005 * want[k]):
             got = {kk: params.get(kk) for kk in ("min_average", "min_each_year") if params.get(kk)}
@@ -494,7 +598,212 @@ def reading_diff(kind: str, params: dict, text: str) -> list[str]:
     return out
 
 
-def _checked(cl: dict) -> list[dict]:
+# ── the Verifier's independent reading: a bag of amounts, not the parser's structure ──────────────────────
+# Deliberately simpler than parse_rules and sharing none of its code: every money amount and every
+# percentage in the clause text, flat. Each threshold the team used must be one of those amounts or a stated
+# percentage of one (or of the tender's estimate), and each amount and percentage in the text must be used by
+# some threshold. A parser that misreads the structure (a dropped cumulative value, a 40% read as the CPWD
+# rule, an LLM that is 10x off) fails this check whatever its reasoning was.
+_V_TOKEN = re.compile(r"(₹|\bINR\b|\bRs\b\.?)?\s*(\d+(?:,\d+)*(?:\.\d+)?)\s*"
+                      r"(%|per\s*cent\b|percent\b|crores?\b|cr\b|lakhs?\b|lacs?\b|million\b|mn\b|billion\b|bn\b)?",
+                      re.I)
+_V_SCALE = {"cr": 1e7, "cro": 1e7, "lak": 1e5, "lac": 1e5, "mil": 1e6, "mn": 1e6, "bil": 1e9, "bn": 1e9}
+_V_WORDS = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve "
+                                       "thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split())}
+_V_EST = re.compile(r"estimated\s+(?:cost|value)[^\S\n]*(?:\([^)\n]{0,30}\))?[^\S\n]*[:=-]?[^\S\n]*"
+                    r"(?:(?:of|is|about|approx\.?|being)[^\S\n]+)?((?:₹|INR|Rs\.?)[^\S\n]*\d[\d,.]*(?:[^\S\n]*(?:crores?|cr|lakhs?))?"
+                    r"|\d[\d,.]*[^\S\n]*(?:crores?|cr|lakhs?)\b)", re.I)
+
+
+def text_amounts(text: str) -> tuple[list[int], list[float]]:
+    """(money amounts in rupees, percentages) written in a text: a number is money only with a currency
+    sign or a crore/lakh/million unit, a percentage only with % / per cent; counts and years are neither."""
+    money, pcts = [], []
+    for m in _V_TOKEN.finditer(text or ""):
+        cur, num, unit = m.group(1), m.group(2), (m.group(3) or "").lower()
+        v = float(num.replace(",", ""))
+        if unit.startswith(("%", "per")):
+            pcts.append(v)
+        elif unit:
+            money.append(int(round(v * _V_SCALE.get(unit[:3], _V_SCALE.get(unit, 1)))))
+        elif cur:
+            money.append(int(round(v)))
+    return money, pcts
+
+
+def stated_estimate(tender_text: str) -> int | None:
+    """The tender's estimated cost as its text states it ('Estimated cost Rs 2000 Cr'), for the Verifier."""
+    m = _V_EST.search(tender_text or "")
+    if not m:
+        return None
+    money, _ = text_amounts(m.group(1))
+    return money[0] if money else None
+
+
+def _near(a: float, b: float) -> bool:
+    return abs(a - b) <= max(1.0, 0.005 * max(abs(a), abs(b)))
+
+
+def _thresholds(kind: str, params: dict) -> list[tuple[str, int]]:
+    """The money thresholds a clause's params apply, as (what, rupees)."""
+    out = []
+    if kind == "similar_works":
+        if params.get("estimated_cost"):
+            e = int(params["estimated_cost"])
+            out += [(f"{n} work(s) >= {int(f * 100)}% of the estimate", int(round(f * e)))
+                    for n, f in ((1, 0.8), (2, 0.6), (3, 0.4))]
+        for i, o in enumerate(params.get("options") or []):
+            if isinstance(o, dict) and o.get("min_value"):
+                out.append((f"option {'abcdefgh'[i]}", int(o["min_value"])))
+        if params.get("min_value"):
+            out.append(("min_value", int(params["min_value"])))
+        if params.get("min_total"):
+            out.append(("min_total", int(params["min_total"])))
+    elif kind == "turnover":
+        out += [(k, int(params[k])) for k in ("min_average", "min_each_year") if params.get(k)]
+    return out
+
+
+def _counts_in(text: str) -> set[int]:
+    out = {int(x) for x in re.findall(r"(?<![\d.,])(\d{1,2})(?![\d.,%])", text or "")}
+    low = (text or "").lower()
+    out |= {v for w, v in _V_WORDS.items() if re.search(rf"\b{w}\b", low)}
+    return out
+
+
+def amount_check(kind: str, params: dict, text: str, context_est: int | None = None) -> dict:
+    """The Verifier's independent check of a clause's params against its own text (see above).
+    status 'verified' (every threshold is an amount or a stated percentage of one, and every amount and
+    percentage in the text is used), 'mismatch' (with the problems), or 'unverified' (the text gives nothing
+    to check the params against: a percentage with no base, or no amount at all). `candidates` is what the
+    text allows a threshold to be."""
+    params = params or {}
+    money, pcts = text_amounts(text)
+    bases = money + ([int(context_est)] if context_est and not any(_near(context_est, a) for a in money) else [])
+    cands = [(f"{_crs(a)}", a) for a in money]
+    cands += [(f"{p:g}% of {_crs(b)}", int(round(p / 100 * b))) for p in pcts for b in bases]
+    out = {"status": "verified", "problems": [], "candidates": cands, "amounts": money, "percentages": pcts}
+    problems = out["problems"]
+
+    def unverified(why):
+        out["status"] = "unverified"
+        problems.append(why)
+        return out
+
+    if kind in ("similar_works", "turnover"):
+        th = _thresholds(kind, params)
+        if not th:
+            return unverified("the params carry no money threshold to check")
+        if pcts and not bases:
+            return unverified(f"the text states {', '.join(f'{p:g}%' for p in pcts)} of an amount it does not give "
+                              f"(no estimated cost in the clause or the tender)")
+        if not cands:
+            return unverified("the text states no amount the threshold could be checked against")
+        for what, v in th:
+            if not any(_near(v, c) for _, c in cands):
+                problems.append(f"{what} {_crs(v)} is not an amount in the text or a stated percentage of one "
+                                f"(the text allows {', '.join(sorted({n for n, _ in cands}))})")
+        est = int(params.get("estimated_cost") or 0)
+        for a in money:
+            used = any(_near(a, v) for _, v in th) or (est and _near(a, est)) or \
+                any(_near(p / 100 * a, v) for p in pcts for _, v in th)
+            if not used:
+                problems.append(f"the text states {_crs(a)}, which no threshold in the params accounts for")
+        for p in pcts:
+            if not any(_near(p / 100 * b, v) for b in bases for _, v in th):
+                problems.append(f"the text's {p:g}% is not applied by any threshold in the params")
+        counts = _counts_in(text)
+        need = [int(o.get("count") or 1) for o in params.get("options") or [] if isinstance(o, dict)]
+        if params.get("min_value"):
+            need.append(int(params.get("count") or 1))
+        for n in need:
+            if n > 1 and n not in counts:
+                problems.append(f"a count of {n} works is not in the text")
+    elif kind == "key_personnel":
+        cred = str(params.get("credential") or "")
+        low = (text or "").lower()
+        if cred and not (cred.lower() in low or (cred.upper() == "PMP" and "project management professional" in low)):
+            problems.append(f"credential {cred} is not named in the text")
+        yrs = params.get("min_experience_years")
+        stated = {int(x) for x in re.findall(r"(\d{1,2})\s*\+?\s*(?:\(\w+\)\s*)?(?:full\s+|complete\s+)?years?",
+                                              text or "", re.I)}
+        stated |= {v for w, v in _V_WORDS.items() if re.search(rf"\b{w}\b[^.\d]{{0,12}}years?", low)}
+        if yrs is not None and int(yrs) not in stated:
+            problems.append(f"min_experience_years {yrs} is not stated in the text ({sorted(stated) or 'none'})")
+        if yrs is None and stated:
+            problems.append(f"the text states {sorted(stated)} years, which the params do not use")
+        if int(params.get("count") or 1) > 1 and int(params["count"]) not in _counts_in(text):
+            problems.append(f"a count of {params['count']} people is not in the text")
+    elif kind == "certification":
+        std = str(params.get("standard") or "")
+        key = (re.findall(r"\d{3,5}", std) or [std])[0].lower()
+        if not key or key not in (text or "").lower():
+            problems.append(f"standard {std or 'none'} is not named in the text")
+    elif kind == "years_in_business":
+        n = params.get("min_years")
+        if n is None:
+            return unverified("the params carry no minimum years")
+        if int(n) not in _counts_in(text):
+            problems.append(f"min_years {n} is not stated in the text")
+    else:
+        return unverified(f"no independent check for kind {kind}")
+    if kind in ("similar_works", "turnover"):
+        m = re.search(r"(?:last|past|preceding)\s+(\w+)(?:\s*\(\w+\))?\s+(?:[\w-]+\s+){0,3}?years", text or "", re.I)
+        if m:
+            w = m.group(1).lower()
+            n = int(w) if w.isdigit() else _V_WORDS.get(w)
+            key, default = ("lookback_years", 7) if kind == "similar_works" else ("years", 3)
+            if n is not None and int(params.get(key) or default) != n:
+                problems.append(f"{key} {params.get(key, default)} but the text says the last {n} years")
+    if problems:
+        out["status"] = "mismatch"
+    return out
+
+
+def _crs(v: float) -> str:
+    return f"₹{v / 1e7:,.2f} Cr"
+
+
+def _fix_amounts(c: dict, rule: dict | None, context_est: int | None) -> dict:
+    """An LLM reading whose amounts the text does not account for (40% of 80 Cr read as 3.2 Cr, 'INR 30 Cr'
+    read as 3 Cr, a cumulative value dropped): the rule parser's reading is used when it passes the same
+    independent check; otherwise each money threshold that is not a candidate but is a power of ten away from
+    exactly one is replaced by it. Every correction is noted on the clause."""
+    if c["kind"] not in ("similar_works", "turnover"):
+        return c
+    chk = amount_check(c["kind"], c["params"], c["text"], context_est)
+    if chk["status"] != "mismatch":
+        return c
+    params, notes = dict(c["params"]), []
+    rp = (rule or {}).get("params") or {}
+    if rule and amount_check(c["kind"], rp, c["text"], context_est)["status"] == "verified":
+        money_keys = ("estimated_cost", "min_value", "count", "options", "min_total", "min_average", "min_each_year")
+        for k in money_keys:
+            params.pop(k, None)
+        params.update({k: v for k, v in rp.items() if k in money_keys})
+        if c["kind"] == "turnover" and rp.get("years"):
+            params["years"] = rp["years"]
+        if c["kind"] == "similar_works" and rp.get("lookback_years"):
+            params["lookback_years"] = rp["lookback_years"]
+        before = ", ".join(f"{w} {_crs(v)}" for w, v in _thresholds(c["kind"], c["params"])) or "none"
+        after = ", ".join(f"{w} {_crs(v)}" for w, v in _thresholds(c["kind"], params))
+        notes.append(f"amounts: LLM read {before}; the text's amounts give {after} ({'; '.join(chk['problems'])})")
+    else:
+        cands = [v for _, v in chk["candidates"]]
+        for k in ("min_value", "min_total", "min_average", "min_each_year", "estimated_cost"):
+            v = params.get(k)
+            if not v or any(_near(int(v), x) for x in cands):
+                continue
+            hits = {x for x in cands for f in (10, 100, 0.1, 0.01) if _near(int(v) * f, x)}
+            if len(hits) == 1:
+                params[k] = hits.pop()
+                notes.append(f"{k}: LLM {_crs(int(v))} -> {_crs(params[k])} (a power of ten off an amount in the text)")
+    if not notes:
+        return c
+    return {**c, "params": params, "corrected": "; ".join(filter(None, [c.get("corrected"), *notes]))}
+
+
+def _checked(cl: dict, context_est: int | None = None) -> list[dict]:
     """An LLM clause the engine can actually evaluate, or the rule parser's reading of the same text, or an
     explicit 'unparsed' clause. A dry run against the graph catches what schema checks miss."""
     from bidbrain.graph.client import Graph
@@ -509,9 +818,10 @@ def _checked(cl: dict) -> list[dict]:
         if c["kind"] in ("other",):
             out.append(c)
             continue
-        rules = [r for r in parse_rules(c["text"]) if r["kind"] == c["kind"]]
+        rules = [r for r in parse_rules(c["text"], context_est) if r["kind"] == c["kind"]]
         if len(rules) == 1:
             c = _reconcile(c, rules[0])
+        c = _fix_amounts(c, rules[0] if len(rules) == 1 else None, context_est)
         try:
             qualify_clause(Graph(), c["kind"], c["params"])
             out.append(c)
@@ -544,8 +854,9 @@ def _merge_split_alternatives(cls: list[dict]) -> list[dict]:
             la = (alternatives(prev["params"]) or set()) | (alternatives(c["params"]) or set())
             if linked and ra and len(ra) >= 2 and la and _subset_alts(la, ra):
                 params = {k: v for k, v in prev["params"].items()
-                          if k not in ("min_value", "count", "estimated_cost", "options")}
-                params.update({k: rule["params"][k] for k in ("estimated_cost", "options") if k in rule["params"]})
+                          if k not in ("min_value", "count", "estimated_cost", "options", "min_total")}
+                params.update({k: rule["params"][k] for k in ("estimated_cost", "options", "min_total")
+                               if k in rule["params"]})
                 out[-1] = {**prev, "text": joined, "params": params,
                            "corrected": f"either/or: the LLM split one requirement into {prev['id']} and {c['id']}; "
                                         f"merged into one clause with {len(ra)} alternatives (any one is enough)"}
@@ -555,6 +866,7 @@ def _merge_split_alternatives(cls: list[dict]) -> list[dict]:
 
 
 def parse_llm(text: str) -> list[dict]:
+    est = tender_estimate(text)
     rep = providers.chat([{"role": "system", "content": CLAUSE_SYSTEM},
                           {"role": "user", "content": text}], max_tokens=2000)
     body = rep.content.strip()
@@ -576,12 +888,22 @@ def parse_llm(text: str) -> list[dict]:
         cls.append(cl)
     out = []
     for cl in _merge_split_alternatives(cls):
+        if cl["kind"] == "other" and not cl["params"].get("unparsed"):
+            # a requirement the LLM filed as a declaration ('average turnover ... 30% of the estimated cost')
+            # must not become DECLARE: the rule parser's reading of it, or NEEDS REVIEW when it cannot read it
+            kk = known_kind(cl["text"], est)
+            if kk:
+                rules = [r for r in parse_rules(cl["text"], est) if r["kind"] == kk]
+                note = f"the LLM filed a {kk.replace('_', ' ')} requirement as a declaration"
+                cl = ({**rules[0], "id": cl["id"], "text": cl["text"], "corrected": note + "; rule parser's reading used"}
+                      if len(rules) == 1 else {**_unparsed(cl["id"], cl["text"], kk, "its threshold"),
+                                               "corrected": note})
         need = THRESHOLDS.get(cl["kind"])
         if need and not any(cl["params"].get(k) for k in need):      # no threshold: must not pass vacuously
-            rules = [r for r in parse_rules(cl["text"]) if r["kind"] == cl["kind"]]
+            rules = [r for r in parse_rules(cl["text"], est) if r["kind"] == cl["kind"]]
             cl = {**rules[0], "id": cl["id"], "text": cl["text"]} if rules \
                 else _unparsed(cl["id"], cl["text"], cl["kind"], " / ".join(need))
-        out.extend(_checked(cl))
+        out.extend(_checked(cl, est) if cl["kind"] != "other" else [cl])
     return out
 
 

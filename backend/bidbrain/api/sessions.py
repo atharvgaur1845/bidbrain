@@ -9,6 +9,9 @@ Creating a session copy is rate-limited per client IP (SESSION_RATE_PER_MIN, def
 path that can create one, so a flood of new sessions cannot evict everyone else's.
 Conversation turns are stored in the session graph itself, which is what lets
 a visitor come back later (same session id in their browser) and continue.
+On every request a session catches up with the company record (`record.catch_up`): facts retired since are
+withdrawn, and, only if the session opted in to company memory, facts published since are applied; both
+ripple to its cases like a live document.
 """
 from __future__ import annotations
 
@@ -21,6 +24,7 @@ import secrets
 import shutil
 import threading
 import time
+import traceback
 from contextlib import contextmanager
 
 from bidbrain import config
@@ -88,11 +92,12 @@ def graph_for(sid: str | None) -> Graph:
             _dropped.discard(name)
         _last_seen[name] = time.time()
     g = Graph(name)
-    try:                                # catch up with the company record (decided facts published by others)
-        from bidbrain.company import record
-        record.apply(g)
-    except Exception:
-        pass
+    if not _busy.get(name):             # never under a running stream: it catches up on the next request
+        try:                            # company record: withdraw retired facts; apply new ones if opted in
+            from bidbrain.company import record
+            record.catch_up(g)
+        except Exception:
+            traceback.print_exc()
     return g
 
 
@@ -178,6 +183,11 @@ def start_reaper() -> None:
             time.sleep(600)
             try:
                 reap()
+            except Exception:
+                pass
+            try:                        # company rules whose promoting session is gone expire after a TTL
+                from bidbrain.conflicts import engine
+                engine.expire_orphan_rules()
             except Exception:
                 pass
     threading.Thread(target=loop, daemon=True).start()

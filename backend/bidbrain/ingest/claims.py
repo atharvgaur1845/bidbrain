@@ -7,8 +7,8 @@ that currently wins. The claims themselves are nodes:
         -[:ABOUT]->(subject)   -[:FROM]->(:Document)
 
 so when a corrigendum arrives the old value is not overwritten — a new claim
-is added, the two are linked SUPERSEDES / CONTRADICTS, and a Decision records
-which one the property now shows and why.
+is added, the two are linked CONTRADICTS, a Decision records which one the
+property now shows and why, and the winner PREVAILS_OVER each claim it set aside.
 """
 from __future__ import annotations
 

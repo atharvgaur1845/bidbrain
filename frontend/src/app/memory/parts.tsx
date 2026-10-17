@@ -327,8 +327,8 @@ export function CompanyMemoryToggle({ onChange }: { onChange?: (on: boolean, out
         <span className="font-medium text-ink">Use company memory in this session</span>
       </label>
       <span className="text-ink-3">
-        {on === null ? (err ? null : "Checking this session's setting") : on ? "On: company rules settle matching conflicts here, after your own rules."
-          : "Off: only this session's own rules apply."}
+        {on === null ? (err ? null : "Checking this session's setting") : on ? "On: company rules and published company-record facts apply here (your own rules first; newer evidence can still beat a fact)."
+          : "Off: only this session's own rules and documents apply (nothing published by others changes this workspace)."}
       </span>
       {err && <span className="text-bad">{err}</span>}
     </div>
@@ -438,16 +438,33 @@ export function CompanyMemory({ rules, cap, graph, ready, onRetire, onContest, t
 
 export type OrgFact = { id: string; subject_label?: string; subject_key: string; predicate: string; value: string;
   source_decision?: string; policy?: string; rationale?: string; approved_by?: string; published_at?: number; status?: string;
-  applied_here?: boolean; document?: string };
+  applied_here?: boolean; document?: string; here?: string; mine?: boolean; demo?: boolean; contests?: number;
+  published_by?: string };
+type PubRequest = { id: string; subject?: string; subject_key?: string; predicate?: string; value?: string;
+  policy?: string; source_doc?: string; status?: string; mine?: boolean; requested_at?: number; demo?: boolean };
+const HERE: Record<string, { label: string; status: string }> = {
+  own: { label: "Published here", status: "executed" }, active: { label: "Applied", status: "executed" },
+  contested: { label: "Contested here", status: "rejected" }, superseded: { label: "Superseded", status: "pending" },
+  retired: { label: "Withdrawn", status: "rejected" }, unknown: { label: "Withdrawn", status: "rejected" },
+  not_applied: { label: "Not applied", status: "pending" },
+};
 
 /** Published facts (shared company record), with provenance and whether this workspace has applied each one. */
 export function CompanyRecord() {
   const [facts, setFacts] = useState<OrgFact[] | null>(null);
   const [err, setErr] = useState("");
   const [asOf, setAsOf] = useState<Record<string, { busy?: boolean; text?: string }>>({});
-  useEffect(() => {
-    api("/api/company/record").then((r) => setFacts(r.facts || [])).catch((e) => setErr(e?.message || String(e)));
-  }, []);
+  const [reqs, setReqs] = useState<PubRequest[]>([]);
+  const [note, setNote] = useState("");
+  const load = () => api("/api/company/record").then((r) => { setFacts(r.facts || []); setReqs(r.requests || []); })
+    .catch((e) => setErr(e?.message || String(e)));
+  useEffect(() => { load(); }, []);
+  async function act(path: string, done: string) {
+    setNote("");
+    try { await api(path, { method: "POST", body: "{}" }); setNote(done); }
+    catch (e: any) { setNote(e?.message || String(e)); }
+    load();
+  }
   async function before(f: OrgFact) {
     // what this workspace believed just before the fact was published (transaction time)
     setAsOf((m) => ({ ...m, [f.id]: { busy: true } }));
@@ -463,8 +480,27 @@ export function CompanyRecord() {
   const docOf = (f: OrgFact) => { try { return JSON.parse(f.document || "{}"); } catch { return {}; } };
   return (
     <Card title="Company record" pad={false}
-      subtitle="Facts decided in a workspace and published after approval. Every new workspace starts from them."
+      subtitle="Facts decided in a workspace and published after a second approver agreed. They apply only in workspaces with company memory on."
       action={facts ? <span className="num text-[12.5px] text-ink-3">{facts.length}</span> : null}>
+      {reqs.length > 0 && (
+        <div className="border-b border-line px-5 py-3 text-[13px]">
+          <div className="mb-1 font-medium text-ink">Waiting for a second approver</div>
+          {reqs.map((r) => (
+            <div key={r.id} className="flex flex-wrap items-center gap-2 py-1 text-ink-2">
+              <span className="mono text-[12px]">{r.id}</span>
+              <span>{r.subject || r.subject_key} · {r.predicate} = <span className="num font-medium">{r.value}</span></span>
+              {r.demo && <StatusBadge status="pending" label="Demo" size="sm" />}
+              {r.mine ? <span className="text-ink-3">yours: another workspace must approve it</span> : (
+                <>
+                  <button type="button" className="text-kb-ink hover:underline" onClick={() => act(`/api/company/record/requests/${r.id}/approve`, `${r.id} approved: its workspace can now approve and execute the publish action.`)}>Approve</button>
+                  <button type="button" className="text-bad hover:underline" onClick={() => act(`/api/company/record/requests/${r.id}/reject`, `${r.id} rejected.`)}>Reject</button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {note && <p className="px-5 py-2 text-[12.5px] text-ink-2">{note}</p>}
       {err ? <ErrorState compact text={err} /> : !facts ? <SkeletonRows rows={2} /> : !facts.length ? (
         <EmptyState compact title="Nothing published yet"
           text={<>Approve and execute a “Publish to company record” action on <Link href="/actions/" className="text-kb-ink hover:underline">Actions</Link>.</>} />
@@ -492,10 +528,23 @@ export function CompanyRecord() {
                     <div>Decision{" "}
                       {f.source_decision ? <Link href={`/decisions/?id=${encodeURIComponent(f.source_decision)}`} className="mono text-kb-ink hover:underline">{f.source_decision}</Link> : "—"}
                       {f.policy ? ` · ${f.policy.replace(/_/g, " ")}` : ""}</div>
-                    <div>Approved by <span className="mono">{f.approved_by || "—"}</span> · {when(f.published_at)}</div>
+                    <div>Published by <span className="mono">{f.published_by || "—"}</span>, approved by <span className="mono">{f.approved_by || "—"}</span> · {when(f.published_at)}</div>
+                    {!!f.contests && <div>{f.contests} contest{f.contests === 1 ? "" : "s"}</div>}
                     {d.doc_id && <div>Source <span className="mono">{d.doc_id}</span>{d.issuer ? ` · ${d.issuer}` : ""}</div>}
                   </Td>
-                  <Td>{f.applied_here ? <StatusBadge status="executed" label="Applied" size="sm" /> : <StatusBadge status="pending" label="Not applied" size="sm" />}</Td>
+                  <Td>
+                    {(() => { const h = HERE[f.here || (f.applied_here ? "active" : "not_applied")] || HERE.not_applied;
+                      return <StatusBadge status={h.status} label={f.status && f.status !== "active" && f.here === "not_applied" ? f.status : h.label} size="sm" />; })()}
+                    {f.demo && <div className="text-[11px] text-ink-3">demo fact</div>}
+                    {f.here === "active" && f.status === "active" && (
+                      <button type="button" className="text-[11.5px] text-kb-ink hover:underline" title="Stop this fact counting here; its decisions reopen as cards"
+                        onClick={() => act(`/api/company/record/${f.id}/contest`, `${f.id} contested: its decisions here reopened as cards on Live documents.`)}>Contest</button>
+                    )}
+                    {f.mine && f.status === "active" && (
+                      <button type="button" className="text-[11.5px] text-bad hover:underline" title="Withdraw this fact from every workspace"
+                        onClick={() => act(`/api/company/record/${f.id}/retire`, `${f.id} retired: every workspace that applied it decides the fact again without it.`)}>Retire</button>
+                    )}
+                  </Td>
                 </tr>
               );
             })}

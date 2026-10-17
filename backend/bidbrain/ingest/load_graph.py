@@ -21,7 +21,7 @@ from bidbrain import config
 from bidbrain.graph.client import Graph, day
 from bidbrain.ingest import aliases, claims as claims_mod
 from bidbrain.ingest.aliases import norm
-from bidbrain.ingest.pages import page_index
+from bidbrain.ingest.pages import doc_date, page_index
 
 WB_DOC = {  # workbook filename -> doc_id in document_index.csv
     "Receivables_Ageing.xlsx": "DOC-XL-AGEING",
@@ -39,6 +39,9 @@ INDEXES = [
     ("BusinessUnit", "key"), ("Claim", "id"), ("Claim", "subject_key"), ("Chunk", "id"),
     ("Case", "id"), ("Clause", "id"), ("Finding", "id"), ("Decision", "id"),
     ("Bid", "key"), ("PolicyRule", "id"), ("AgentRun", "id"), ("Conversation", "id"),
+    # created at run time in session graphs (GRAPH.COPY of this one carries the indexes): actions are looked up
+    # by id on every approve / execute, and by idempotency key before one is proposed
+    ("Action", "id"), ("Action", "idem"),
 ]
 
 
@@ -80,7 +83,10 @@ PROJECTIONS = {
     # clients. algo.labelPropagation takes no edge weights (FalkorDB rejects any weight key, and parallel edges do not
     # change its result), so the weight is applied here, as the edge filter. Over this projection label propagation
     # scores modularity 0.203 against the full co-client graph (a greedy local-move optimiser reaches 0.21; random
-    # partitions with the same sizes, -0.02), and the split is the same for any LIFT from 1.2 to 1.6.
+    # partitions with the same sizes, -0.02). Sensitivity, measured on a GRAPH.COPY (LIFT -> people community sizes,
+    # modularity): 1.0-1.1 one block of 37 (0.0); 1.2-1.4 17/12/8 (0.207); 1.5 15/12/10 (0.203); 1.6 14/13/10 (0.200);
+    # 1.7 14/12/11 (0.156); 2.0 15/14/8 (0.114). Three communities from 1.2 up, but their sizes and members shift
+    # with the factor; 1.2-1.6 stay within 0.007 of each other.
     "OVERLAPS_CLIENTS": f"""MATCH (p:Person)-[:WORKED_FOR]->(c:Client)
         WITH p, sum(size([(c)<-[:WORKED_FOR]-(x:Person) | x]) - 1) AS d
         WITH collect({{p: p, d: d}}) AS deg, sum(d) AS two_m
@@ -129,10 +135,17 @@ def load(graph_name: str = config.BASE_GRAPH, with_chunks: bool = True, quiet: b
     docs = []
     with open(config.DATASET / "document_index.csv", newline="") as fh:
         for r in csv.DictReader(fh):
+            issued = doc_date(pages.raw.get(r["doc_id"]))
             docs.append({"doc_id": r["doc_id"], "doc_type": r["doc_type"], "filename": r["filename"],
-                         "size_bytes": int(r["size_bytes"]), "pages": pages.n_pages(r["doc_id"])})
+                         "size_bytes": int(r["size_bytes"]), "pages": pages.n_pages(r["doc_id"]),
+                         "issued": issued, "issued_day": day(issued), "issued_basis": "printed" if issued else None})
+    # valid time: the date a document prints as its own (issue / signature / submission date), parsed from its text.
+    # A document that prints none (CVs, the portfolio, ISO certificates, ledgers, workbooks) gets no date.
     unwind(g, "UNWIND $rows AS r CREATE (:Document {key:r.doc_id, doc_id:r.doc_id, doc_type:r.doc_type, "
-              "filename:r.filename, size_bytes:r.size_bytes, pages:r.pages})", docs)
+              "filename:r.filename, size_bytes:r.size_bytes, pages:r.pages, issued:r.issued, issued_day:r.issued_day, "
+              "issued_basis:r.issued_basis})", docs)
+    dated = [d["issued"] for d in docs if d["issued"]]
+    snapshot = max(dated) if dated else None
     # The CIN printed on every financial statement encodes the incorporation
     # year (U45201WB2005PLC904417 -> 2005): evidence for "years in business".
     cin_m = re.search(r"CIN ([A-Z]\d{5}[A-Z]{2}(\d{4})[A-Z]{3}\d{6})", pages.raw.get("DOC-FS-2019", ""))
@@ -415,13 +428,22 @@ def load(graph_name: str = config.BASE_GRAPH, with_chunks: bool = True, quiet: b
     if with_chunks:
         from bidbrain.ingest.chunks import load_chunks
         load_chunks(g, pages)
-    g.run("MERGE (m:Meta {key:'meta'}) SET m.version = 1, m.built_at = timestamp()")
+    # corpus_snapshot: the latest date a corpus document prints (every certificate is dated 2026-03-31). An undated
+    # corpus document is counted from it in point-in-time queries, and the result says so.
+    g.run("MERGE (m:Meta {key:'meta'}) SET m.version = 1, m.built_at = timestamp(), m.corpus_snapshot = $s, "
+          "m.corpus_snapshot_day = $sd", {"s": snapshot, "sd": day(snapshot)})
     # Resolve the corpus's own disagreements (financial restatements) so the
     # base graph starts with a decision trail rather than silent overwrites.
     from bidbrain.conflicts import engine
     res = engine.run(g)
     log(f"conflicts: {len(res['decisions'])} auto-resolved, {len(res['cards'])} open cards, "
         f"{len(res['rounding'])} rounding-only differences")
+    # Those decisions are part of the starting record, like the corpus claims (recorded_at 0): the build time is
+    # meaningless (the graph is rebuilt at every boot) and a rebuild must never change history, so the decisions,
+    # the set-aside timestamps and the contradiction timestamps they wrote are stamped 0, not the build time.
+    g.run("MATCH (d:Decision) SET d.at = 0")
+    g.run("MATCH (c:Claim) WHERE c.invalidated_at IS NOT NULL SET c.invalidated_at = 0")
+    g.run("MATCH (:Claim)-[r:CONTRADICTS]->(:Claim) SET r.detected_at = 0")
     stats = g.read("MATCH (n) RETURN labels(n)[0] AS label, count(n) AS n ORDER BY n DESC")
     log(f"built {graph_name} in {time.time() - t0:.1f}s:",
         ", ".join(f"{r['label']}={r['n']}" for r in stats))

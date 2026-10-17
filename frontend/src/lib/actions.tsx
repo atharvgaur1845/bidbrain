@@ -68,7 +68,8 @@ export function ActionControls({ action, onChange, size = "sm", withNote = false
     }
   }
 
-  if (st === "executed" || st === "rejected") return null;
+  if (st === "executed" || st === "rejected" || st === "superseded" || st === "fulfilled") return null;
+  if (st === "executing") return <span className="text-[12.5px] text-ink-3">Running…</span>;
   return (
     <div className="flex flex-col gap-2">
       {withNote && st === "pending" && !confirm && (

@@ -54,6 +54,9 @@ class RunResult:
     error: str | None = None
     note: str | None = None        # e.g. "step budget exhausted; answered from the results so far"
     switches: list[dict] = field(default_factory=list)   # {step, from, to, why}: every change of model
+    # the Q&A answer checks: reasked (kinds), ungrounded (no tool call), unverified (names / amounts absent from
+    # every tool result), absent_named (missing items added from prove_absence)
+    checks: dict = field(default_factory=dict)
 
 
 # ── unasked-filter guard ────────────────────────────────────────────────────
@@ -211,6 +214,190 @@ FINALIZE = ("You have no tool calls left. Do not call any tools. Using only the 
             "reply now in the required final format.")
 
 
+# ── answer checks (the Q&A agent: run_agent(..., ground=True)) ───────────────
+# Three cheap, lexical checks on the final reply, each firing only on a clearly bad answer:
+# * tool-free: the question names an entity or asks for a number, yet the model answered without one tool
+#   call. It is re-asked once to use the tools; a second tool-free reply is marked UNGROUNDED in `note`.
+# * grounding: proper names (two or more capitalised words), record ids (DOC-.., Pkg-NN) and rupee amounts
+#   in the answer must appear in this run's tool results (or the question / conversation). Anything absent
+#   is listed back to the model once; if it survives, `note` flags it as UNVERIFIED.
+# * absence: when prove_absence ran, the answer must name what it found missing; names the answer left out
+#   are inserted above the ANSWER line (never after it: `qa.parse_answer` reads the last ANSWER line).
+TOOL_FREE_REASK = ("You answered without calling any tool, so nothing in that answer comes from the company "
+                   "graph. Call the tools this question needs (resolve the names it mentions first), then reply "
+                   "with the path you followed and the final ANSWER line.")
+
+
+def grounding_reask(missing: list[str]) -> str:
+    return (f"Check your answer: these names or amounts do not appear in any tool result: {'; '.join(missing)}. "
+            "Use only what the tools returned (call a tool if you need to check one) and do not name clients, "
+            "people, works, documents or amounts the tools did not return. Then reply again with the path you "
+            "followed and the final ANSWER line.")
+
+
+_NEEDS_NUMBER = re.compile(r"\bhow (?:many|much|long|often|old)\b|\b(?:total|sum|count|number of|value|worth|amount|"
+                           r"average|mean|median|percent(?:age)?|share|rate|ratio|days?|gap|difference|largest|"
+                           r"biggest|smallest|highest|lowest)\b|%|₹|\bcrores?\b|\blakhs?\b", re.I)
+
+
+def needs_tools(question: str) -> bool:
+    """Whether a question names an entity or asks for a number, so a tool-free answer to it cannot be right:
+    a capitalised word inside a sentence, an acronym, a digit or a quoted name; or a count / amount word."""
+    q = str(question or "")
+    if _NEEDS_NUMBER.search(q) or re.search(r"\d|[\"“‘']\w", q):
+        return True
+    if re.search(r"\b[A-Z]{2,}\b", q):
+        return True
+    return any(not _at_sentence_start(q, m.start()) for m in re.finditer(r"\b[A-Z][a-z]+", q))
+
+
+def _gnorm(text) -> str:
+    return " " + re.sub(r"[^a-z0-9₹]+", " ", str(text or "").lower()).strip() + " "
+
+
+_NAME_TOK = r"[A-Z][A-Za-z0-9'’.&/-]*"
+_NAME_RX = re.compile(rf"(?<![A-Za-z0-9]){_NAME_TOK}(?:[ \t]+(?:(?:of|&|for|the|de|-|–|—)[ \t]+)?{_NAME_TOK})+")
+_CONNECT = {"of", "&", "for", "the", "de", "-", "–", "—"}
+# capitalised words that start a sentence or name a concept, never a client / person / work
+_LEAD_STOP = set("""The A An This That These Those Its It Our Their His Her We I They You For In On From By With And
+Of To At As If When Where All Both Each No Not None Only Then Next First Second Third Finally Also However So
+Therefore Thus Using Use Used Based According Since After Before Because While Step Answer Final Note Path Total
+Here There Yes Summary Result Results Explanation Approach Checked Called Found Resolved Queried Summed Counted
+Computed Calling Checking Resolving Querying Looking Searching Of Among Across Between Under Over Per Via Out
+Missing Absent Present Available Valid Open Past Current Overall Verdict Recommendation Case Clause""".split())
+_GENERIC = set("""Step Answer Final Total Value Values Work Works Client Clients Prime JV Partner Graph Company Tool Tools
+Result Results Category Categories Bid Bids Case Cases Clause Clauses Verdict Document Documents Evidence Reference
+References Letter Letters Proof Absence Person People Lead Leads Credential Credentials Tender Tenders Invoice
+Invoices Bond Bonds Decision Decisions Claim Claims Finding Findings Action Actions Open Past Note Path Count Sum
+Average Median Rate Days Years Cr Crore Crores Lakh Lakhs Rs INR Yes No Not None Summary Recommendation""".split())
+_ID_RX = re.compile(r"\b(?:DOC|CASE|ACT|FND|CL|OF|REQ|RFP)-[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9]|\bPkg-\d+\b")
+_NUM = r"\d[\d,]*(?:\.\d+)?"
+_MONEY_RX = re.compile(rf"(?:₹|\bRs\.?|\bINR)\s*({_NUM})(?:\s*(crores?|cr\b|lakhs?|lacs?))?|"
+                       rf"(?<![\d.,])({_NUM})\s*(crores?|cr\b|lakhs?|lacs?)\b", re.I)
+
+
+def _at_sentence_start(text: str, i: int) -> bool:
+    before = text[:i].rstrip(" \t")
+    return not before or before[-1] in "\n.!?:;(" or bool(re.search(r"(?:^|\n)\s*(?:[-*•]|\d+[.)])$", before))
+
+
+def _money(text: str) -> list[tuple[str, float, float]]:
+    """(as written, rupees, rounding tolerance) for every rupee amount in `text`."""
+    out = []
+    for m in _MONEY_RX.finditer(text or ""):
+        num, scale = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4))
+        try:
+            v = float(num.replace(",", ""))
+        except ValueError:
+            continue
+        mult = 1.0
+        if scale:
+            mult = 1e7 if scale.lower().startswith(("crore", "cr")) else 1e5
+        decimals = len(num.split(".", 1)[1]) if "." in num else 0
+        out.append((m.group(0).strip(), v * mult, 0.5 * 10 ** -decimals * mult + 0.5))
+    return out
+
+
+def _corpus_numbers(corpus: str) -> list[float]:
+    nums = {float(x.replace(",", "")) for x in re.findall(_NUM, corpus or "")}
+    nums |= {v for _, v, _ in _money(corpus)}
+    return sorted(nums)
+
+
+def ungrounded(text: str, corpus: str) -> list[str]:
+    """Proper names, record ids and rupee amounts in `text` that `corpus` (this run's tool results plus what the
+    user said) does not contain. Lexical and generous: a name passes if it appears verbatim, or if every word of
+    it does (the first word excepted at a sentence start); an amount passes if a number in the corpus rounds to it."""
+    import bisect
+    clean = re.sub(r"[*_`#>|]+", " ", str(text or ""))
+    norm, words = _gnorm(corpus), set(_gnorm(corpus).split())
+    missing: list[str] = []
+
+    def add(x):
+        if x not in missing:
+            missing.append(x)
+
+    pieces = []                            # a token ending a sentence ("Dept. Summing") ends the phrase too
+    for m in _NAME_RX.finditer(clean):
+        off = m.start()
+        for piece in re.split(r"(?<=[.!?])[ \t]+", m.group(0)):
+            pieces.append((off, piece))
+            off += len(piece) + 1
+    for start, piece in pieces:
+        toks = [re.sub(r"['’]s$", "", t.rstrip(".,;:'’")) for t in piece.split()]
+        while toks and (toks[0] in _LEAD_STOP or toks[0].lower() in _CONNECT):
+            start = -1                     # whatever follows a stripped lead word is not sentence-initial
+            toks = toks[1:]
+        while toks and toks[-1].lower() in _CONNECT:
+            toks = toks[:-1]
+        named = [t for t in toks if t.lower() not in _CONNECT]
+        if len(named) < 2 or all(not re.search(r"[a-z]", t) for t in named) or all(t in _GENERIC for t in named):
+            continue
+        phrase = " ".join(toks)
+        if _gnorm(phrase) in norm:
+            continue
+        subs = [w for t in named for w in _gnorm(t).split() if len(w) >= 2]
+        if start >= 0 and _at_sentence_start(clean, start):
+            first = set(_gnorm(named[0]).split())
+            subs = [w for w in subs if w not in first]
+        if subs and all(w in words or w.isdigit() for w in subs):
+            continue
+        add(phrase)
+    low = (corpus or "").lower()
+    for m in _ID_RX.finditer(clean):
+        if m.group(0).lower() not in low:
+            add(m.group(0))
+    nums = _corpus_numbers(corpus)
+    for shown, v, tol in _money(clean):
+        i = bisect.bisect_left(nums, v - tol)
+        if not (i < len(nums) and nums[i] <= v + tol):
+            add(shown)
+    return missing
+
+
+def _absent_names(out: dict) -> list[tuple[str, str | None]]:
+    r = out.get("result") if isinstance(out, dict) else None
+    items = r.get("absent") if isinstance(r, dict) else None
+    names = []
+    for a in items or []:
+        if isinstance(a, dict):
+            n = a.get("title") or a.get("name") or a.get("tender") or a.get("key")
+            if n:
+                names.append((str(n), a.get("key") or a.get("tender")))
+        elif isinstance(a, str):
+            names.append((a, a))
+    return names
+
+
+def _insert_before_answer(text: str, block: str) -> str:
+    lines = (text or "").split("\n")
+    idx = max((i for i, ln in enumerate(lines) if re.search(r"ANSWER:", ln, re.I)), default=None)
+    if idx is None:
+        return f"{block}\n\n{text}" if text else block
+    return "\n".join([*lines[:idx], block, *lines[idx:]])
+
+
+def name_absent(text: str, out: dict) -> tuple[str, int]:
+    """`text` with the items prove_absence found missing that it does not already name, inserted above its
+    ANSWER line; and how many were added."""
+    norm, low = _gnorm(text), (text or "").lower()
+    left = []
+    for name, key in _absent_names(out):
+        pkg = re.search(r"pkg-?\s*\d+", name, re.I)
+        if _gnorm(name) in norm or (key and str(key).lower() in low) or \
+                (pkg and re.search(rf"\b{re.escape(pkg.group(0).lower())}\b", low)):
+            continue
+        left.append(name)
+    if not left:
+        return text, 0
+    shown = "; ".join(left[:30]) + (f"; and {len(left) - 30} more" if len(left) > 30 else "")
+    return _insert_before_answer(text, f"Missing (listed by prove_absence): {shown}"), len(left)
+
+
+def _add_note(res: "RunResult", text: str) -> None:
+    res.note = f"{res.note}; {text}" if res.note else text
+
+
 def _merge_subgraph(acc: dict, sg: dict) -> None:
     seen_n = {n["id"] for n in acc["nodes"]}
     for n in sg.get("nodes", []):
@@ -225,9 +412,30 @@ def _merge_subgraph(acc: dict, sg: dict) -> None:
             seen_e.add(k)
 
 
+# A finalize reply that does not answer ("I don't have enough information") is a failed finalize: the
+# deterministic answer from the last tool result says more than that.
+_NON_ANSWER = re.compile(r"not enough (?:info|data|evidence|detail)|insufficient (?:info|data|evidence)|"
+                         r"(?:don'?t|do not|doesn'?t|does not) have (?:enough|sufficient|the (?:info|data|results?))|"
+                         r"unable to (?:determine|answer|compute|find|provide)|cannot (?:be )?(?:determine|answer|"
+                         r"compute|provide)|can'?t (?:determine|answer|compute|provide)|"
+                         r"^\W*(?:unknown|n/?a|undetermined|indeterminate|unavailable)\W*$", re.I)
+
+
+def non_answer(text: str) -> bool:
+    """A reply that gives no answer: empty, a tool call written as text, or 'not enough information'."""
+    if not (text or "").strip() or "tool_call>" in text:
+        return True
+    m = None
+    for m in re.finditer(r"ANSWER:\s*(.+)", text, re.I):
+        pass
+    return bool(_NON_ANSWER.search(m.group(1).strip(" *_`") if m else text))
+
+
 def _finalize(messages: list[dict], res: RunResult, agent: str, emit: Emit, why: str,
-              prefer: str | None = None, step: int | None = None) -> bool:
-    """One tool-free call asking for the answer from what the tools already returned."""
+              prefer: str | None = None, step: int | None = None, can_fallback: bool = False,
+              post: Callable[[str], str] | None = None) -> bool:
+    """One tool-free call asking for the answer from what the tools already returned. With `can_fallback`
+    (a deterministic answer exists), a reply that answers nothing counts as a failure."""
     try:
         rep = providers.chat([*messages, {"role": "user", "content": FINALIZE}], prefer=prefer)
     except providers.LLMUnavailable as exc:
@@ -236,10 +444,13 @@ def _finalize(messages: list[dict], res: RunResult, agent: str, emit: Emit, why:
         return False
     _count(res, rep)
     _track(res, rep, prefer, step, emit, agent)
-    if not rep.content:
+    if not rep.content or getattr(rep, "malformed", False) or (can_fallback and non_answer(rep.content)):
+        emit({"type": "warning", "agent": agent,
+              "message": f"{why}; the final answer call gave no answer, using the last tool result instead"})
         return False
-    res.final, res.note = rep.content, f"{why}; answered from the results gathered so far"
-    emit({"type": "final", "agent": agent, "text": rep.content, "provider": rep.provider, "note": res.note})
+    _add_note(res, f"{why}; answered from the results gathered so far")
+    res.final = post(rep.content) if post else rep.content
+    emit({"type": "final", "agent": agent, "text": res.final, "provider": rep.provider, "note": res.note})
     return True
 
 
@@ -259,6 +470,7 @@ def _track(res: RunResult, rep, sticky: str | None, step: int | None, emit: Emit
     sw = {"step": step, "from": sticky, "to": rep.provider,
           "why": getattr(rep, "switched", None) or "the pinned model did not serve this step"}
     res.switches.append(sw)
+    _add_note(res, f"model switch at step {(step or 0) + 1}: {sw['from']} -> {sw['to']} ({sw['why']})")
     emit({"type": "provider_switch", "agent": agent, **sw})
     return rep.provider
 
@@ -267,7 +479,41 @@ def _track(res: RunResult, rep, sticky: str | None, step: int | None, emit: Emit
 _FOR_MODEL = ("not_found", "nearest", "note", "warnings")
 
 
-def _for_model(out: dict) -> str:
+def _label_past_bids(x):
+    """Bid nodes are past tender submissions (2019-2024 dossiers), never open bids: say so wherever one appears."""
+    if isinstance(x, dict):
+        y = {k: _label_past_bids(v) for k, v in x.items()}
+        if y.get("label") == "Bid" and "kind" not in y:
+            y["kind"] = "past_bid"
+        return y
+    if isinstance(x, list):
+        return [_label_past_bids(v) for v in x]
+    return x
+
+
+def blast_summary(r: dict) -> str:
+    """One line a model cannot misread: which open cases change, which rely on the fact, which past bids cited it."""
+    flips = [f for f in r.get("verdict_flips") or [] if isinstance(f, dict)]
+    cases: dict[str, list[str]] = {}
+    for f in flips:
+        cases.setdefault(f.get("case") or f.get("case_id") or "?", []).append(
+            f"{f.get('clause')} {f.get('from')} -> {f.get('to')}")
+    relying = sorted({d.get("case") or d.get("case_id") for d in r.get("cases_relying") or [] if isinstance(d, dict)})
+    bids = [b.get("bid") for b in r.get("past_bids_citing") or [] if isinstance(b, dict)]
+    parts = [f"{len(cases)} open case(s) affected (verdict would flip)"
+             + (": " + "; ".join(f"{c} ({', '.join(v)})" for c, v in cases.items()) if cases else "")]
+    parts.append(f"{len(relying)} case(s) currently rely on it" + (": " + "; ".join(map(str, relying)) if relying else ""))
+    parts.append(f"{len(bids)} past bid(s) cited it (past submissions, not open bids)")
+    parts.append(f"{r.get('clauses_rechecked', 0)} open clause(s) re-checked; nothing was changed")
+    return ". ".join(parts)
+
+
+def _for_model(out: dict, tool: str | None = None) -> str:
+    r = out.get("result")
+    if tool == "blast_radius" and isinstance(r, dict) and "verdict_flips" in r:
+        out = {**out, "result": {"summary": blast_summary(r), **r}}
+    if r is not None:
+        out = {**out, "result": _label_past_bids(out["result"])}
     text = compact(out)
     extra = {k: out[k] for k in _FOR_MODEL if out.get(k) not in (None, [], "")}
     if extra and text.endswith("}"):
@@ -330,24 +576,30 @@ def _calls_from_text(text: str) -> list[dict]:
     return calls
 
 
+def _deterministic(res: RunResult, last_ok: dict | None, why: str, note: str, emit: Emit, agent: str) -> bool:
+    """Answer with the last successful tool result, no model involved. False if there is none."""
+    text = fallback_answer(last_ok, why)
+    if not text:
+        return False
+    res.final = text
+    _add_note(res, f"{note}; deterministic answer from the last tool result ({last_ok['tool']}), no model involved")
+    emit({"type": "final", "agent": agent, "text": text, "provider": "deterministic", "note": res.note,
+          "deterministic": True})
+    return True
+
+
 def _salvage(g: Graph, messages: list[dict], res: RunResult, agent: str, emit: Emit, exc, sticky, step,
-             last_ok: dict | None) -> None:
-    """The LLM failed mid-run: answer anyway. A tool-free finalize call first; if that fails as well, the
-    deterministic answer from the last successful tool result. `res.error` stays set for the latter, so a
-    caller that needs a model-written text (the Assembler) still falls back to its own template."""
+             last_ok: dict | None, post: Callable[[str], str] | None = None) -> None:
+    """The LLM failed mid-run: answer anyway. A tool-free finalize call first; if that fails as well (or gives
+    no answer), the deterministic answer from the last successful tool result. `res.error` stays set for the
+    latter, so a caller that needs a model-written text (the Assembler) still falls back to its own template."""
     kind = getattr(exc, "kind", "unavailable")
     why = f"LLM {kind.replace('_', ' ')} mid-run"
     emit({"type": "warning", "agent": agent, "message": f"{why}: {res.error}; answering from the results so far"})
-    if _finalize(messages, res, agent, emit, why, sticky, step):
+    if _finalize(messages, res, agent, emit, why, sticky, step, can_fallback=last_ok is not None, post=post):
         res.error = None
         return
-    text = fallback_answer(last_ok, kind.replace("_", " "))
-    if text:
-        res.final = text
-        res.note = f"{why}; deterministic answer from the last tool result ({last_ok['tool']}), no model involved"
-        emit({"type": "final", "agent": agent, "text": text, "provider": "deterministic", "note": res.note,
-              "deterministic": True})
-    else:
+    if not _deterministic(res, last_ok, kind.replace("_", " "), why, emit, agent):
         emit({"type": "error", "agent": agent, "message": res.error})
 
 
@@ -360,7 +612,11 @@ def _check_args(g: Graph, name: str, args: dict) -> str | None:
 
 
 def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str],
-              max_steps: int = 8, emit: Emit | None = None, history: list[dict] | None = None) -> RunResult:
+              max_steps: int = 8, emit: Emit | None = None, history: list[dict] | None = None,
+              ground: bool = False) -> RunResult:
+    """Run one agent to an answer. `ground=True` (the Q&A agent) adds the answer checks: a tool-free answer to
+    an entity / number question is re-asked once, names and amounts absent from every tool result are listed
+    back once, and prove_absence's missing items are named. Each re-ask is free (it does not use a step)."""
     emit = emit or (lambda e: None)
     t0 = time.perf_counter()
     res = RunResult(agent=agent, final="")
@@ -369,34 +625,107 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
     messages = [{"role": "system", "content": system}, *(history or []), {"role": "user", "content": user}]
     # what the user actually asked, for the unasked-filter guard: this turn and earlier user turns
     asked = "\n".join([*(m.get("content") or "" for m in history or [] if m.get("role") == "user"), user or ""])
+    # what an answer may name: the instructions, the conversation, and every tool result of this run
+    corpus = [system or "", *(str(m.get("content") or "") for m in history or []), user or ""]
     sticky = None       # the bucket pinned after the first step: one model per answer
     last_ok = None      # the last tool result without an error, for a deterministic answer if every model fails
+    absence = None      # the last successful prove_absence result: its missing items must be named
+    reasked: set[str] = set()
+    pending: str | None = None      # an answer that was re-asked about, kept if the re-ask fails
+
+    def post(text: str) -> str:
+        """The answer checks that change no model output: notes, and the missing items named."""
+        if not ground:
+            return text
+        if res.usage["tool_calls"] == 0:
+            if needs_tools(user):
+                res.checks["ungrounded"] = True
+                _add_note(res, "UNGROUNDED: answered without calling any tool, so nothing in this answer was "
+                               "checked against the company graph")
+        elif missing := ungrounded(text, "\n".join(corpus)):
+            res.checks["unverified"] = missing
+            _add_note(res, "UNVERIFIED: these names or amounts do not appear in any tool result: "
+                      + "; ".join(missing[:12]))
+        if absence is not None:
+            text, n = name_absent(text, absence)
+            if n:
+                res.checks["absent_named"] = n
+                _add_note(res, f"named the {n} item(s) prove_absence lists as missing, which the answer left out")
+        return text
+
+    def accept(text: str, provider: str | None) -> None:
+        res.final = post(text or "")
+        emit({"type": "final", "agent": agent, "text": res.final, "provider": provider,
+              **({"note": res.note} if res.note else {})})
+
+    def reask(kind: str, text: str, prompt: str, why: str) -> None:
+        nonlocal pending
+        reasked.add(kind)
+        res.checks.setdefault("reasked", []).append(kind)
+        pending = text
+        emit({"type": "warning", "agent": agent, "message": f"re-asking: {why}"})
+        messages.append({"role": "assistant", "content": text or ""})
+        messages.append({"role": "user", "content": prompt})
+
     emit({"type": "agent_start", "agent": agent})
-    for step in range(max_steps):
+    budget, step, done = max_steps, 0, False
+    while step < budget:
         try:
             rep = providers.chat(messages, tools=tools, prefer=sticky)
         except providers.LLMUnavailable as exc:
             res.error = providers.redact(str(exc))
-            if res.steps:       # evidence was gathered: it deserves an answer
-                _salvage(g, messages, res, agent, emit, exc, sticky, step, last_ok)
+            if pending is not None:     # a re-ask failed: the answer we have stands, with its checks
+                res.error = None
+                _add_note(res, f"the re-ask failed (LLM {getattr(exc, 'kind', 'unavailable').replace('_', ' ')})")
+                accept(pending, None)
+            elif res.steps:             # evidence was gathered: it deserves an answer
+                _salvage(g, messages, res, agent, emit, exc, sticky, step, last_ok, post)
             else:
                 emit({"type": "error", "agent": agent, "message": res.error})
+            done = True
             break
         _count(res, rep)
         sticky = _track(res, rep, sticky, step, emit, agent)
-        if not rep.tool_calls and "tool_call>" in (rep.content or ""):
-            # Qwen sometimes writes its call as text the server's hermes parser misses: recover the call
-            # from the text, or (once) ask for a well-formed one instead of taking "</tool_call>" as the answer
+        if not rep.tool_calls and (getattr(rep, "malformed", False) or "tool_call>" in (rep.content or "")):
+            # Qwen sometimes writes its call as text the server's hermes parser misses (or the server refuses
+            # it): recover the call from the text, or (once) ask the same model for a well-formed one instead
+            # of taking "</tool_call>" as the answer
             rep.tool_calls = _calls_from_text(rep.content)
-            if not rep.tool_calls and not res.note:
-                res.note = "re-asked after a malformed tool call"
-                messages.append({"role": "assistant", "content": rep.content})
-                messages.append({"role": "user", "content": "That tool call was malformed. Call the tool again "
-                                 "with valid JSON arguments, or give the final ANSWER line."})
-                continue
+            if not rep.tool_calls:
+                if "malformed" not in reasked:
+                    reasked.add("malformed")
+                    _add_note(res, "re-asked after a malformed tool call")
+                    messages.append({"role": "assistant", "content": rep.content or ""})
+                    messages.append({"role": "user", "content": "That tool call was malformed. Call the tool again "
+                                     "with valid JSON arguments, or give the final ANSWER line."})
+                    budget += 1
+                    step += 1
+                    continue
+                done = True             # malformed twice: never take a broken tool call as the answer
+                if pending is not None:
+                    accept(pending, rep.provider)
+                elif not (res.steps and _finalize(messages, res, agent, emit, "malformed tool calls", sticky, step,
+                                                  can_fallback=last_ok is not None, post=post)) \
+                        and not _deterministic(res, last_ok, "malformed tool calls", "malformed tool calls", emit, agent):
+                    res.error = "the model wrote only malformed tool calls"
+                    emit({"type": "error", "agent": agent, "message": res.error})
+                break
         if not rep.tool_calls:
-            res.final = rep.content
-            emit({"type": "final", "agent": agent, "text": rep.content, "provider": rep.provider})
+            text = rep.content
+            if ground and res.usage["tool_calls"] == 0 and needs_tools(user) and "tool_free" not in reasked:
+                reask("tool_free", text, TOOL_FREE_REASK, "the answer used no tool")
+                budget += 1
+                step += 1
+                continue
+            if ground and res.usage["tool_calls"] and "grounding" not in reasked and \
+                    (missing := ungrounded(text, "\n".join(corpus))):
+                reask("grounding", text, grounding_reask(missing[:12]),
+                      "not in any tool result: " + "; ".join(missing[:6]))
+                budget += 1
+                step += 1
+                continue
+            accept(text, rep.provider)
+            done = True
             break
         if rep.content:
             emit({"type": "thought", "agent": agent, "text": rep.content})
@@ -429,25 +758,29 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
                 step_rec["unasked_filters"] = flags
             if "error" not in out:
                 last_ok = {"tool": tc["name"], "args": args, "out": out}
+                if tc["name"] == "prove_absence":
+                    absence = out
             res.steps.append(step_rec)
             emit({"type": "tool_result", "agent": agent, "tool": tc["name"], "ms": out.get("ms"),
                   "error": out.get("error"), "summary": _summary(out), "subgraph": out.get("subgraph"),
                   "evidence": out.get("evidence", [])[:12], "cypher": out.get("cypher", []),
                   **({"not_found": True} if out.get("not_found") else {}),
                   **({"note": note.strip(), "unasked_filters": flags} if flags else {})})
-            messages.append({"role": "tool", "tool_call_id": tc["id"],
-                             "content": _for_model(out)[:9000 - len(note)] + note})
-    else:
-        if not _finalize(messages, res, agent, emit, "step budget exhausted", sticky, max_steps):
-            res.error = "step budget exhausted"
-            text = fallback_answer(last_ok, "step budget exhausted and the final answer call failed")
-            if text:
-                res.final = text
-                res.note = "step budget exhausted; deterministic answer from the last tool result, no model involved"
-                emit({"type": "final", "agent": agent, "text": text, "provider": "deterministic",
-                      "note": res.note, "deterministic": True})
+            seen = _for_model(out, tc["name"])
+            corpus.append(seen)
+            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": seen[:9000 - len(note)] + note})
+        step += 1
+    if not done:
+        why = "step budget exhausted"
+        if not _finalize(messages, res, agent, emit, why, sticky, budget, can_fallback=last_ok is not None, post=post):
+            if pending is not None:
+                _add_note(res, f"{why}; kept the answer given before the last re-ask")
+                accept(pending, None)
             else:
-                emit({"type": "error", "agent": agent, "message": res.error})
+                res.error = why
+                if not _deterministic(res, last_ok, "step budget exhausted and the final answer call failed", why,
+                                      emit, agent):
+                    emit({"type": "error", "agent": agent, "message": res.error})
     res.ms = round((time.perf_counter() - t0) * 1000, 1)
     return res
 

@@ -14,6 +14,10 @@ set -e
 cd /app/backend
 
 export BIDBRAIN_STATE_DIR="${BIDBRAIN_STATE_DIR:-/app/state}"
+# Rate limits key on the client IP. The API trusts X-Forwarded-For only when FORWARDED_HOPS says how many
+# proxies append to it (default 0: the socket peer). Hugging Face Spaces put exactly one proxy in front and set
+# SPACE_ID in the container, so there the default becomes 1. Set FORWARDED_HOPS explicitly to override.
+if [ -z "${FORWARDED_HOPS:-}" ] && [ -n "${SPACE_ID:-}" ]; then export FORWARDED_HOPS=1; fi
 FALKOR_DIR="$BIDBRAIN_STATE_DIR/falkordb"
 mkdir -p "$FALKOR_DIR"
 PIDFILE="$FALKOR_DIR/falkordb.pid"

@@ -12,7 +12,7 @@ Node labels (key property `key` on every entity):
   Client{name,govt_level:central|state|psu|municipal|private,state,aliases}
   Person{name,designation,experience_years,qualification}
   Credential{kind:'PMP'|'Six Sigma Black Belt',issued,valid_through,valid_through_day}
-  Document{doc_id,doc_type,pages}   Chunk{doc_id,page,text}
+  Document{doc_id,doc_type,pages,issued,issued_day}   Chunk{doc_id,page,text}
   Tender{ref,category,bid_date,bid_date_basis,bid_value}  Requirement{text,kind,status,threshold_value,threshold_unit}
   Bond{amount,issued,expiry,status}  Bank{name}  Certification{standard,body,valid_until}
   Contract{awarded_value,billed_value,period_from,period_to}  BOQItem  Measurement
@@ -24,9 +24,9 @@ Relationships:
   (Work)-[:HAS_REFERENCE {page}]->(Document)  (*)-[:EVIDENCED_BY {kind,page}]->(Document)
   (Person)-[:HOLDS]->(Credential)  (Tender)-[:REQUIRES]->(Requirement)  (Bond)-[:SECURES]->(Tender)
   (Invoice)-[:BILLED_TO]->(Client)  (Contract)-[:FOR_CLIENT]->(Client)  (FinancialStatement)-[:FOR_FY]->(FiscalYear)
-  (Claim)-[:ABOUT]->(subject)  (Claim)-[:FROM]->(Document)  (Claim)-[:CONTRADICTS|SUPERSEDES]->(Claim)
+  (Claim)-[:ABOUT]->(subject)  (Claim)-[:FROM]->(Document)  (Claim)-[:CONTRADICTS|PREVAILS_OVER|CORROBORATES]->(Claim)
   (Bid)-[:CITES {annexure,row}]->(Work)  (Bid)-[:FOR_TENDER]->(Tender)  (Bid)-[:SECURED_BY]->(Bond)
-  (Decision)-[:BASED_ON|SELECTS]->(Claim)  (Requirement)-[:CITES_CERT]->(Certification)
+  (Decision)-[:BASED_ON|SELECTS]->(Claim)  (Decision)-[:SUPERSEDES]->(Decision)  (Requirement)-[:CITES_CERT]->(Certification)
   Projections: (Person)-[:WORKED_FOR {works,value}]->(Client)  (Client)-[:ENGAGED]->(Person)
   (Person)-[:OVERLAPS_CLIENTS {shared,expected,lift}]->(Person)
 Dialect notes (FalkorDB): no EXISTS{} subqueries (use pattern predicates); shortestPath only in

@@ -208,8 +208,8 @@ def test_mcp_tool_list_and_annotations():
     from bidbrain.mcp.server import server
     tools = asyncio.run(server.list_tools())
     acting = [t.name for t in tools if not t.annotations.read_only_hint]
-    assert acting == ["qualify_tender"]
-    assert len(tools) == sum(1 for t in TOOLS.values() if not t.writes) + 1
+    assert sorted(acting) == ["qualify_tender", "transition_action"]      # round 4: the action loop over MCP
+    assert len(tools) == sum(1 for t in TOOLS.values() if not t.writes) + 3   # + qualify_tender, list/transition_action
 
 
 def test_mcp_errors_are_mcp_errors():

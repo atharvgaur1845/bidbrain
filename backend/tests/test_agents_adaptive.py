@@ -273,7 +273,8 @@ def test_cache_hits_from_other_buckets_do_not_mix_in(monkeypatch):
 def _bridge_tender(min_value: int) -> dict:
     return {"id": "T-TEST-LB", "title": "Large bridge (test)", "bid_date": "2026-06-30", "category": "large bridges",
             "clauses": [{"id": "1", "kind": "similar_works",
-                         "text": "One large bridge work in the last 7 years, with client reference letter.",
+                         "text": f"One large bridge work of value at least INR {min_value / 1e7:g} Cr in the last 7 "
+                                 f"years, with client reference letter.",
                          "params": {"categories": ["large bridges"], "min_value": min_value, "count": 1,
                                     "lookback_years": 7}}]}
 

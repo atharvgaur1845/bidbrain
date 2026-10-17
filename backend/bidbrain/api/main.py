@@ -89,13 +89,16 @@ class _Guard:
         await self.app(scope, receive, send)
 
 
-FORWARDED_HOPS = int(os.getenv("FORWARDED_HOPS", "1"))    # proxies in front of us that append to X-Forwarded-For
+# Proxies in front of us that append to X-Forwarded-For. Default 0: trust only the socket peer, so a client
+# cannot pick its own rate-limit key by sending the header. Behind exactly one proxy (Hugging Face Spaces) set
+# FORWARDED_HOPS=1; infra/start.sh does that when it sees SPACE_ID, which Spaces set in the container.
+FORWARDED_HOPS = int(os.getenv("FORWARDED_HOPS") or "0")
 
 
 def _client_ip(scope) -> str:
-    """The address new-session rate limits are keyed on. Behind a proxy (HF Spaces) the peer is the
-    proxy, so take the entry the nearest FORWARDED_HOPS proxies appended to X-Forwarded-For (the
-    entries left of it are client-controlled). FORWARDED_HOPS=0 trusts only the socket peer."""
+    """The address new-session rate limits are keyed on. With FORWARDED_HOPS=0 (the default) it is the socket
+    peer. Behind a proxy (HF Spaces, FORWARDED_HOPS=1) the peer is the proxy, so take the entry the nearest
+    FORWARDED_HOPS proxies appended to X-Forwarded-For (the entries left of it are client-controlled)."""
     xff = dict(scope.get("headers") or []).get(b"x-forwarded-for", b"").decode("latin-1")
     parts = [x.strip() for x in xff.split(",") if x.strip()]
     if FORWARDED_HOPS > 0 and parts:
@@ -232,8 +235,11 @@ def session_settings(x_session: str | None = Header(None)):
 
 @app.post("/api/session/settings")
 async def set_session_settings(req: Request, x_session: str | None = Header(None)):
-    """Per-session switches. `use_company_memory` (default off): consult company rules in this session.
-    Turning it on re-checks this session's open cards against them (and ripples what they settle)."""
+    """Per-session switches. `use_company_memory` (default off): consult company memory in this session, i.e.
+    company rules and published company-record facts. Turning it on re-checks this session's open cards against
+    the rules, applies the published facts (`company_record`: what was applied, decided and rippled), and ripples
+    what they settle. Turning it off stops new rules and facts from applying; decisions already made stay."""
+    from bidbrain.company import record
     from bidbrain.conflicts import engine
     body = await _body(req)
     if not isinstance(body.get("use_company_memory"), bool):
@@ -242,7 +248,9 @@ async def set_session_settings(req: Request, x_session: str | None = Header(None
 
     def work():
         out = engine.set_company_memory(g, body["use_company_memory"])
-        return {**out, **_ripple_after(g, lambda ev: None, out, "company memory turned on")}
+        out.update(_ripple_after(g, lambda ev: None, out, "company memory turned on"))
+        out["company_record"] = record.catch_up(g)
+        return out
     with sessions.busy(g):
         return await asyncio.to_thread(work)
 
@@ -476,7 +484,8 @@ def conflicts(x_session: str | None = Header(None)):
                                  d.subject_key AS key, coalesce(s.title, s.name, s.key) AS subject, d.chosen_value AS chosen,
                                  d.at AS at, a.key AS actor, labels(a)[0] AS actor_kind, w.source_doc AS source_doc,
                                  d.org_rule AS org_rule, d.org_rule_status AS org_rule_status, d.review AS review,
-                                 coalesce(d.reopened, false) AS reopened
+                                 d.company_record AS company_record, d.company_record_status AS company_record_status,
+                                 coalesce(d.reopened, false) AS reopened, d.reopened_card AS reopened_card
                           ORDER BY at DESC LIMIT 300""")
     rules = g.read("""MATCH (r:PolicyRule) OPTIONAL MATCH (r)-[:LEARNED_FROM]->(d:Decision)
                       OPTIONAL MATCH (d2:Decision)-[:APPLIED_RULE]->(r)
@@ -519,10 +528,17 @@ async def resolve(card_id: str, req: Request, x_session: str | None = Header(Non
         except ValueError as exc:      # card superseded or settled while the user was looking at it
             raise HTTPException(409, str(exc))
         ripple = blast_radius(g, card["l"], card["k"])
-        apply_flips(g, ripple["result"]["verdict_flips"], f"decision {out['decision_id']}",
-                    ripple["result"].get("evidence_changed"), decision_id=out["decision_id"])
+        changed = apply_flips(g, ripple["result"]["verdict_flips"], f"decision {out['decision_id']}",
+                              ripple["result"].get("evidence_changed"), decision_id=out["decision_id"])
+        ripple["result"]["cases_changed"] = changed
+        acts = []
+        for c in changed or []:         # review actions plus any letter / renewal follow-ups
+            acts += ([c["action"]] if c.get("action") else []) + list(c.get("follow_ups") or [])
         from bidbrain.company import actions
         out["publish_action"] = actions.for_decision(g, out["decision_id"])
+        if out["publish_action"]:
+            acts.append(out["publish_action"]["id"])
+        ripple["result"]["actions"] = acts
         return {"decision": out, "ripple": ripple["result"], "subgraph": ripple["subgraph"]}
 
     with sessions.busy(g):
@@ -549,32 +565,10 @@ def demo_events():
 
 
 def _ripple_after(g: Graph, emit, out: dict, cause: str) -> dict:
-    from bidbrain.tools.case import apply_flips, blast_radius
-    subjects = {(c["conflict"]["subject_label"], c["conflict"]["subject_key"])
-                for c in out.get("decisions", []) + out.get("cards", [])}
-    # a first-time fact (no rival claim) is written to its subject too, so it can flip clauses as well
-    subjects |= {(c["conflict"]["subject_label"], c["conflict"]["subject_key"]) for c in out.get("first_claims", [])}
-    from bidbrain.company import actions
-    dec_of = {d["conflict"]["subject_key"]: d.get("decision_id") for d in out.get("decisions", [])}
-    cause_doc = (out.get("doc") or {}).get("doc_id")
-    ripples, acts = [], []
-    for label, key in subjects:
-        br = blast_radius(g, label, key)
-        changed = apply_flips(g, br["result"]["verdict_flips"], cause, br["result"].get("evidence_changed"),
-                              decision_id=dec_of.get(key), cause_doc=cause_doc)
-        br["result"]["cases_changed"] = changed
-        acts += [c["action"] for c in changed if c.get("action")]
-        ripples.append(br["result"])
-        emit({"type": "ripple", "subject": f"{label}:{key}", "result": br["result"], "subgraph": br["subgraph"]})
-    # every decided fact from a live document can be published to the company record (behind approval)
-    for d in out.get("decisions", []):
-        if d.get("decision_id"):
-            a = actions.for_decision(g, d["decision_id"])
-            if a:
-                acts.append(a["id"])
-    if acts:
-        emit({"type": "actions", "actions": acts, "summary": f"{len(acts)} follow-up action(s) queued for approval"})
-    return {"ripples": ripples, "actions": acts}
+    """blast_radius -> apply_flips for every subject the outcome touched, then a publish action per decided fact.
+    The same path runs when a company-record fact is applied or withdrawn (record.catch_up, without publish)."""
+    from bidbrain.company import record
+    return record.ripple(g, out, cause, emit, publish=True)
 
 
 @app.post("/api/events/{event_id}/fire")
@@ -726,7 +720,10 @@ def decision_trace(decision_id: str, x_session: str | None = Header(None)):
     """A decision with what it compared and why. When a company rule decided it, `org_rule_status`
     (also `org_rule.status`) is that rule's status now: active | retired | contested (in this session)
     | unknown (no longer in company memory); `review` says what to do about a decision whose rule is
-    no longer active, and `reopened_card` is the resolve card it was turned back into, if any."""
+    no longer active, and `reopened_card` is the resolve card it was turned back into, if any.
+    When a published company-record fact decided it, `company_record` is the OrgFact id and
+    `company_record_status` its status here (active | contested | superseded | retired | unknown);
+    `contestable` says whether POST /api/company/record/{id}/contest would reopen it."""
     from bidbrain.conflicts import engine
     g = G(x_session)
     engine.sync_org_status(g)
@@ -752,6 +749,13 @@ def decision_trace(decision_id: str, x_session: str | None = Header(None)):
                                                           if out.get("org_rule") else None)
     out["review"] = d.get("review")
     out["reopened_card"] = d.get("reopened_card")
+    out["company_record"] = d.get("company_record")
+    out["company_record_status"] = d.get("company_record_status")
+    out["contestable"] = bool(d.get("company_record") and d.get("company_record_status") == "active"
+                              and not d.get("reopened") and not out.get("superseded_by"))
+    if out["contestable"]:
+        out["contestable"] = not g.read("MATCH (n:Decision)-[:SUPERSEDES]->(:Decision {id:$id}) RETURN n.id LIMIT 1",
+                                        {"id": decision_id})
     return out
 
 
@@ -809,17 +813,27 @@ def action_get(action_id: str, x_session: str | None = Header(None)):
 
 
 @app.post("/api/actions/{action_id}/{verb}")
-async def action_do(action_id: str, verb: str, body: dict | None = None, x_session: str | None = Header(None)):
+async def action_do(action_id: str, verb: str, body: dict | None = None, x_session: str | None = Header(None),
+                    x_admin_token: str | None = Header(None)):
     """approve | reject | execute. Transitions are compare-and-set; execute runs deterministic code only and
-    is idempotent (a repeat returns the stored result)."""
-    from bidbrain.company import actions
+    is idempotent (a repeat returns the stored result). Approving a publish_to_company_record action needs a
+    second party: a different session approves its publication request (403 until then, naming the request),
+    or an operator sends X-Admin-Token."""
+    from bidbrain.company import actions, record
     g = await aG(x_session)
+    admin = _admin(x_admin_token)
+    if x_admin_token and not admin:
+        raise HTTPException(403, "invalid admin token")
     by = _actor(g, body)
+    if admin:
+        lab = _label_of(body)
+        by = "admin" + (f" ({lab})" if lab else "")
 
     def work():
         if verb == "execute":
             return actions.execute(g, action_id, by)
         return actions.transition(g, action_id, verb, by, (body or {}).get("note", ""))
+    tok = record.approving_admin.set(admin)
     try:
         with sessions.busy(g):
             return await asyncio.to_thread(work)
@@ -827,6 +841,13 @@ async def action_do(action_id: str, verb: str, body: dict | None = None, x_sessi
         raise HTTPException(exc.status, str(exc))
     except ValueError as exc:
         raise HTTPException(409, str(exc))
+    finally:
+        record.approving_admin.reset(tok)
+
+
+def _label_of(body: dict | None) -> str | None:
+    from bidbrain.conflicts import engine
+    return engine._label((body or {}).get("user"))
 
 
 @app.post("/api/decisions/{decision_id}/publish")
@@ -860,27 +881,76 @@ def impact_doc(doc_id: str, x_session: str | None = Header(None)):
 
 
 @app.get("/api/company/record")
-def company_record(x_session: str | None = Header(None)):
-    """The shared company record (published facts), and which of them this workspace has applied."""
+def company_record(include_decided: bool = False, x_session: str | None = Header(None)):
+    """The shared company record. `facts`: every published fact with its provenance (`published_by`,
+    `approved_by`, `demo`, `contests`, `status`) and, with X-Session, what it is in this workspace (`here`: own |
+    active | contested | superseded | retired | unknown | not_applied; `applied_here`, `contested_here`, `mine`).
+    `requests`: publications waiting for a second approver (`mine`: filed by this workspace, so another must
+    approve). Facts apply only where `use_company_memory` is on."""
     from bidbrain.company import record
-    applied = set()
-    if x_session:
-        g = G(x_session)
-        applied = {r["id"] for r in g.read("MATCH (r:CompanyRecordRef) RETURN r.id AS id")}
-    return {"facts": [{**f, "applied_here": f["id"] in applied} for f in record.facts(None)]}
+    from bidbrain.conflicts import engine
+    g = G(x_session) if x_session else None
+    out = {"facts": record.facts_for(g),
+           "requests": record.list_requests(g.name if g else None, include_decided)}
+    if g is not None:
+        out["use_company_memory"] = engine.uses_company_memory(g)
+        out["session_tag"] = engine.session_tag(g.name)
+    return out
 
 
 @app.post("/api/company/record/{fact_id}/retire")
-def company_record_retire(fact_id: str, body: dict | None = None, x_session: str | None = Header(None),
-                          x_admin_token: str | None = Header(None)):
+async def company_record_retire(fact_id: str, body: dict | None = None, x_session: str | None = Header(None),
+                                x_admin_token: str | None = Header(None)):
+    """Retire a published fact for everyone (publisher or admin token). Every workspace that applied it
+    withdraws it on its next request and decides the fact again without it; the acting one does so now."""
     from bidbrain.company import record
-    admin = bool(os.getenv("ORG_ADMIN_TOKEN")) and x_admin_token == os.getenv("ORG_ADMIN_TOKEN")
+    admin = _admin(x_admin_token)
+    g = await aG(x_session) if x_session else None
     try:
-        return record.retire(fact_id, G(x_session).name if x_session else None, admin, (body or {}).get("reason", ""))
+        out = await asyncio.to_thread(record.retire, fact_id, g.name if g else None, admin,
+                                      str((body or {}).get("reason") or ""))
     except LookupError as exc:
         raise HTTPException(404, str(exc))
     except PermissionError as exc:
         raise HTTPException(403, str(exc))
+    if g is not None:
+        with sessions.busy(g):
+            out["here"] = await asyncio.to_thread(record.catch_up, g)
+    return out
+
+
+@app.post("/api/company/record/{fact_id}/contest")
+async def company_record_contest(fact_id: str, body: dict | None = None, x_session: str | None = Header(None)):
+    """Contest a published fact this workspace applied (and did not publish): it stops counting as the company
+    record here, and the decisions it made here reopen as resolve cards. Recorded on the fact (one per session)."""
+    from bidbrain.company import record
+    from bidbrain.conflicts import engine
+    g = await aG(x_session)
+    body = body or {}
+    try:
+        with sessions.busy(g):
+            return await asyncio.to_thread(record.contest, g, fact_id, body.get("reason"), body.get("user"))
+    except engine.OrgMemoryError as exc:
+        raise HTTPException(exc.status, str(exc))
+
+
+@app.post("/api/company/record/requests/{request_id}/{verb}")
+async def company_record_request(request_id: str, verb: str, body: dict | None = None,
+                                 x_session: str | None = Header(None), x_admin_token: str | None = Header(None)):
+    """approve | reject a publication request filed by another workspace (or as an operator, X-Admin-Token).
+    Once approved, the requesting workspace can approve and execute its publish action."""
+    from bidbrain.company import record
+    from bidbrain.conflicts import engine
+    admin = _admin(x_admin_token)
+    if x_admin_token and not admin:
+        raise HTTPException(403, "invalid admin token")
+    g = await aG(x_session) if (x_session or not admin) else None
+    body = body or {}
+    try:
+        return await asyncio.to_thread(record.decide_request, request_id, verb, g, admin, body.get("user"),
+                                       body.get("note"))
+    except engine.OrgMemoryError as exc:
+        raise HTTPException(exc.status, str(exc))
 
 
 # ------------------------------------------------------------------ MCP (streamable HTTP) + static UI

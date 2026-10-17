@@ -97,3 +97,40 @@ class PageIndex:
 @lru_cache(maxsize=1)
 def page_index() -> PageIndex:
     return PageIndex(json.loads(config.TEXT_CACHE.read_text(encoding="utf-8")))
+
+
+# ---- the date a document carries -----------------------------------------------------------------
+# Used for valid time: a claim cannot be believed as of a day before the document that states it existed.
+# Only a date the document prints about itself counts (its issue / signature / submission date). Dates
+# inside the content (a completion date, an audit schedule, an agreement "dated ...") do not, and a
+# document that prints none stays undated rather than being given a guessed date.
+_D = (r"(\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4}|\d{1,2} (?:[A-Z][a-z]{2,8}) \d{4}|"
+      r"(?:[A-Z][a-z]{2,8}) \d{1,2}, \d{4})")
+_DOC_DATE = [rf"Issue Date:\s*{_D}", rf"Date of Issue\s*{_D}", rf"Issued:?\s*{_D}", rf"Submitted:\s*{_D}",
+             rf"Dated?:\s*{_D}"]
+
+
+def _iso_of(s: str) -> str | None:
+    import datetime as _dt
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d %b %Y", "%d %B %Y", "%b %d, %Y", "%B %d, %Y"):
+        try:
+            return _dt.datetime.strptime(s.strip(), fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def doc_date(text: str | None) -> str | None:
+    """ISO date the document prints as its own date, or None. Labelled dates first ('Issue Date:',
+    'Date of Issue', 'Issued:', 'Submitted:', 'Date:'), then a line that is only a date in the letterhead
+    (the first seven lines, where letters and bills put it)."""
+    if not text:
+        return None
+    for pat in _DOC_DATE:
+        m = re.search(pat, text)
+        if m and (iso := _iso_of(m.group(1))):
+            return iso
+    for line in text.split("\n")[:7]:
+        if re.fullmatch(_D, line.strip()) and (iso := _iso_of(line)):
+            return iso
+    return None

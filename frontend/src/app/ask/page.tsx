@@ -208,7 +208,16 @@ export default function AskPage() {
                             Model switched{sw.step != null ? ` at step ${sw.step + 1}` : ""}: {shortModel(sw.from)} → {shortModel(sw.to)}, because {sw.why}.
                           </div>
                         ))}
-                        {t.note && <div className="mt-1 text-[12.5px] text-ink-3">{t.note}</div>}
+                        {(() => {
+                          // switches are listed above; the rest of the note, with grounding flags in the warning colour
+                          const parts = (t.note || "").split("; ").filter((p) => p && !p.startsWith("model switch"));
+                          return parts.length ? (
+                            <div className={clsx("mt-1 text-[12.5px]",
+                              parts.some((p) => /^(UNGROUNDED|UNVERIFIED)/.test(p)) ? "text-warn" : "text-ink-3")}>
+                              {parts.join("; ")}
+                            </div>
+                          ) : null;
+                        })()}
 
                         {explanation && (
                           <details className="group mt-3">

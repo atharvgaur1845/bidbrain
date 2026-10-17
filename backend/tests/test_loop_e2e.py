@@ -13,6 +13,14 @@ import pytest
 from bidbrain.graph.client import Graph
 from tests.test_memory import _result, client, org  # noqa: F401  (fixtures)
 
+
+def _second_approval(client, h) -> None:
+    """Publishing needs a second party: another workspace approves the request the first approve filed."""
+    other = client.new_session()
+    for r in client.get("/api/company/record", headers=other).json()["requests"]:
+        if not r["mine"] and r["status"] == "pending":
+            client.post(f"/api/company/record/requests/{r['id']}/approve", json={}, headers=other)
+
 PKG113 = "ringroaduttarpradeshpkg113"
 
 
@@ -51,6 +59,8 @@ def test_corrigendum_to_action_to_company_record(client):
     assert g1.scalar("MATCH (c:Case {id:$c}) RETURN c.approved_recommendation", {"c": case["id"]}) == "NO-BID"
 
     # a rejected action can never run
+    assert _act(client, h1, publish["id"], "approve").status_code == 403      # never self-approved
+    _second_approval(client, h1)
     _act(client, h1, publish["id"], "approve")
     pub = _act(client, h1, publish["id"], "execute").json()
     assert pub["status"] == "executed" and pub["result"]["org_fact"].startswith("OF-")
@@ -59,7 +69,7 @@ def test_corrigendum_to_action_to_company_record(client):
     # a clean second workspace starts from the published fact, decided by policy company_record
     h2 = client.new_session()
     g2 = Graph(f"session_{h2['X-Session']}")
-    client.get("/api/health", headers=h2)
+    client.post("/api/session/settings", json={"use_company_memory": True}, headers=h2)   # facts are opt-in
     assert g2.scalar("MATCH (w:Work {key:$k}) RETURN w.value", {"k": PKG113}) == after
     dec = g2.read("""MATCH (d:Decision {subject_key:$k, policy:'company_record'}) RETURN d.rationale AS why""",
                   {"k": PKG113})
@@ -96,12 +106,14 @@ def test_published_fact_can_only_be_retired_by_its_publisher(client):
     pub = next(a for a in client.get("/api/actions", headers=h1).json()["actions"]
                if a["kind"] == "publish_to_company_record")
     client.post(f"/api/actions/{pub['id']}/approve", json={}, headers=h1)
+    _second_approval(client, h1)
+    client.post(f"/api/actions/{pub['id']}/approve", json={}, headers=h1)
     of = client.post(f"/api/actions/{pub['id']}/execute", json={}, headers=h1).json()["result"]["org_fact"]
     h2 = client.new_session()
     assert client.post(f"/api/company/record/{of}/retire", json={}, headers=h2).status_code == 403
     assert client.post(f"/api/company/record/{of}/retire", json={"reason": "test"}, headers=h1).json()["retired"] == of
     h3 = client.new_session()
-    client.get("/api/cases", headers=h3)
+    client.post("/api/session/settings", json={"use_company_memory": True}, headers=h3)
     g3 = Graph(f"session_{h3['X-Session']}")
     assert g3.scalar("MATCH (d:Decision {policy:'company_record'}) RETURN count(d)") == 0
 
@@ -113,6 +125,8 @@ def test_company_record_survives_a_restart_via_the_json_mirror(client, org):
     _result(client.post("/api/events/DEMO-1/fire", headers=h1))
     pub = next(a for a in client.get("/api/actions", headers=h1).json()["actions"]
                if a["kind"] == "publish_to_company_record")
+    client.post(f"/api/actions/{pub['id']}/approve", json={}, headers=h1)
+    _second_approval(client, h1)
     client.post(f"/api/actions/{pub['id']}/approve", json={}, headers=h1)
     of = client.post(f"/api/actions/{pub['id']}/execute", json={}, headers=h1).json()["result"]["org_fact"]
     Graph(org).delete()                                   # the company graph is lost (e.g. ephemeral disk)

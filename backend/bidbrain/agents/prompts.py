@@ -5,7 +5,7 @@ QA_TOOLS = ["resolve_entity", "find_portfolio", "aggregate", "credential_timelin
             "receivables", "collection_rate", "awarded_vs_billed", "prove_absence", "qualify_clause",
             "who_knows", "key_people", "explain_path", "get_entity", "vector_search", "graph_schema",
             "fact_history", "compliance_check", "communities", "blast_radius",
-            "case_get", "depends_on", "cypher_readonly"]
+            "case_get", "depends_on", "cypher_readonly", "list_cases", "fact_as_of", "change_impact"]
 
 # One-line tool descriptions for the LLM (the full descriptions are served over MCP and in docs/CYPHER.md).
 BRIEF = {
@@ -24,7 +24,7 @@ BRIEF = {
                        "count, categories}; certification {standard}; years_in_business {min_years}. "
                        "Answer a 'how many people' question from n_qualified."),
     "who_knows": "People who worked with a client / in a category / state, ranked by works led.",
-    "key_people": "Bus factor: people ranked by betweenness over the person-client graph.",
+    "key_people": "Bus factor: people ranked by betweenness over the person-client graph; each row lists the clients they served in client_names (clients is only a count).",
     "explain_path": "Shortest connection paths between two entities (a, a_kind, b, b_kind).",
     "trace_from_credential": "One query for credential -> holder -> work they led -> that client -> all its works -> documents. Params person, credential (id or kind), work; returns the chain, totals and where it breaks.",
     "compliance_check": "Re-test our past compliance-matrix MET claims against the graph on each bid date. Optional tender, kind, only_disagreements.",
@@ -33,6 +33,9 @@ BRIEF = {
     "blast_radius": "What breaks if a fact changes (read-only): open cases whose clauses rely on it, past bids citing it, tenders it secures, and the verdict flips a re-check would give. label: Work|Person|Bond|FinancialStatement|Credential|Certification|Contract|Company; key = the graph key (from resolve_entity / find_portfolio).",
     "depends_on": "Read-only provenance of one document (doc_id): every fact, decision, bid and case clause that depends on it, and sole_source = what loses its evidence if the document is withdrawn.",
     "case_get": "Read one qualification case by case_id: clauses, verdicts, evidence, findings and which agent wrote what.",
+    "list_cases": "This workspace's bid cases (the open bids being qualified; NOT past Bid submissions): case_id, title, tender, bid date, recommendation, approved recommendation, open findings. Use for 'open bids' or 'the <name> case', then case_get.",
+    "fact_as_of": "What we believed about one fact on a past date: key (graph key from resolve_entity), predicate ('value', 'completed', 'valid_through', ...), as_of (ISO date). Use only for 'what did we think X was on <date>'.",
+    "change_impact": "What one document (doc_id) changed: its claims, the decisions they triggered (before -> after), the open cases that flipped and the actions created. Use for 'what did DOC-... change'.",
     "get_entity": "One entity's properties and direct links. kind: client|person|work|tender|bond|credential|contract|document.",
     "vector_search": "Semantic search over document pages (for prose, not for counting).",
     "graph_schema": "All labels, properties and relationships, with FalkorDB dialect notes (before cypher_readonly).",
@@ -64,11 +67,18 @@ How to work:
 - When a tool returns a `verdict` (PROVEN / UNPROVEN, PASS / FAIL / AT_RISK, ...), quote it verbatim. Never
   call an UNPROVEN result confirmed or proven: say what is unproven and why (the failed check).
 - When the answer is that something is missing, name the missing items (the works, people or documents
-  the tool lists as absent), not only how many there are.
+  the tool lists as absent), not only how many there are. After prove_absence, list every item in its
+  `absent` result by name before the ANSWER line.
 - For "which document", "where does this come from", "why do we believe" or "what changed" about a fact,
   call fact_history and cite the claim's document and page.
 - For "what breaks / what is affected if X changes", resolve X to its key and call blast_radius; it only
-  reads and reports, it changes nothing.
+  reads and reports, it changes nothing. Read its `summary` line first.
+- Open bids are this workspace's cases: get them from list_cases (then case_get), never from Bid nodes. A Bid
+  (`kind: past_bid`, e.g. RFP-... dossiers) is a PAST submission: never call it open, current or pending.
+- For "what did we believe on <date>" call fact_as_of; for "what did document DOC-... change" call change_impact.
+- Every client, person, work, document and amount you name must come from a tool result in this
+  conversation. Never write a name or figure no tool returned; if you do not know, call a tool.
+  Never answer a question about the company without calling at least one tool.
 - Use cypher_readonly only when no tool fits (call graph_schema first if its labels are not enough).
 - Call only the tools you are given.
 
@@ -89,6 +99,8 @@ Return ONLY a JSON object {"clauses": [...]} where each clause is
   For either/or wording ("one work >= 50 Cr OR two works >= 40 Cr each") use ONE similar_works clause with
   "options": [{"count": 1, "min_value": 500000000}, {"count": 2, "min_value": 400000000}] (met if any option is
   met) instead of count/min_value. Never split one either/or requirement into two separate must-pass clauses.
+  A cumulative / aggregate / total value requirement ("works of cumulative value INR 500 Cr") goes in
+  "min_total": int rupees on the same similar_works clause, alongside any min_value/count.
 - turnover: {"min_average": int rupees, "years": int} or {"min_each_year": int, "years": int}
 - key_personnel: {"credential": "PMP"|"Six Sigma", "min_experience_years": int, "count": int, "categories": [...]}
 - certification: {"standard": "ISO 9001" | "ISO 14001" | "ISO 45001" | "CPWD" | "NABL"}

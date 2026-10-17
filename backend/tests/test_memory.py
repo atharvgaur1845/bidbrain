@@ -309,6 +309,7 @@ def test_org_memory_json_mirror_round_trip(client, org, tmp_path):
 def test_new_sessions_are_rate_limited_per_client_ip(client, monkeypatch):
     monkeypatch.setattr(sessions, "SESSION_RATE", 2)
     monkeypatch.setattr(sessions, "_created", {})
+    monkeypatch.setattr(main, "FORWARDED_HOPS", 1)          # behind one proxy (HF Spaces); the default is 0
     ip = {"X-Forwarded-For": "203.0.113.7"}
     ok = [client.post("/api/session", headers=ip) for _ in range(2)]
     assert all(r.status_code == 200 for r in ok)

@@ -188,8 +188,34 @@ def apply_event(g: Graph, ev: dict, resolve: bool = True, text: str | None = Non
     # (kept apart from `decisions`, which are resolved contradictions — what the P/R eval scores)
     in_conflict = {c["id"] for x in out["decisions"] + out["cards"] for c in x["conflict"]["claims"]}
     out["first_claims"] = engine.adopt_uncontested(g, [r["id"] for r in rows], in_conflict)
+    closure = close_reference_loop(g, linked, d, out)
     return {"event_id": ev["event_id"], "claims": [r["id"] for r in rows], "references": linked,
-            "chunks": chunks, **out}
+            "chunks": chunks, **out, **({"reference_ripples": closure} if closure else {})}
+
+
+def close_reference_loop(g: Graph, linked: list[str], doc: dict, out: dict) -> list[dict]:
+    """A reference letter that arrives for a work an open bid relies on is good news, and the loop must close:
+    the absence findings that named the work are resolved (citing this document), the open letter requests
+    for it are fulfilled, and the clauses are re-qualified (a `require_reference` clause can change outcome).
+
+    The API's ripple (main._ripple_after) runs blast_radius + apply_flips on every subject the engine decided
+    or carded, and blast_radius reports such letters in `evidence_changed`, so that path does it. A letter the
+    engine had nothing to say about (a consistent restatement: no decision, no card, no first claim) would not
+    be rippled at all; for those works the same blast_radius + apply_flips runs here."""
+    if not linked:
+        return []
+    from bidbrain.tools.case import apply_flips, blast_radius, reference_closures
+    rippled = {(c["conflict"]["subject_label"], c["conflict"]["subject_key"])
+               for c in out.get("decisions", []) + out.get("cards", []) + out.get("first_claims", [])}
+    done = []
+    for key in linked:
+        if ("Work", key) in rippled or not reference_closures(g, key):
+            continue
+        br = blast_radius(g, "Work", key)["result"]
+        br["cases_changed"] = apply_flips(g, br["verdict_flips"], doc.get("title") or doc["doc_id"],
+                                          br.get("evidence_changed"), cause_doc=doc["doc_id"])
+        done.append(br)
+    return done
 
 
 def save(events: list[dict], path=None) -> None:

@@ -110,10 +110,12 @@ def parse_answer(text: str):
 
 
 def ask(g: Graph, question: str, emit=None, history: list[dict] | None = None, max_steps: int = 10) -> dict:
+    # ground=True: tool-free answers, names / amounts absent from the tool results and unnamed missing items are
+    # caught (re-asked once, then flagged in `note`); see loop.py "answer checks"
     res: RunResult = run_agent(g, "qa", QA_SYSTEM, question, QA_TOOLS, max_steps=max_steps,
-                               emit=emit, history=history)
+                               emit=emit, history=history, ground=True)
     value, raw = parse_answer(res.final)
     return {"answer": value, "answer_text": raw, "explanation": res.final, "steps": res.steps,
             "evidence": res.evidence, "subgraph": res.subgraph, "usage": res.usage, "ms": res.ms,
             "providers": res.providers, "switches": res.switches, "error": res.error,
-            "note": getattr(res, "note", None)}
+            "note": getattr(res, "note", None), "checks": getattr(res, "checks", {})}
