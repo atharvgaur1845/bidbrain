@@ -138,7 +138,7 @@ def _absence_credential(g, client, category, kind, valid_on) -> dict:
     # Closed-world checks: a missing HOLDS edge or a missing date would turn "no record" into a false absence.
     q_check = """MATCH (cr:Credential) WHERE toLower(cr.kind) CONTAINS toLower($kind)
                  RETURN count(cr) AS total,
-                        sum(CASE WHEN NOT ()-[:HOLDS]->(cr) THEN 1 ELSE 0 END) AS orphan,
+                        sum(CASE WHEN size([(h)-[:HOLDS]->(cr) | h]) = 0 THEN 1 ELSE 0 END) AS orphan,
                         sum(CASE WHEN cr.valid_through_day IS NULL THEN 1 ELSE 0 END) AS undated"""
     ck_row = g.read(q_check, {"kind": kind})[0]
     total, orphan, undated = (int(ck_row[k] or 0) for k in ("total", "orphan", "undated"))
@@ -161,7 +161,7 @@ def _absence_bond(g, category) -> dict:
     # Closed-world check: a Bond with no SECURES edge (or one dangling in scope) could be the "missing" bond.
     q_check = """MATCH (b:Bond) WHERE $cat IS NULL OR b.category = $cat
                  RETURN count(b) AS total,
-                        sum(CASE WHEN NOT (b)-[:SECURES]->(:Tender) THEN 1 ELSE 0 END) AS orphan"""
+                        sum(CASE WHEN size([(b)-[:SECURES]->(t:Tender) | t]) = 0 THEN 1 ELSE 0 END) AS orphan"""
     ck_row = g.read(q_check, {"cat": cat})[0]
     total, orphan = int(ck_row["total"] or 0), int(ck_row["orphan"] or 0)
     return {"result": {"claim": f"{len(absent)} of {len(rows)} tenders have no performance bond on file",
