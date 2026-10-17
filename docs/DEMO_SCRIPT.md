@@ -52,7 +52,7 @@ every past dossier cited works not yet complete at submission.
 agents call: betweenness shows who the company can't afford to lose."
 
 ### 3:10 – 3:40 · Benchmark (Benchmark page)
-**Screen:** the leaderboard (same Qwen3-32B for BidBrain, text-to-Cypher, vector RAG and, once its ingest finishes, GraphRAG-SDK), the hop-count
+**Screen:** the leaderboard (same Qwen3-32B for BidBrain, text-to-Cypher, vector RAG and GraphRAG-SDK), the hop-count
 bars, tool sufficiency 354/354, and conflict-engine P/R on 275 planted events plus 50 rendered PDFs.
 **Say:** "Same model, same database, different context. [Read the headline gap at 5–6 hops and on absence
 questions.] And we publish what broke: the PDF eval found two real bugs on its first run."

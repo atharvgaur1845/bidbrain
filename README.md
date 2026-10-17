@@ -9,7 +9,13 @@
 > tenders clause by clause, **prove absences**, settle conflicting documents as they arrive, ripple each change
 > to every bid that relied on it, and show the path to the PDF page behind every answer.
 
-**Live demo:** _to be added_ (run it locally with one `docker compose up`, below)  ·  **Video:** _<link>_  ·  **Tracks:** Company Brain (lead) · Agents That Act on Connected Data · Agent Memory & Coordination
+**Headline result** (same Qwen3-32B, same FalkorDB, only the context strategy differs): **64%** exact on 333 multi-hop
+questions vs **18%** for LLM text-to-Cypher, **10%** for GraphRAG-SDK and **8%** for vector RAG; on 5-6-hop questions
+.52 vs .14 / .14 / .10. Details and caveats in [Evaluation](#evaluation).
+
+![BidBrain home: pitch, graph facts and the four demo flows](docs/img/home.png)
+
+**Live demo:** not deployed yet; run it locally with one `docker compose up` (below)  ·  **Video:** not recorded yet  ·  **Tracks:** Company Brain (lead) · Agents That Act on Connected Data · Agent Memory & Coordination
 
 | What you'll see | Where |
 |---|---|
