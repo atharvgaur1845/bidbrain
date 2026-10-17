@@ -5,6 +5,11 @@
 
 Systems (all on the same model and the same FalkorDB instance):
     bidbrain      single agent over BidBrain's graph tools
+    team          the six-agent qualification team (orchestrator.qualify_tender) on a graph copy, TND only,
+                  with prefer_llm=False: clauses come from the rule parser reading the clause TEXT (the
+                  pre-parsed path is never used), the memo is the template. No LLM is called, so this
+                  measures the deterministic pipeline end to end (parse -> qualify -> audit -> verify),
+                  not the model; gold is independent Cypher in eval/synth.py
     vector_rag    top-k chunks from FalkorDB's vector index -> LLM
     text2cypher   LLM writes Cypher from the schema -> rows -> LLM
     graphrag_sdk  FalkorDB GraphRAG-SDK, auto-extracted schema (see eval/baselines/graphrag_sdk.py)
@@ -166,8 +171,56 @@ def _provenance(calls: list[str] | None) -> dict:
     return {"providers": list(dict.fromkeys(names)), "llm_cache_hits": hits, "cached": hits > 0}
 
 
+TEAM_GRAPH = "eval_team_tmp"
+_CLAUSE_Q = re.compile(r"Tender clause \(bid due (\d{4}-\d{2}-\d{2})\): '(.+)' Do we qualify", re.S)
+_PM_Q = re.compile(r"bid due (\d{4}-\d{2}-\d{2}) that requires a PMP valid on that date, at least (\d+) years' "
+                   r"experience, and having led at least one (.+?) project\?")
+
+
+def team_tender(q: dict) -> dict:
+    """The TND question as a tender: the quoted clause text verbatim, or the Project Manager question
+    restated as the key-personnel clause a tender would print."""
+    m = _CLAUSE_Q.search(q["question"])
+    if m:
+        return {"id": q["qid"], "title": q["qid"], "bid_date": m[1], "text": m[2]}
+    m = _PM_Q.search(q["question"])
+    if m:
+        return {"id": q["qid"], "title": q["qid"], "bid_date": m[1],
+                "text": f"Project Manager with a PMP valid on the bid date, at least {m[2]} years' experience, "
+                        f"having led at least one {m[3]} project."}
+    raise ValueError("not a tender question")
+
+
+def team_answer(g: Graph, q: dict) -> dict:
+    from bidbrain.agents.orchestrator import qualify_tender
+    t0 = time.perf_counter()
+    case = qualify_tender(g, team_tender(q), prefer_llm=False)
+    # the answer is read back from the case subgraph the agents wrote, not from Python return values
+    cls = g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause) WHERE k.kind <> 'other'
+                    RETURN k.kind AS kind, k.verdict AS verdict, k.basis AS basis""", {"c": case["case"]["id"]})
+    verified = g.read("MATCH (c:Case {id:$c}) RETURN c.verified AS v", {"c": case["case"]["id"]})[0]["v"]
+    if len(cls) != 1:
+        raise ValueError(f"parser produced {len(cls)} provable clauses")
+    k = cls[0]
+    if q.get("answer_type") == "count":
+        m = re.match(r"(\d+) people", k["basis"] or "")
+        ans = int(m[1]) if m else None
+    else:
+        ans = "QUALIFIES" if k["verdict"] in ("PASS", "AT_RISK") else "DOES NOT QUALIFY"
+    u = case["usage"]
+    return {"answer": ans, "raw": str(ans) if ans is not None else "",
+            "basis": f"{k['kind']} {k['verdict']}: {k['basis']} (case verified={verified})",
+            "usage": {"llm_calls": u["llm_calls"], "tool_calls": u["tool_calls"], "prompt": u["prompt_tokens"],
+                      "completion": u["completion_tokens"]},
+            "ms": round((time.perf_counter() - t0) * 1000, 1), "error": None,
+            "agents": [{k2: a[k2] for k2 in ("agent", "ms", "llm_calls", "tool_calls")} for a in case["agents"]],
+            "verified": verified, "providers": []}
+
+
 def answer(system: str, g: Graph, q: dict) -> dict:
     from bidbrain.agents import baselines, qa
+    if system == "team":
+        return team_answer(g, q)
     if system == "bidbrain":
         r = qa.ask(g, q["question"])
         return {"answer": r["answer"], "raw": r["answer_text"], "usage": r["usage"], "ms": r["ms"],
@@ -216,6 +269,15 @@ def run(system: str, set_name: str, workers: int = 8, limit: int | None = None,
         check_sdk_ingest(allow_partial)
     qs = load_set(set_name)[: limit or None]
     g = Graph()            # read-only questions: the base graph is safe to share
+    if system == "team":
+        # the team WRITES (cases, clauses, agent runs): work in a throwaway copy, one writer at a time
+        if set_name != "TND":
+            raise SystemExit("team answers tender clauses: TND only")
+        from bidbrain.graph.client import db
+        if TEAM_GRAPH in db().list_graphs():
+            Graph(TEAM_GRAPH).delete()
+        Graph(config.BASE_GRAPH).copy_to(TEAM_GRAPH)
+        g, workers = Graph(TEAM_GRAPH), 1
     OUT.mkdir(parents=True, exist_ok=True)
     path = OUT / f"{system}__{set_name}.jsonl"
     want = {q["qid"]: q for q in qs}
@@ -247,6 +309,8 @@ def run(system: str, set_name: str, workers: int = 8, limit: int | None = None,
             done[rec["qid"]] = rec
             if (i + 1) % 20 == 0:
                 print(f"  {i + 1}/{len(todo)}  running exact={sum(r['exact'] for r in done.values()) / len(done):.3f}")
+    if system == "team":
+        g.delete()
     return summarize_file(path)
 
 
@@ -266,6 +330,15 @@ def _was_cached(r: dict) -> bool:
     if "cached" in r:
         return bool(r["cached"])
     return r.get("ms") == 0          # rows written before the cache flag existed
+
+
+def wilson(k: int, n: int, z: float = 1.96) -> list | None:
+    """95% Wilson interval for k/n: single runs have no error bars, this is the sampling part of one."""
+    if not n:
+        return None
+    p, d = k / n, 1 + z * z / n
+    c, h = (p + z * z / (2 * n)) / d, z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return [round(c - h, 3), round(c + h, 3)]
 
 
 def summarize_file(path, set_name: str | None = None) -> dict:
@@ -307,8 +380,15 @@ def summarize_file(path, set_name: str | None = None) -> dict:
     tools = [(r.get("usage") or {}).get("tool_calls") for r in rows]
     tools = [c for c in tools if c is not None]
     models = collections.Counter(p for r in rows for p in (r.get("providers") or []))
+    pres = [r for r in rows if not r.get("absence")]
+    # tokens only where the system reported both sides (graphrag_sdk does not expose them)
+    toks = [(r.get("usage") or {}) for r in rows]
+    toks = [u["prompt"] + u["completion"] for u in toks if u.get("prompt") is not None and u.get("completion") is not None]
     return {"n": n, "n_set": len(qs) if qs is not None else None,
-            "accuracy": acc(rows), "proportional": round(sum(r["prop"] for r in rows) / n, 4) if n else None,
+            "accuracy": acc(rows), "accuracy_ci95": wilson(sum(r["exact"] for r in rows), n),
+            "presence_accuracy": acc(pres), "presence_n": len(pres),
+            "tokens_per_q": round(statistics.fmean(toks)) if toks else None, "tokens_n": len(toks),
+            "proportional": round(sum(r["prop"] for r in rows) / n, 4) if n else None,
             "errors": len(errs),
             "by_hops": bands, "absence_accuracy": acc(absn), "absence_n": len(absn),
             "by_family": {k: round(sum(v) / len(v), 3) for k, v in fams.items()},
@@ -350,6 +430,7 @@ def summarize_all() -> dict:
             systems[sys_]["latency"] = s["latency"]
             systems[sys_]["llm_calls"] = s["llm_calls"]
             systems[sys_]["tool_calls"] = s["tool_calls"]
+            systems[sys_]["tokens_per_q"] = s["tokens_per_q"]
     every = collections.Counter()
     for c in models.values():
         every.update(c)
