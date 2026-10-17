@@ -4,7 +4,7 @@ domain knowledge lives in the tools, not in the prompt."""
 QA_TOOLS = ["resolve_entity", "find_portfolio", "aggregate", "credential_timeline", "date_span",
             "receivables", "collection_rate", "awarded_vs_billed", "prove_absence", "qualify_clause",
             "who_knows", "key_people", "explain_path", "get_entity", "vector_search", "graph_schema",
-            "fact_history", "trace_from_credential", "compliance_check", "communities", "blast_radius",
+            "fact_history", "compliance_check", "communities", "blast_radius",
             "case_get", "depends_on", "cypher_readonly"]
 
 # One-line tool descriptions for the LLM (the full descriptions are served over MCP and in docs/CYPHER.md).

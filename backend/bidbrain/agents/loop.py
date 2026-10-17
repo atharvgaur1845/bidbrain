@@ -74,7 +74,10 @@ _DATES = (r"\b(?:19|20)\d{2}\b|\bfy\s*'?\d{2}|"
           r"year[- ]to[- ]date|ytd|financial year|fiscal year|decade)\b")
 # A value bound needs an amount or a comparison word; "value", "worth" or "cost" alone is what is being summed.
 _AMOUNT = (r"\u20b9\s*\d|\b(?:rs\.?|inr)\s*\d|\d[\d,]*(?:\.\d+)?\s*(?:cr\b|crores?|lakhs?|lacs?|l\b|k\b|mn\b|m\b|bn\b|"
-           r"million|billion|rupees)|\b\d{5,}\b|\b\d{1,3}(?:,\d{2,3}){2,}\b")
+           r"million|billion|rupees)|\b\d{5,}\b|\b\d{1,3}(?:,\d{2,3}){2,}\b|"
+           # amounts in words: "the six crore line", "fifty lakh", "a hundred crore"
+           r"\b(?:a|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|twenty[- ]five|"
+           r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)\s+(?:crores?|cr\b|lakhs?|lacs?|million|billion)")
 _COMPARE = (r"\babove\b|\bbelow\b|\bover\b(?!\s+(?:the\s+)?(?:last|past|years?|time|period|decade))|\bunder\b|"
             r"more than|less than|greater than|fewer than|bigger than|larger than|smaller than|at least|at most|"
             r"no (?:less|more) than|not (?:less|more) than|in excess of|up ?to\b|\bexceed|\bminimum|\bmaximum|"

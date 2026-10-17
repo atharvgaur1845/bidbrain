@@ -388,9 +388,11 @@ def load(graph_name: str = config.BASE_GRAPH, with_chunks: bool = True, quiet: b
     by_label: dict[str, list[dict]] = {}
     for c in cl:
         by_label.setdefault(c["subject_label"], []).append(c)
+    # the corpus is the company's starting record: recorded_at 0 ("known from the start"), not the build time,
+    # because the base graph is rebuilt at every boot and its claims must not appear to be learned at each restart
     for label, rows in by_label.items():
         unwind(g, f"""UNWIND $rows AS r MATCH (s:{label} {{key:r.subject_key}})
-            CREATE (c:Claim) SET c = r, c.recorded_at = timestamp()
+            CREATE (c:Claim) SET c = r, c.recorded_at = 0
             CREATE (c)-[:ABOUT]->(s)
             WITH c, r MATCH (d:Document {{doc_id:r.source_doc}}) CREATE (c)-[:FROM {{page:r.page}}]->(d)""", rows)
 
