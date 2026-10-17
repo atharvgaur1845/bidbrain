@@ -528,10 +528,13 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
                     emit({"type": "finding", "agent": "AbsenceAuditor", "clause_id": kid, "kind": "absence",
                           "text": txt, "subgraph": proof.get("subgraph")})
             if kind == "key_personnel":
-                exp = res.get("expiring_within_90d") or []
+                # only the people this bid actually credits (SATISFIED_BY) need renewing, not every lapsing candidate
+                credited = {r["name"] for r in g.read(
+                    "MATCH (:Clause {id:$k})-[:SATISFIED_BY]->(p:Person) RETURN p.name AS name", {"k": kid})}
+                exp = [e for e in res.get("expiring_within_90d") or [] if e["name"] in credited]
                 if exp:
                     alts = ", ".join(a["name"] for a in res.get("safe_alternates", []))
-                    txt = (f"PMP of {', '.join(e['name'] + ' (to ' + e['valid_through'] + ')' for e in exp[:4])} lapses "
+                    txt = (f"PMP of {', '.join(e['name'] + ' (to ' + e['valid_through'] + ')' for e in exp)} lapses "
                            f"within 90 days of the bid date. Renew now, or propose {alts or 'alternates'} (valid well beyond).")
                     names = [e["name"] for e in exp]
                     keys = [r["key"] for r in g.read("MATCH (p:Person) WHERE p.name IN $n RETURN p.key AS key",

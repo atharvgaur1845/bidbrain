@@ -1,0 +1,160 @@
+{
+ "summary": {
+  "n_cases": 79,
+  "passed": 79,
+  "pass_rate": 1.0,
+  "by_dimension": {
+   "task_completion": {
+    "n": 15,
+    "passed": 15,
+    "rate": 1.0
+   },
+   "impact_recall": {
+    "n": 18,
+    "passed": 18,
+    "rate": 1.0
+   },
+   "conflict": {
+    "n": 16,
+    "passed": 16,
+    "rate": 1.0
+   },
+   "memory_transfer": {
+    "n": 9,
+    "passed": 9,
+    "rate": 1.0
+   },
+   "isolation": {
+    "n": 9,
+    "passed": 9,
+    "rate": 1.0
+   },
+   "temporal": {
+    "n": 4,
+    "passed": 4,
+    "rate": 1.0
+   },
+   "provenance": {
+    "n": 8,
+    "passed": 8,
+    "rate": 1.0
+   }
+  },
+  "impact": {
+   "events": 9,
+   "clauses_rechecked": 198,
+   "pairs": {
+    "tp": 4,
+    "fp": 0,
+    "fn": 0,
+    "precision": 1.0,
+    "recall": 1.0
+   },
+   "cases": {
+    "tp": 4,
+    "fp": 0,
+    "fn": 0,
+    "precision": 1.0,
+    "recall": 1.0
+   },
+   "per_event": [
+    {
+     "event": "DEMO-0",
+     "expected": [],
+     "observed": []
+    },
+    {
+     "event": "DEMO-1",
+     "expected": [],
+     "observed": []
+    },
+    {
+     "event": "DEMO-1+after-DEMO-0",
+     "expected": [
+      "T-NHX-2026-014#2.1"
+     ],
+     "observed": [
+      "T-NHX-2026-014#2.1"
+     ]
+    },
+    {
+     "event": "DEMO-2",
+     "expected": [
+      "T-CWBB-2026-21#A"
+     ],
+     "observed": [
+      "T-CWBB-2026-21#A"
+     ]
+    },
+    {
+     "event": "DEMO-3",
+     "expected": [],
+     "observed": []
+    },
+    {
+     "event": "DEMO-4",
+     "expected": [],
+     "observed": []
+    },
+    {
+     "event": "RBC-cut-Pkg124",
+     "expected": [],
+     "observed": []
+    },
+    {
+     "event": "RBC-cut-Pkg124+after-cut-Pkg127",
+     "expected": [
+      "T-RBC-2026-31#1"
+     ],
+     "observed": [
+      "T-RBC-2026-31#1"
+     ]
+    },
+    {
+     "event": "JN-raise-Pkg127",
+     "expected": [
+      "T-JN-LB-2026-09#1"
+     ],
+     "observed": [
+      "T-JN-LB-2026-09#1"
+     ]
+    }
+   ]
+  },
+  "failed": [],
+  "conflict_pr_cited": {
+   "json": {
+    "n_events": 275,
+    "n_pdfs": null,
+    "detection": {
+     "precision": 1.0,
+     "recall": 1.0,
+     "f1": 1.0,
+     "tp": 200,
+     "fp": 0,
+     "fn": 0
+    },
+    "routing_accuracy": 1.0,
+    "winner_accuracy": 1.0
+   },
+   "pdf": {
+    "n_events": null,
+    "n_pdfs": 50,
+    "detection": {
+     "precision": 1.0,
+     "recall": 1.0,
+     "f1": 1.0,
+     "tp": 35,
+     "fp": 0,
+     "fn": 0
+    },
+    "routing_accuracy": 1.0,
+    "winner_accuracy": null
+   }
+  },
+  "leftover_eval_graphs": [],
+  "seconds": 25.5,
+  "llm_calls": 0,
+  "run_at": "2026-10-17T08:28:50+00:00"
+ }
+}

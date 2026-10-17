@@ -9,7 +9,7 @@
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 LOG=$ROOT/data/eval/bench_runner.log
-JOBS=${JOBS:-"397261 397259"}          # our pending vLLM jobs (H100 fp8, H200 bf16); first one up wins
+JOBS=${JOBS:-"399564 399236"}          # our pending vLLM jobs (H100 fp8, H200 bf16); first one up wins
 REMOTE=/scratch/pabitra/bidbrain
 PY=$ROOT/backend/.venv/bin/python
 SDK_PY=$ROOT/backend/.venv-sdk/bin/python
@@ -57,6 +57,9 @@ curl -sf -m 15 http://localhost:8011/v1/models -o /dev/null || { log "relay to $
 log "relay up: localhost:8011 -> $SHORT:$PORT"
 
 export LLM_PROVIDERS=vllm VLLM_BASE_URL=http://localhost:8011/v1 LLM_MAX_WAIT=300
+# a fresh completion cache per run: a cached answer from an earlier run (or another quantisation served under the
+# same model name) must never stand in for a re-run
+export LLM_CACHE_PATH=${LLM_CACHE_PATH:-$ROOT/data/llm_cache_final.sqlite}
 
 # ------------------------------------------------------------------ 3. smoke test before spending hours
 "$PY" -m eval.run --selfcheck >> "$LOG" 2>&1 || { log "scorer self-check failed; stopping"; exit 1; }
