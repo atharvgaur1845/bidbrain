@@ -72,8 +72,11 @@ def _cats(s: str) -> list[str]:
     out = [c for c in CATS if c in low]
     for w, cs in CAT_WORDS.items():          # "roads, highways or expressways", "sewerage and drainage"
         if w in low:
+            # a size-qualified category only when the size is written: "bridge" is not "large bridges",
+            # "buildings" is not "small buildings" (those are different credentials in the corpus)
             out += [c for c in cs if c not in out and not (c == "large bridges" and "large" not in low
-                                                            and "major" not in low)]
+                                                            and "major" not in low)
+                    and not (c == "small buildings" and "small" not in low)]
     return out
 
 
