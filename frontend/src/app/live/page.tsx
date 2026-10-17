@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowRight, Check, CircleAlert, CircleCheck, FileText, Gavel, Scale, ScanText, Upload, Waves, FileStack as FileStackIcon } from "lucide-react";
+import { ArrowRight, Building2, Check, CircleAlert, CircleCheck, FileText, Gavel, Scale, ScanText, Upload, Waves, FileStack as FileStackIcon } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import GraphCanvas, { GData, mergeGraph } from "@/components/GraphCanvas";
@@ -41,6 +41,7 @@ export default function LivePage() {
   const [cases, setCases] = useState<any[]>([]);
   const [tab, setTab] = useState("scenarios");
   const [dragOver, setDragOver] = useState(false);
+  const [promoting, setPromoting] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const openDoc = useOpenDoc();
 
@@ -94,6 +95,17 @@ export default function LivePage() {
       push("ripple", { subject: `${card.label}:${card.key}`, result: out.ripple });
       if (out.subgraph) { setGraph((g) => mergeGraph(g, out.subgraph)); setHl(new Set(out.subgraph.nodes.map((n: any) => n.id))); }
     } finally { setBusy(false); refresh(); }
+  }
+
+  /** Opt-in: copy one learned rule into the shared company graph. Nothing else ever writes there. */
+  async function promote(rule: any) {
+    setPromoting(rule.id);
+    try {
+      const out = await api("/api/memory/promote", { method: "POST", body: JSON.stringify({ rule_id: rule.id }) });
+      push("promoted", { ...out, local: rule });
+    } catch (e: any) {
+      push("error", { message: `Promote ${rule.id}: ${e?.message || e}` });
+    } finally { setPromoting(null); refresh(); }
   }
 
   const demo = events.filter((e) => e.type === "demo");
@@ -284,6 +296,22 @@ export default function LivePage() {
                     <div className="mt-1 text-[12px] text-ink-3">
                       From {r.learned_from} by {r.by} · applied <span className="num">{r.applied}</span>×
                     </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {r.org_rule ? (
+                        <Link href="/memory/" className="inline-flex items-center gap-1" title={`Company rule ${r.org_rule}`}>
+                          <Badge tone="violet"><Building2 size={12} strokeWidth={1.75} />In company memory</Badge>
+                          <span className="num text-[11.5px] text-ink-3">{r.org_rule}</span>
+                        </Link>
+                      ) : r.retired ? (
+                        <span className="text-[12px] text-ink-3">Retired by a later decision</span>
+                      ) : (
+                        <Button size="sm" disabled={busy || promoting !== null} onClick={() => promote(r)}
+                          title="Share this rule with every session (company memory). You can retire it later on the Memory page.">
+                          <Building2 size={14} strokeWidth={1.75} />
+                          {promoting === r.id ? "Promoting…" : "Promote to company memory"}
+                        </Button>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -369,8 +397,8 @@ function FeedCard({ item, last }: { item: FeedItem; last?: boolean }) {
     const c = d.conflict || {};
     return (
       <Entry {...base} icon={<Gavel {...ICON} className="text-ok" />}
-        title={d.human ? "Your decision" : "Auto-resolved"}
-        aside={d.policy ? <Badge>{d.policy}</Badge> : null}>
+        title={d.human ? "Your decision" : d.policy === "org_rule" ? "Auto-resolved by company memory" : "Auto-resolved"}
+        aside={d.policy ? <Badge tone={d.policy === "org_rule" ? "violet" : "neutral"}>{d.policy}</Badge> : null}>
         <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-[13px] text-ink-2">
           <span><span className="num">{c.subject_key}</span> · <span className="num">{c.predicate}</span>
             <ArrowRight size={13} strokeWidth={1.75} className="mx-1 inline align-[-2px] text-ink-3" />
@@ -441,6 +469,26 @@ function FeedCard({ item, last }: { item: FeedItem; last?: boolean }) {
           </div>
         ))}
         {!flips.length && <p className="mt-1 text-[12.5px] text-ink-3">No verdict changed.</p>}
+      </Entry>
+    );
+  }
+
+  if (item.kind === "promoted") {
+    const r = d.rule || {};
+    return (
+      <Entry {...base} icon={<Building2 {...ICON} className="text-violet" />}
+        title={d.already ? "Already in company memory" : "Promoted to company memory"}
+        aside={<span className="num text-[11.5px] text-ink-3">{d.org_rule}</span>}>
+        <p className="mt-1 text-[13px] leading-snug text-ink-2">
+          Prefer <span className="font-semibold text-ink">{r.prefer || d.local?.prefer}</span> over {r.over || d.local?.over} for{" "}
+          <span className="num">{r.predicate || d.local?.predicate}</span>. Every session now consults it after its own rules.
+        </p>
+        {r.learned_from?.id && (
+          <p className="mt-1 text-[12.5px] leading-snug text-ink-3">
+            Learned from <span className="num">{r.learned_from.id}</span>
+            {r.learned_from.rationale ? <>: “{r.learned_from.rationale}”</> : null}
+          </p>
+        )}
       </Entry>
     );
   }

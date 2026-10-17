@@ -18,13 +18,24 @@
 A human resolution can be generalised ("apply to similar"): it becomes a
 (:PolicyRule) that the next conflict of the same shape is resolved by, citing
 the decision it was learned from. That is the system getting better over time.
+
+Organisational memory. A session's rules die with the session. A bid manager can
+*promote* one into the shared company graph (`bidbrain_org`, never written
+implicitly): an (:OrgRule) carrying who promoted it, when, the source session (as
+a hash, never the session id) and a copy of the decision it was LEARNED_FROM with
+its rationale. Every session then consults company rules after its own rules and
+before recency and authority (policy `org_rule`), and the Decision cites the
+promoted rule. Retiring a company rule takes it out of play for everyone.
 """
 from __future__ import annotations
 
 import hashlib
+import os
+import re
+import threading
 import time
 
-from bidbrain.graph.client import Graph, day
+from bidbrain.graph.client import Graph, day, db
 
 AUTHORITY_GAP = 20
 
@@ -147,8 +158,11 @@ def _rule_applies(r: dict, cl: list[dict], groups: list[list[dict]]) -> dict | N
     return win
 
 
-def propose(conflict: dict, rules: list[dict]) -> dict:
-    """Decide (without writing) how a conflict should be resolved."""
+def propose(conflict: dict, rules: list[dict], org_rules: list[dict] | None = None) -> dict:
+    """Decide (without writing) how a conflict should be resolved.
+
+    Order: this session's learned rules, then company rules (promoted to `bidbrain_org`), then
+    recency (same issuer), then authority; otherwise a human decides."""
     cl = conflict["claims"]
     groups = _groups(cl)
     for r in rules:
@@ -159,6 +173,16 @@ def propose(conflict: dict, rules: list[dict]) -> dict:
             return {"auto": True, "policy": "learned_rule", "rule_id": r["id"], "winner": win,
                     "rationale": f"learned rule {r['id']}: prefer {r['prefer_kind']} over {r['over_kind']} "
                                  f"for '{conflict['predicate']}' ({r['rationale']})"}
+    for r in org_rules or []:
+        if r["predicate"] != conflict["predicate"]:
+            continue
+        win = _rule_applies(r, cl, groups)
+        if win is not None:
+            src = r.get("source_decision") or "?"
+            return {"auto": True, "policy": "org_rule", "org_rule": r, "winner": win,
+                    "rationale": f"company rule {r['id']}: prefer {r['prefer_kind']} over {r['over_kind']} "
+                                 f"for '{conflict['predicate']}', promoted by {r.get('promoted_by') or '?'} "
+                                 f"from decision {src} ({r['rationale']})"}
     # Recency: an issuer may amend its own statement — but only with a document
     # at least as formal as the one it amends (a corrigendum or re-issued
     # certificate, not a chatty letter), and only if no *other* issuer's claim
@@ -226,7 +250,7 @@ def _decision(g: Graph, did: str, conflict_id: str, subject_key: str, predicate:
 
 def record(g: Graph, conflict: dict, winner_id: str, policy: str, rationale: str,
            actor: str = "policy-engine", actor_kind: str = "Agent", rule_id: str | None = None,
-           keep_card: str | None = None) -> dict:
+           keep_card: str | None = None, org_rule: dict | None = None) -> dict:
     """Write the Decision, flip claim statuses, re-materialize the property.
 
     Only claims that *disagree* with the winner lose; claims stating the same value (within
@@ -240,6 +264,16 @@ def record(g: Graph, conflict: dict, winner_id: str, policy: str, rationale: str
     if rule_id:
         g.run("MATCH (d:Decision {id:$d}), (r:PolicyRule {id:$r}) CREATE (d)-[:APPLIED_RULE]->(r)",
               {"d": did, "r": rule_id})
+    if org_rule:
+        # the company rule lives in another graph: cite it with a local reference node (not a
+        # PolicyRule, so it never becomes a session rule) and on the decision itself
+        g.run("""MERGE (o:OrgRuleRef {id:$id}) SET o.key = $id, o.graph = $graph, o.predicate = $p,
+                     o.prefer_kind = $pk, o.over_kind = $ok, o.promoted_by = $by,
+                     o.source_decision = $src, o.rationale = $why
+                 WITH o MATCH (d:Decision {id:$d}) SET d.org_rule = $id CREATE (d)-[:APPLIED_ORG_RULE]->(o)""",
+              {"id": org_rule["id"], "graph": ORG_GRAPH, "p": org_rule["predicate"],
+               "pk": org_rule["prefer_kind"], "ok": org_rule["over_kind"], "by": org_rule.get("promoted_by"),
+               "src": org_rule.get("source_decision"), "why": org_rule.get("rationale"), "d": did})
     losers = [c["id"] for c in conflict["claims"] if c["id"] != winner_id and _differs(c, win)]
     agree = [c["id"] for c in conflict["claims"] if c["id"] != winner_id and not _differs(c, win)]
     g.run("MATCH (c:Claim) WHERE c.id IN $ids SET c.status = $st", {"ids": losers, "st": loser_status})
@@ -293,11 +327,13 @@ def run(g: Graph, subject_keys: list[str] | None = None) -> dict:
     """detect -> propose -> record | open_card, for the given subjects (None = everything)."""
     found = detect(g, subject_keys)
     rules = _rules(g)
+    orgs = org_rules() if found["conflicts"] and g.name.startswith("session_") else []
     decisions, cards = [], []
     for cf in found["conflicts"]:
-        prop = propose(cf, rules)
+        prop = propose(cf, rules, orgs)
         if prop["auto"]:
-            d = record(g, cf, prop["winner"]["id"], prop["policy"], prop["rationale"], rule_id=prop.get("rule_id"))
+            d = record(g, cf, prop["winner"]["id"], prop["policy"], prop["rationale"], rule_id=prop.get("rule_id"),
+                       org_rule=prop.get("org_rule"))
             decisions.append({**d, "conflict": _brief(cf)})
         else:
             cards.append({**open_card(g, cf, prop), "conflict": _brief(cf)})
@@ -385,3 +421,137 @@ def resolve_card(g: Graph, card_id: str, winner_claim: str, rationale: str, user
                    "why": rationale, "u": user, "d": d["decision_id"]})
             rules.append(rid)
     return {**d, "learned_rule": rules[0] if rules else None, "learned_rules": rules}
+
+
+# ------------------------------------------------------------------ organisational (company) memory
+# A separate graph every session reads and only an explicit promote / retire writes. Session rules
+# stay private; a rule enters company memory only when a person promotes it, with provenance.
+
+ORG_GRAPH = os.getenv("ORG_GRAPH", "bidbrain_org")
+ORG_MAX_ACTIVE = int(os.getenv("ORG_MAX_RULES", "50"))     # active company rules (a public sandbox)
+ORG_MAX_KEPT = 200                                         # retired rules kept for the audit trail
+RULE_ID_RE = re.compile(r"^RULE-[0-9a-f]{10}$")
+ORG_ID_RE = re.compile(r"^ORG-[0-9a-f]{10}$")
+_ORG_LOCK = threading.Lock()
+
+
+class OrgMemoryError(ValueError):
+    """A promote / retire the company graph refuses; `status` is the HTTP code to answer with."""
+
+    def __init__(self, msg: str, status: int = 409):
+        super().__init__(msg)
+        self.status = status
+
+
+def _org() -> Graph | None:
+    return Graph(ORG_GRAPH) if ORG_GRAPH in db().list_graphs() else None
+
+
+def org_rules() -> list[dict]:
+    """Active company rules, oldest first (the first matching rule wins, as with session rules)."""
+    g = _org()
+    if g is None:
+        return []
+    return g.read("""MATCH (r:OrgRule) WHERE r.retired = false
+                     OPTIONAL MATCH (r)-[:LEARNED_FROM]->(d:SourceDecision)
+                     RETURN r.id AS id, r.predicate AS predicate, r.prefer_kind AS prefer_kind,
+                            r.over_kind AS over_kind, r.rationale AS rationale, r.promoted_by AS promoted_by,
+                            d.id AS source_decision
+                     ORDER BY r.promoted_at, r.id""")
+
+
+def list_org(include_retired: bool = False) -> list[dict]:
+    """Company rules with full provenance, newest first."""
+    g = _org()
+    if g is None:
+        return []
+    return g.read("""MATCH (r:OrgRule) WHERE $all OR r.retired = false
+                     OPTIONAL MATCH (r)-[:PROMOTED_BY]->(u:User)
+                     OPTIONAL MATCH (r)-[:LEARNED_FROM]->(d:SourceDecision)
+                     RETURN r.id AS id, r.predicate AS predicate, r.prefer_kind AS prefer, r.over_kind AS over,
+                            r.rationale AS rationale, r.retired AS retired, r.promoted_at AS promoted_at,
+                            r.retired_at AS retired_at, r.retired_by AS retired_by,
+                            r.source_rule AS source_rule, r.source_session AS source_session,
+                            u.key AS promoted_by,
+                            d {.id, .rationale, .policy, .decided_by, .subject_key, .subject, .predicate,
+                               .chosen_value, .source_doc, .at} AS learned_from
+                     ORDER BY r.promoted_at DESC, r.id""", {"all": include_retired})
+
+
+def session_tag(session_graph: str) -> str:
+    """Provenance names the source session by a hash: a session id is a capability (it opens that graph)."""
+    return "s-" + hashlib.sha256(session_graph.encode()).hexdigest()[:12]
+
+
+def promote(g: Graph, rule_id: str, user: str = "bid-manager") -> dict:
+    """Copy a session's learned PolicyRule into company memory, with provenance. Explicit only."""
+    if not isinstance(rule_id, str) or not RULE_ID_RE.match(rule_id):
+        raise OrgMemoryError("rule_id must look like RULE-<10 hex>", 400)
+    user = re.sub(r"[^\w .@-]", "", str(user or "bid-manager"))[:64].strip() or "bid-manager"
+    rows = g.read("""MATCH (r:PolicyRule {id:$id})
+                     OPTIONAL MATCH (r)-[:LEARNED_FROM]->(d:Decision)
+                     OPTIONAL MATCH (d)-[:DECIDED_BY]->(a)
+                     OPTIONAL MATCH (d)-[:SELECTS]->(w:Claim)
+                     OPTIONAL MATCH (w)-[:ABOUT]->(s)
+                     RETURN r {.*} AS rule, d {.*} AS decision, a.key AS decided_by, w.source_doc AS source_doc,
+                            coalesce(s.title, s.name, s.key) AS subject LIMIT 1""", {"id": rule_id})
+    if not rows:
+        raise OrgMemoryError(f"no learned rule {rule_id} in this session", 404)
+    r, d = rows[0]["rule"], rows[0]["decision"] or {}
+    if r.get("retired"):
+        raise OrgMemoryError(f"{rule_id} was retired in this session (a later decision overrode it)")
+    src = session_tag(g.name)
+    with _ORG_LOCK:
+        org = Graph(ORG_GRAPH)
+        live = _org() is not None
+        if live:
+            same = org.read("""MATCH (o:OrgRule {predicate:$p, prefer_kind:$pk, over_kind:$ok}) WHERE o.retired = false
+                               RETURN o.id AS id""",
+                            {"p": r["predicate"], "pk": r["prefer_kind"], "ok": r["over_kind"]})
+            if same:
+                return {"org_rule": same[0]["id"], "already": True}
+            opposite = org.read("""MATCH (o:OrgRule {predicate:$p, prefer_kind:$ok, over_kind:$pk}) WHERE o.retired = false
+                                   RETURN o.id AS id""",
+                                {"p": r["predicate"], "pk": r["prefer_kind"], "ok": r["over_kind"]})
+            if opposite:
+                raise OrgMemoryError(f"company memory already prefers {r['over_kind']} over {r['prefer_kind']} "
+                                     f"for '{r['predicate']}' ({opposite[0]['id']}); retire it first")
+            n = org.scalar("MATCH (o:OrgRule) WHERE o.retired = false RETURN count(o)") or 0
+            if n >= ORG_MAX_ACTIVE:
+                raise OrgMemoryError(f"company memory is full ({ORG_MAX_ACTIVE} active rules); retire one first")
+        oid = _id("ORG-", r["predicate"], r["prefer_kind"], r["over_kind"], src, time.time_ns())
+        org.run("""MERGE (u:User {key:$u}) ON CREATE SET u.name = $u
+                   CREATE (o:OrgRule {id:$id, key:$id, predicate:$p, prefer_kind:$pk, over_kind:$ok, rationale:$why,
+                                      retired:false, promoted_at:timestamp(), promoted_by:$u,
+                                      source_rule:$rid, source_session:$src})
+                   CREATE (o)-[:PROMOTED_BY {at:timestamp()}]->(u)
+                   CREATE (o)-[:LEARNED_FROM]->(:SourceDecision {id:$did, key:$did, rationale:$drat, policy:$dpol,
+                          decided_by:$dby, subject_key:$sk, subject:$subj, predicate:$p, chosen_value:$val,
+                          source_doc:$doc, at:$dat, source_session:$src})""",
+                {"u": user, "id": oid, "p": r["predicate"], "pk": r["prefer_kind"], "ok": r["over_kind"],
+                 "why": r.get("rationale") or "", "rid": rule_id, "src": src,
+                 "did": d.get("id"), "drat": d.get("rationale"), "dpol": d.get("policy"),
+                 "dby": rows[0]["decided_by"], "sk": d.get("subject_key"), "subj": rows[0]["subject"],
+                 "val": d.get("chosen_value"), "doc": rows[0]["source_doc"], "dat": d.get("at")})
+        # bounded audit trail: drop the oldest retired rules beyond the cap
+        org.run("""MATCH (o:OrgRule) WHERE o.retired = true WITH o ORDER BY o.retired_at DESC SKIP $keep
+                   OPTIONAL MATCH (o)-[:LEARNED_FROM]->(d:SourceDecision) DETACH DELETE o, d""",
+                {"keep": ORG_MAX_KEPT})
+    return {"org_rule": oid, "already": False}
+
+
+def retire_org(org_id: str, user: str = "bid-manager") -> dict:
+    """Take a company rule out of play for every session (kept, marked retired, for the audit trail)."""
+    if not isinstance(org_id, str) or not ORG_ID_RE.match(org_id):
+        raise OrgMemoryError("id must look like ORG-<10 hex>", 400)
+    user = re.sub(r"[^\w .@-]", "", str(user or "bid-manager"))[:64].strip() or "bid-manager"
+    with _ORG_LOCK:
+        org = _org()
+        rows = org.read("MATCH (o:OrgRule {id:$id}) RETURN o.retired AS retired", {"id": org_id}) if org else []
+        if not rows:
+            raise OrgMemoryError(f"no company rule {org_id}", 404)
+        if rows[0]["retired"]:
+            return {"org_rule": org_id, "retired": True, "already": True}
+        org.run("MATCH (o:OrgRule {id:$id}) SET o.retired = true, o.retired_at = timestamp(), o.retired_by = $u",
+                {"id": org_id, "u": user})
+    return {"org_rule": org_id, "retired": True, "already": False}

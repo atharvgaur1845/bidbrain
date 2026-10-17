@@ -256,6 +256,51 @@ def memory(x_session: str | None = Header(None)):
     return {"turns": turns}
 
 
+# ------------------------------------------------------------------ company memory (opt-in, shared)
+
+async def _body(req: Request) -> dict:
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        raise HTTPException(400, "JSON object expected")
+    return body
+
+
+@app.post("/api/memory/promote")
+async def memory_promote(req: Request, x_session: str | None = Header(None)):
+    """Copy one learned rule from this session into company memory (`bidbrain_org`), with provenance.
+    The only way anything enters company memory: nothing a session does writes there implicitly."""
+    from bidbrain.conflicts import engine
+    body = await _body(req)
+    g = await aG(x_session)
+    try:
+        out = await asyncio.to_thread(engine.promote, g, body.get("rule_id"), body.get("user") or "bid-manager")
+    except engine.OrgMemoryError as exc:
+        raise HTTPException(exc.status, str(exc))
+    rule = next((r for r in engine.list_org(include_retired=True) if r["id"] == out["org_rule"]), None)
+    return {**out, "rule": rule}
+
+
+@app.get("/api/memory/org")
+def memory_org(include_retired: bool = False):
+    from bidbrain.conflicts import engine
+    rules = engine.list_org(include_retired=include_retired)
+    return {"graph": engine.ORG_GRAPH, "cap": engine.ORG_MAX_ACTIVE,
+            "active": sum(1 for r in rules if not r.get("retired")), "rules": rules}
+
+
+@app.post("/api/memory/org/{org_id}/retire")
+async def memory_org_retire(org_id: str, req: Request):
+    from bidbrain.conflicts import engine
+    body = await _body(req)
+    try:
+        return await asyncio.to_thread(engine.retire_org, org_id, body.get("user") or "bid-manager")
+    except engine.OrgMemoryError as exc:
+        raise HTTPException(exc.status, str(exc))
+
+
 # ------------------------------------------------------------------ tenders / cases
 
 @app.get("/api/tenders")
@@ -317,12 +362,18 @@ def conflicts(x_session: str | None = Header(None)):
                           OPTIONAL MATCH (w)-[:ABOUT]->(s)
                           RETURN d.id AS id, d.policy AS policy, d.rationale AS rationale, d.predicate AS predicate,
                                  d.subject_key AS key, coalesce(s.title, s.name, s.key) AS subject, d.chosen_value AS chosen,
-                                 d.at AS at, a.key AS actor, labels(a)[0] AS actor_kind, w.source_doc AS source_doc
+                                 d.at AS at, a.key AS actor, labels(a)[0] AS actor_kind, w.source_doc AS source_doc,
+                                 d.org_rule AS org_rule
                           ORDER BY at DESC LIMIT 300""")
     rules = g.read("""MATCH (r:PolicyRule) OPTIONAL MATCH (r)-[:LEARNED_FROM]->(d:Decision)
                       OPTIONAL MATCH (d2:Decision)-[:APPLIED_RULE]->(r)
                       RETURN r.id AS id, r.predicate AS predicate, r.prefer_kind AS prefer, r.over_kind AS over,
-                             r.rationale AS rationale, r.created_by AS by, d.id AS learned_from, count(d2) AS applied""")
+                             r.rationale AS rationale, r.created_by AS by, d.id AS learned_from, count(d2) AS applied,
+                             coalesce(r.retired, false) AS retired""")
+    from bidbrain.conflicts import engine
+    in_org = {(o["predicate"], o["prefer_kind"], o["over_kind"]): o["id"] for o in engine.org_rules()}
+    for r in rules:                     # is this shape already company memory (promoted here or elsewhere)?
+        r["org_rule"] = in_org.get((r["predicate"], r["prefer"], r["over"]))
     return {"cards": cards, "decisions": decisions, "rules": rules,
             "restatements": sum(1 for d in decisions if d["predicate"] and d["policy"] == "authority"
                                 and (d["key"] or "").startswith("FS-"))}
@@ -548,12 +599,13 @@ def decision_trace(decision_id: str, x_session: str | None = Header(None)):
                      OPTIONAL MATCH (d)-[:SELECTS]->(w:Claim)
                      OPTIONAL MATCH (d)-[:BASED_ON]->(c:Claim)-[f:FROM]->(doc:Document)
                      OPTIONAL MATCH (d)-[:APPLIED_RULE]->(r:PolicyRule)
+                     OPTIONAL MATCH (d)-[:APPLIED_ORG_RULE]->(o:OrgRuleRef)
                      OPTIONAL MATCH (d)-[:SUPERSEDES]->(old:Decision)
                      OPTIONAL MATCH (c)-[:ABOUT]->(s)
                      RETURN d {.*} AS decision, a.key AS actor, labels(a)[0] AS actor_kind, w.id AS winner,
                             collect(DISTINCT {claim: c.id, value: c.value_str, kind: c.source_kind, authority: c.authority,
                                               issuer: c.issuer, doc: doc.doc_id, page: f.page, status: c.status}) AS claims,
-                            r.id AS rule, collect(DISTINCT old.id) AS supersedes,
+                            r.id AS rule, o {.*} AS org_rule, collect(DISTINCT old.id) AS supersedes,
                             labels(s)[0] AS subject_label, s.key AS subject_key, coalesce(s.title, s.name, s.key) AS subject""",
                   {"id": decision_id})
     if not rows:

@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { Card, Stat, Tabs } from "@/components/ui";
 import { api, getSession } from "@/lib/api";
-import { CasesTab, ConversationTab, DecisionsTab, type Case, type Decision, type Rule, type Turn } from "./parts";
+import { CasesTab, CompanyMemory, ConversationTab, DecisionsTab, type Case, type Decision, type OrgRule, type Rule, type Turn } from "./parts";
 
 type Conflicts = { cards?: unknown[]; decisions: Decision[]; rules: Rule[] };
 type Overview = {
@@ -41,6 +41,20 @@ export default function MemoryPage() {
   const [sid, setSid] = useState("");
   const [loaded, setLoaded] = useState({ mem: false, conf: false, cases: false });
   const [tab, setTab] = useState("conversation");
+  const [org, setOrg] = useState<{ rules: OrgRule[]; cap?: number; graph?: string }>({ rules: [] });
+  const [orgReady, setOrgReady] = useState(false);
+  const [orgError, setOrgError] = useState("");
+
+  const loadOrg = () => api("/api/memory/org").then(setOrg).catch(() => {}).finally(() => setOrgReady(true));
+  async function retire(id: string) {
+    setOrgError("");
+    try {
+      await api(`/api/memory/org/${id}/retire`, { method: "POST", body: "{}" });
+    } catch (e: any) {
+      setOrgError(`Retire ${id}: ${e?.message || e}`);
+    }
+    await loadOrg();
+  }
 
   useEffect(() => {
     const done = (k: keyof typeof loaded) => () => setLoaded((l) => ({ ...l, [k]: true }));
@@ -49,6 +63,7 @@ export default function MemoryPage() {
     api("/api/conflicts").then(setConf).catch(() => {}).finally(done("conf"));
     api("/api/cases").then(setCases).catch(() => {}).finally(done("cases"));
     api("/api/overview").then(setOv).catch(() => {});
+    loadOrg();
   }, []);
 
   const turns: Turn[] = mem.turns || [];
@@ -62,7 +77,7 @@ export default function MemoryPage() {
   return (
     <div>
       <PageHeader icon={<HistoryIcon size={19} strokeWidth={1.75} />} tone="lavender" title="Memory"
-        subtitle="Your session is a private GRAPH.COPY of the company graph in FalkorDB. It keeps your conversation, cases, decisions and learned rules, and persists on this browser."
+        subtitle="Your session is a private GRAPH.COPY of the company graph in FalkorDB. It keeps your conversation, cases, decisions and learned rules, and persists on this browser. Rules you promote go to company memory, a separate graph every session reads."
         meta={ov ? (
           <>
             <span>Version <span className="num text-ink-2">{fmt(ov.version)}</span></span>
@@ -85,6 +100,11 @@ export default function MemoryPage() {
             sub={loaded.conf ? (openCards ? `${plural(openCards, "conflict")} open` : "No open conflicts") : undefined} />
         </div>
       </Card>
+
+      <div className="mb-6">
+        <CompanyMemory rules={org.rules || []} cap={org.cap} graph={org.graph} ready={orgReady} onRetire={retire} />
+        {orgError && <p className="mt-2 text-[13px] text-bad">{orgError}</p>}
+      </div>
 
       <Tabs tabs={TABS} value={tab} onChange={setTab} />
       <div className="pt-6" role="tabpanel">

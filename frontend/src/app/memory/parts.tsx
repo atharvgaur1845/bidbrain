@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { FileText, GitBranch, ListChecks, MessageSquare, Scale } from "lucide-react";
+import { Building2, FileText, GitBranch, ListChecks, MessageSquare, Scale } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Avatar, Button, Card, Empty, Markdown, Spinner, Verdict, useOpenDoc } from "@/components/ui";
@@ -273,5 +273,94 @@ export function DecisionsTab({ mine, rules, total, openCards, ready }:
         )}
       </Card>
     </div>
+  );
+}
+
+// ======================================================================= company memory
+
+export type OrgRule = {
+  id: string; predicate: string; prefer: string; over: string; rationale?: string; retired?: boolean;
+  promoted_by?: string; promoted_at?: number; source_rule?: string; source_session?: string;
+  learned_from?: { id?: string; rationale?: string; decided_by?: string; subject?: string; subject_key?: string;
+                   chosen_value?: string; source_doc?: string; at?: number } | null;
+};
+
+/** Rules promoted out of a session into the shared company graph, with where each one came from. */
+export function CompanyMemory({ rules, cap, graph, ready, onRetire }:
+  { rules: OrgRule[]; cap?: number; graph?: string; ready: boolean; onRetire: (id: string) => Promise<void> }) {
+  const openDoc = useOpenDoc();
+  const [busy, setBusy] = useState<string | null>(null);
+  return (
+    <Card title="Company memory" pad={false} className="overflow-hidden"
+      icon={<Building2 size={16} strokeWidth={1.75} />}
+      action={<span className="num text-[12px] text-ink-3">
+        {ready ? `${rules.length}${cap ? ` / ${cap}` : ""} rules` : ""}
+        <span className="ml-2 hidden sm:inline">{graph || "bidbrain_org"}</span>
+      </span>}>
+      <p className="px-5 pt-1 pb-3 text-[13px] leading-snug text-ink-3">
+        Shared by every session. A rule gets here only when someone presses “Promote to company memory” on{" "}
+        <Link href="/live/" className={LINK}>Live documents</Link>. Each session checks its own learned rules first,
+        then these, then recency and authority.
+      </p>
+      {!ready ? <Loading label="Loading company memory" /> : rules.length === 0 ? (
+        <Empty icon={<Building2 size={20} strokeWidth={1.75} />} title="No company rules"
+          text="Learn a rule on a conflict, then promote it. The next session that meets a conflict of that shape resolves it by this rule and cites it." />
+      ) : (
+        <div className="scroll-thin contain-scroll overflow-x-auto pb-1">
+          <table className={clsx("kt", EDGE_CELLS)}>
+            <thead>
+              <tr><th>Field</th><th>Rule</th><th>Learned from</th><th>Promoted</th><th className="text-right!"><span className="sr-only">Retire</span></th></tr>
+            </thead>
+            <tbody>
+              {rules.map((r) => {
+                const d = r.learned_from || {};
+                return (
+                  <tr key={r.id}>
+                    <td className="num text-[12.5px] whitespace-nowrap text-ink-2">{r.predicate}</td>
+                    <td className="min-w-[14rem]">
+                      <div className="text-ink-2">Prefer <span className="font-semibold text-ink">{r.prefer}</span> over {r.over}</div>
+                      <div className="num text-[12px] text-ink-3">{r.id}</div>
+                    </td>
+                    <td className="min-w-[16rem] max-w-[26rem]">
+                      {d.id ? (
+                        <>
+                          <div className="text-[12.5px] text-ink-2">
+                            <span className="num">{d.id}</span>
+                            {d.decided_by ? <> by <span className="font-medium text-ink">{d.decided_by}</span></> : null}
+                            {d.subject ? <> on {d.subject}</> : null}
+                            {d.chosen_value ? <> → <span className="num font-semibold text-ink">{d.chosen_value}</span></> : null}
+                          </div>
+                          {d.rationale && <div className="truncate text-[12.5px] text-ink-3" title={d.rationale}>“{d.rationale}”</div>}
+                          {d.source_doc && (
+                            <button className="num text-[12px] text-kb-ink hover:underline"
+                              onClick={() => openDoc({ doc_id: d.source_doc ?? "", what: `${r.predicate} · ${d.subject ?? ""}` })}>
+                              {d.source_doc}
+                            </button>
+                          )}
+                        </>
+                      ) : <span className="text-ink-3">—</span>}
+                    </td>
+                    <td className="text-[12.5px] whitespace-nowrap text-ink-3">
+                      <div>by <span className="font-medium text-ink-2">{r.promoted_by || "—"}</span></div>
+                      <div>{when(r.promoted_at)}</div>
+                      <div className="num text-[11.5px]" title="Source session (hashed) and the session rule promoted">
+                        {r.source_session} · {r.source_rule}
+                      </div>
+                    </td>
+                    <td className="text-right!">
+                      <Button size="sm" variant="ghost" disabled={busy !== null}
+                        title="Take this rule out of company memory for every session"
+                        onClick={async () => { setBusy(r.id); try { await onRetire(r.id); } finally { setBusy(null); } }}>
+                        {busy === r.id ? "Retiring…" : "Retire"}
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   );
 }
