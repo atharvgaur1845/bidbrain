@@ -1,12 +1,12 @@
 {
  "summary": {
-  "n_cases": 79,
-  "passed": 79,
+  "n_cases": 81,
+  "passed": 81,
   "pass_rate": 1.0,
   "by_dimension": {
    "task_completion": {
-    "n": 15,
-    "passed": 15,
+    "n": 16,
+    "passed": 16,
     "rate": 1.0
    },
    "impact_recall": {
@@ -20,8 +20,8 @@
     "rate": 1.0
    },
    "memory_transfer": {
-    "n": 9,
-    "passed": 9,
+    "n": 10,
+    "passed": 10,
     "rate": 1.0
    },
    "isolation": {
@@ -153,8 +153,8 @@
    }
   },
   "leftover_eval_graphs": [],
-  "seconds": 25.5,
+  "seconds": 25.8,
   "llm_calls": 0,
-  "run_at": "2026-10-17T08:28:50+00:00"
+  "run_at": "2026-10-17T13:37:36+00:00"
  }
 }
