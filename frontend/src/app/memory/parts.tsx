@@ -48,7 +48,7 @@ function Loading({ label }: { label: string }) {
 
 // ======================================================================= conversation
 
-export type Turn = { i: number; role: string; text: string; at?: number; mentions?: string[] };
+export type Turn = { i: number; role: string; text: string; at?: number; mentions?: string[]; recalled?: number[] };
 export type Case = { id: string; title?: string; verdict?: string; bid_date?: string; status?: string; verified?: boolean | null; created_at?: number };
 export type Decision = {
   id: string; policy?: string; rationale?: string; predicate?: string; key?: string; subject?: string;
@@ -86,6 +86,17 @@ function Mentions({ items }: { items?: string[] }) {
   );
 }
 
+function Recalled({ items }: { items?: number[] }) {
+  if (!items?.length) return null;
+  const sorted = [...items].sort((a, b) => a - b);
+  return (
+    <p className="mt-1 text-[12.5px] leading-relaxed text-ink-3">
+      Recalled {sorted.length === 1 ? "turn" : "turns"} <span className="num text-ink-2">{sorted.join(", ")}</span>
+      {" "}(older turns that mention the same entities)
+    </p>
+  );
+}
+
 function Reply({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   if (!text.trim()) return <p className="mt-1 text-[13px] text-ink-3">No explanation recorded.</p>;
@@ -110,8 +121,8 @@ export function ConversationTab({ turns, ready }: { turns: Turn[]; ready: boolea
   return (
     <>
       <Toolbar action={<PillLink href="/ask/">Ask a follow-up</PillLink>}>
-        Follow-up questions read the last 6 turns as context.
-        <span className="num ml-2 hidden text-[12px] lg:inline">(:Conversation)-[:HAS_TURN]-&gt;(:Turn)</span>
+        Follow-ups read the last 6 turns, plus up to 3 older turns that mention a client, person or work the question names.
+        <span className="num ml-2 hidden text-[12px] xl:inline">(:Turn)-[:MENTIONS]-&gt;(entity)&lt;-[:MENTIONS]-(:Turn)</span>
       </Toolbar>
       <Card pad={false}>
         {!ready ? <Loading label="Loading conversation" /> : groups.length === 0 ? (
@@ -128,6 +139,7 @@ export function ConversationTab({ turns, ready }: { turns: Turn[]; ready: boolea
                       <TurnHead t={g.q} who={<span className="font-semibold text-ink">You</span>} />
                       <p className="mt-1 text-[14px] leading-relaxed whitespace-pre-line text-ink">{g.q.text}</p>
                       <Mentions items={g.q.mentions} />
+                      <Recalled items={g.q.recalled} />
                     </>
                   )}
                   {g.a.map((a) => (

@@ -223,12 +223,18 @@ async def ask(req: Request, x_session: str | None = Header(None)):
 
     def work(emit):
         from bidbrain.agents.qa import ask as qa_ask
-        hist = sessions.history(g) if body.get("use_memory", True) else []
-        sessions.remember_turn(g, "user", question)
+        named = sessions.entities_named(g, question)
+        hist, recalled = sessions.context(g, question, named=named) if body.get("use_memory", True) else ([], [])
+        if recalled:
+            emit({"type": "recall", "turns": recalled})
+        ui = sessions.remember_turn(g, "user", question, [e["id"] for e in named], [r["i"] for r in recalled])
         out = qa_ask(g, question, emit=emit, history=hist)
-        sessions.remember_turn(g, "assistant", out["explanation"] or "",
-                               [n["id"] for n in out["subgraph"]["nodes"]])
-        return out
+        about = sessions.answer_mentions(g, out)
+        sessions.remember_turn(g, "assistant", out["explanation"] or "", about)
+        # the question's own mentions also include what it named loosely that the answer turned out to be about
+        names = {n["id"]: n.get("name") for n in out["subgraph"]["nodes"] if isinstance(n, dict)}
+        sessions.add_mentions(g, ui, sessions.named_among(question, about, names))
+        return {**out, "recalled": recalled}
     return stream(work, g)
 
 
@@ -251,9 +257,11 @@ def memory(x_session: str | None = Header(None)):
     g = G(x_session)
     turns = g.read("""MATCH (:Conversation {id:'main'})-[:HAS_TURN]->(t:Turn)
                       OPTIONAL MATCH (t)-[:MENTIONS]->(e)
-                      RETURN t.i AS i, t.role AS role, t.text AS text, t.at AS at,
-                             collect(coalesce(e.name, e.title, e.key))[0..8] AS mentions ORDER BY i""")
-    return {"turns": turns}
+                      WITH t, collect(coalesce(e.name, e.title, e.key))[0..8] AS mentions
+                      OPTIONAL MATCH (t)-[:RECALLED]->(o:Turn)
+                      RETURN t.i AS i, t.role AS role, t.text AS text, t.at AS at, mentions,
+                             collect(o.i) AS recalled ORDER BY i""")
+    return {"turns": turns, "recent_window": 6, "recall_k": sessions.RECALL_K}
 
 
 # ------------------------------------------------------------------ company memory (opt-in, shared)

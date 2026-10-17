@@ -110,21 +110,166 @@ def start_reaper() -> None:
 
 
 # -------------------------------------------------------------- conversation memory
+# (:Conversation)-[:HAS_TURN]->(:Turn)-[:MENTIONS]->(entity). A follow-up reads the last few turns
+# (short-term) plus, when the question names an entity talked about earlier, up to 3 older turns
+# that MENTION it (graph recall: the MENTIONS edges are the index). A turn MENTIONS only what it is
+# about: the entities a question names, and the entities an answer's evidence rests on.
 
-def remember_turn(g: Graph, role: str, text: str, mentions: list[str] | None = None) -> None:
-    g.run("""MERGE (c:Conversation {id:'main'}) ON CREATE SET c.key = 'main', c.started_at = timestamp()
+MENTIONABLE = ("Work", "Client", "Person", "Tender", "Bond", "Credential")
+RECALLABLE = ("Client", "Person", "Work")
+RECALL_K = 3
+_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+_PKG = re.compile(r"\bpkg (\d+)\b")
+# words that name a kind of organisation, not which one ("Public Works Department, Govt of Gujarat" is Gujarat's)
+_GENERIC = {"public", "works", "department", "dept", "govt", "government", "corporation", "corp", "limited",
+            "ltd", "pvt", "private", "office", "authority", "national", "company", "bureau", "board", "and",
+            "the", "pkg", "package", "state", "central", "development", "infrastructure", "projects", "project"}
+
+
+def _norm(text: str | None) -> str:
+    return " " + _NON_ALNUM.sub(" ", (text or "").lower()).strip() + " "
+
+
+def _named(qn: str, compact: str, label: str, key: str, name: str, loose: bool) -> bool:
+    """Does the normalised text `qn` name this entity? Strict: its full name, its key, or (a work) its
+    package number. Loose (only for entities already talked about): a person's first or last name, or
+    most of the distinctive words of a work's or client's name."""
+    nn = _norm(name)
+    if len(nn.strip()) >= 4 and nn in qn:
+        return True
+    k = (key or "").lower()
+    if len(k) >= 6 and (f" {k} " in qn or k in compact):
+        return True
+    m = _PKG.search(nn)
+    if label == "Work" and m and re.search(rf" (?:pkg|package) {m.group(1)} ", qn):
+        return True
+    if not loose:
+        return False
+    words = set(qn.split())
+    toks = [t for t in nn.split() if not t.isdigit()]
+    if label == "Person":
+        return any(len(t) >= 3 and t in words for t in toks)
+    toks = [t for t in toks if len(t) >= 4 and t not in _GENERIC]
+    if not toks:
+        return False
+    need = len(toks) if len(toks) <= 2 else max(2, -(-3 * len(toks) // 5))
+    return sum(t in words for t in toks) >= need
+
+
+def entities_named(g: Graph, text: str, labels: tuple[str, ...] = RECALLABLE) -> list[dict]:
+    """Entities the text names: strictly against every Client, Person and Work, loosely against the ones
+    this conversation already MENTIONS."""
+    qn = _norm(text)
+    if not qn.strip():
+        return []
+    compact = qn.replace(" ", "")
+    talked = {(r["label"], r["key"]) for r in g.read(
+        """MATCH (:Conversation {id:'main'})-[:HAS_TURN]->(:Turn)-[:MENTIONS]->(e)
+           RETURN DISTINCT labels(e)[0] AS label, e.key AS key""")}
+    rows = g.read("""MATCH (e) WHERE labels(e)[0] IN $labels AND e.key IS NOT NULL
+                     RETURN labels(e)[0] AS label, e.key AS key, coalesce(e.name, e.title, e.key) AS name""",
+                  {"labels": list(labels)})
+    return [{"id": f"{r['label']}:{r['key']}", **r} for r in rows
+            if _named(qn, compact, r["label"], r["key"], r["name"], (r["label"], r["key"]) in talked)]
+
+
+def remember_turn(g: Graph, role: str, text: str, mentions: list[str] | None = None,
+                  recalled: list[int] | None = None) -> int:
+    """Append a turn; link it to what it MENTIONS (ids "Label:key") and the older turns it RECALLED."""
+    rows = g.run("""MERGE (c:Conversation {id:'main'}) ON CREATE SET c.key = 'main', c.started_at = timestamp()
              WITH c OPTIONAL MATCH (c)-[:HAS_TURN]->(t:Turn)
              WITH c, count(t) AS n
-             CREATE (c)-[:HAS_TURN]->(x:Turn {i:n, key:'turn-' + toString(n), role:$r, text:$t, at:timestamp()})""",
+             CREATE (c)-[:HAS_TURN]->(x:Turn {i:n, key:'turn-' + toString(n), role:$r, text:$t, at:timestamp()})
+             RETURN x.i AS i""",
           {"r": role, "t": text[:4000]})
-    for m in (mentions or [])[:20]:
+    i = rows[0]["i"]
+    add_mentions(g, i, mentions or [])
+    if recalled:
+        g.run("""MATCH (:Conversation {id:'main'})-[:HAS_TURN]->(x:Turn {i:$i})
+                 MATCH (:Conversation {id:'main'})-[:HAS_TURN]->(o:Turn) WHERE o.i IN $old
+                 MERGE (x)-[:RECALLED]->(o)""", {"i": i, "old": recalled})
+    return i
+
+
+def add_mentions(g: Graph, i: int, mentions: list[str]) -> None:
+    seen: list[str] = []
+    for m in mentions:
+        if m not in seen:
+            seen.append(m)
+    for m in seen[:20]:
         label, _, key = m.partition(":")
-        if label in ("Work", "Client", "Person", "Tender", "Bond", "Credential"):
-            g.run(f"""MATCH (c:Conversation {{id:'main'}})-[:HAS_TURN]->(x:Turn) WITH x ORDER BY x.i DESC LIMIT 1
-                      MATCH (e:{label} {{key:$k}}) MERGE (x)-[:MENTIONS]->(e)""", {"k": key})
+        if label in MENTIONABLE:
+            g.run(f"""MATCH (:Conversation {{id:'main'}})-[:HAS_TURN]->(x:Turn {{i:$i}})
+                      MATCH (e:{label} {{key:$k}}) MERGE (x)-[:MENTIONS]->(e)""", {"i": i, "k": key})
 
 
-def history(g: Graph, n: int = 6) -> list[dict]:
+def answer_mentions(g: Graph, out: dict) -> list[str]:
+    """What an answer is about: the entities of its subgraph that the answer text names, or that a
+    document cited in its evidence is evidence for (a client through such a work). Not the whole
+    subgraph, which also holds everything a tool merely looked at."""
+    nodes = [n for n in (out.get("subgraph") or {}).get("nodes", [])
+             if isinstance(n, dict) and str(n.get("id", "")).partition(":")[0] in MENTIONABLE]
+    if not nodes:
+        return []
+    named = named_among(out.get("explanation") or "", [n["id"] for n in nodes],
+                        {n["id"]: n.get("name") for n in nodes})
+    docs = sorted({e.get("doc_id") for e in out.get("evidence") or [] if isinstance(e, dict) and e.get("doc_id")})
+    linked: list[str] = []
+    if docs:
+        ids = [n["id"] for n in nodes]
+        rows = g.read("""MATCH (e)-[:EVIDENCED_BY|HAS_REFERENCE]->(d:Document) WHERE d.doc_id IN $docs
+                         WITH DISTINCT e WHERE (labels(e)[0] + ':' + e.key) IN $ids
+                         OPTIONAL MATCH (e)-[:FOR_CLIENT]->(c:Client)
+                         RETURN labels(e)[0] + ':' + e.key AS id, 'Client:' + c.key AS client""",
+                      {"docs": docs, "ids": ids})
+        for r in rows:
+            linked.append(r["id"])
+            if r["client"] in ids:
+                linked.append(r["client"])
+    return list(dict.fromkeys(named + linked))[:20]
+
+
+def named_among(text: str, ids: list[str], names: dict[str, str] | None = None) -> list[str]:
+    """The ids ("Label:key") among `ids` that the text names, loosely (they are already in context)."""
+    qn = _norm(text)
+    compact = qn.replace(" ", "")
+    out = []
+    for i in ids:
+        label, _, key = i.partition(":")
+        if _named(qn, compact, label, key, (names or {}).get(i) or key, loose=True):
+            out.append(i)
+    return out
+
+
+def recall(g: Graph, question: str, before: int, k: int = RECALL_K, named: list[dict] | None = None) -> list[dict]:
+    """Older turns (index < `before`) that MENTION an entity the question names, most overlap first."""
+    named = entities_named(g, question) if named is None else named
+    ids = [e["id"] for e in named if e["label"] in RECALLABLE]
+    if not ids:
+        return []
+    rows = g.read("""MATCH (:Conversation {id:'main'})-[:HAS_TURN]->(t:Turn)-[:MENTIONS]->(e)
+                     WHERE t.i < $before AND (labels(e)[0] + ':' + e.key) IN $ids
+                     WITH t, collect(DISTINCT coalesce(e.name, e.title, e.key)) AS about
+                     RETURN t.i AS i, t.role AS role, t.text AS text, about
+                     ORDER BY size(about) DESC, i DESC LIMIT $k""", {"before": before, "ids": ids, "k": k})
+    return sorted(rows, key=lambda r: r["i"])
+
+
+def context(g: Graph, question: str | None = None, n: int = 6,
+            named: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """Chat messages for a follow-up: recalled older turns (labelled as such) then the last `n` turns.
+    Returns (messages, recalled turns)."""
     rows = g.read("""MATCH (:Conversation {id:'main'})-[:HAS_TURN]->(t:Turn)
-                     RETURN t.role AS role, t.text AS text ORDER BY t.i DESC LIMIT $n""", {"n": n})
-    return [{"role": r["role"], "content": r["text"]} for r in reversed(rows)]
+                     RETURN t.i AS i, t.role AS role, t.text AS text ORDER BY t.i DESC LIMIT $n""", {"n": n})
+    rows.reverse()
+    old = recall(g, question, rows[0]["i"], named=named) if question and rows else []
+    msgs = [{"role": r["role"] if r["role"] in ("user", "assistant") else "user",
+             "content": f"[Recalled from earlier in this conversation (turn {r['i']}, about "
+                        f"{', '.join(r['about'][:4])}); it may be out of date] {(r['text'] or '')[:1500]}"}
+            for r in old]
+    msgs += [{"role": r["role"], "content": r["text"]} for r in rows]
+    return msgs, [{"i": r["i"], "role": r["role"], "about": r["about"]} for r in old]
+
+
+def history(g: Graph, n: int = 6, question: str | None = None) -> list[dict]:
+    return context(g, question, n)[0]

@@ -202,3 +202,89 @@ def test_org_rules_never_apply_outside_sessions(org):
         assert out["cards"] and not out["decisions"]
     finally:
         s.delete()
+
+
+# ------------------------------------------------------------------ conversation recall over MENTIONS
+
+RING = "Work:ringroaduttarpradeshpkg113"
+OTHER = "Work:anganwadicentregujaratpkg151"
+
+
+@pytest.fixture()
+def convo():
+    s = Graph().copy_to(f"pytest_recall_{secrets.token_hex(3)}")
+    yield s
+    s.delete()
+
+
+def _fake_answer(text: str, nodes: list[tuple[str, str]], docs: list[str]) -> dict:
+    return {"explanation": text, "evidence": [{"doc_id": d, "page": 1, "what": "t"} for d in docs],
+            "subgraph": {"nodes": [{"id": i, "label": i.partition(":")[0], "name": n} for i, n in nodes],
+                         "edges": []}}
+
+
+def test_answer_mentions_only_what_the_evidence_is_about(convo):
+    out = _fake_answer("Priya Patel led it; the certificate gives the value.",
+                       [(RING, "Ring Road — Uttar Pradesh Pkg-113"), (OTHER, "Anganwadi Centre — Gujarat Pkg-151"),
+                        ("Person:priyapatel", "Priya Patel"), ("Person:nehachopra", "Neha Chopra"),
+                        ("Client:nationalspecialprojectsoffice", "National Special Projects Office"),
+                        ("Category:expressways", "expressways")],
+                       ["DOC-CC-113"])
+    got = sessions.answer_mentions(convo, out)
+    # named in the answer, evidenced by the cited document, and that work's client; not the rest
+    assert set(got) == {"Person:priyapatel", RING, "Client:nationalspecialprojectsoffice"}
+
+
+def test_question_names_entities_strictly_and_loosely(convo):
+    ids = lambda q: {e["id"] for e in sessions.entities_named(convo, q)}
+    assert RING in ids("What was the value of Ring Road — Uttar Pradesh Pkg-113?")
+    assert RING in ids("and pkg 113?") and "Person:priyapatel" in ids("Is Priya Patel free?")
+    assert ids("which ring road in uttar pradesh?") == set()         # loose only once talked about
+    sessions.remember_turn(convo, "user", "x", [RING, "Person:priyapatel"])
+    assert RING in ids("which ring road in uttar pradesh?") and "Person:priyapatel" in ids("what about Priya?")
+    assert ids("total revenue last year") == set()
+
+
+def test_follow_up_recalls_older_turns_that_mention_the_same_entity(convo):
+    q0 = "Who led Ring Road — Uttar Pradesh Pkg-113?"
+    u0 = sessions.remember_turn(convo, "user", q0, [e["id"] for e in sessions.entities_named(convo, q0)])
+    sessions.remember_turn(convo, "assistant", "Priya Patel led Ring Road — Uttar Pradesh Pkg-113.",
+                           [RING, "Person:priyapatel"])
+    for k in range(8):                                   # push them out of the 6-turn window
+        sessions.remember_turn(convo, "user" if k % 2 == 0 else "assistant", f"filler about turnover {k}",
+                               [OTHER] if k == 3 else [])
+    assert u0 == 0
+
+    msgs, recalled = sessions.context(convo, "Remind me, what was the value of the ring road in Uttar Pradesh?")
+    assert [r["i"] for r in recalled] == [0, 1]
+    assert all(m["content"].startswith("[Recalled from earlier") for m in msgs[:2])
+    assert "Ring Road" in msgs[1]["content"] and len(msgs) == 8 and set(msgs[0]) == {"role", "content"}
+    assert [m["content"] for m in msgs[2:]] == [f"filler about turnover {k}" for k in range(2, 8)]
+    # recall is bounded, and a question naming nothing talked about recalls nothing
+    assert len(sessions.recall(convo, "Pkg-113 and Priya Patel and Pkg-151", before=100)) <= sessions.RECALL_K
+    assert sessions.context(convo, "what is our turnover?")[1] == []
+    assert len(sessions.history(convo)) == 6
+
+
+def test_ask_endpoint_records_mentions_and_recall_edges(client, monkeypatch):
+    from bidbrain.agents import qa
+
+    def fake_ask(g, question, emit=None, history=None, max_steps=10):
+        fake_ask.history = history
+        return {**_fake_answer("Priya Patel led Ring Road — Uttar Pradesh Pkg-113.",
+                               [(RING, "Ring Road — Uttar Pradesh Pkg-113"), (OTHER, "Anganwadi Centre"),
+                                ("Person:priyapatel", "Priya Patel")], ["DOC-CC-113"]),
+                "answer": "Priya Patel", "steps": [], "usage": {}}
+    monkeypatch.setattr(qa, "ask", fake_ask)
+    h = client.new_session()
+    _result(client.post("/api/ask", json={"question": "Did Priya lead the Pkg-113 ring road?"}, headers=h))
+    for k in range(3):
+        _result(client.post("/api/ask", json={"question": f"Anything else {k}?"}, headers=h))
+    res = _result(client.post("/api/ask", json={"question": "And what did Priya lead before that?"}, headers=h))
+    assert [r["i"] for r in res["recalled"]] == [0, 1]
+    assert fake_ask.history[0]["content"].startswith("[Recalled")
+    turns = client.get("/api/memory", headers=h).json()["turns"]
+    # the user turn: Pkg-113 named strictly; "Priya" loosely, once the answer showed who that is
+    assert set(turns[0]["mentions"]) == {"Ring Road — Uttar Pradesh Pkg-113", "Priya Patel"}
+    assert set(turns[1]["mentions"]) == {"Ring Road — Uttar Pradesh Pkg-113", "Priya Patel"}   # not Anganwadi
+    assert sorted(turns[8]["recalled"]) == [0, 1] and turns[2]["recalled"] == []
