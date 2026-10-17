@@ -9,13 +9,14 @@ export type GNode = { id: string; label: string; name?: string; [k: string]: any
 export type GEdge = { source: string; target: string; type: string };
 export type GData = { nodes: GNode[]; edges: GEdge[] };
 
-// one muted family, matching the UI's pastel tiles and result bars (deeper than the tiles so nodes read on glass)
+// restrained categorical palette: mid-saturation hues that stay apart on white; the accent navy marks a Case,
+// red is kept for things that are wrong or missing (Missing, Finding, Decision overrides)
 export const LABEL_COLORS: Record<string, string> = {
-  Work: "#5e9aa6", Client: "#df8a5f", Person: "#8b7be0", Document: "#a39d96", Credential: "#7f9c5a",
-  Claim: "#c46f93", Decision: "#c4553d", Tender: "#4f9b98", Bid: "#d29a3c", Case: "#7c6be6",
-  FinancialStatement: "#6f9a5e", Bond: "#d6914f", Category: "#b3aca4", Company: "#3a3532",
-  Certification: "#4f8f7a", Missing: "#c4553d", Clause: "#7c6be6", Finding: "#c4553d", Invoice: "#78a2c4",
-  AgentRun: "#4f9b98", Conversation: "#a39d96", Turn: "#a39d96",
+  Work: "#3d6fb6", Client: "#b7791f", Person: "#6b5bb5", Document: "#8a8f98", Credential: "#4f8a5b",
+  Claim: "#a35a7a", Decision: "#b3483d", Tender: "#2f8a8a", Bid: "#c08a2e", Case: "#2b4c9b",
+  FinancialStatement: "#5e8c4f", Bond: "#b8763a", Category: "#a3a7ae", Company: "#1b1c1f",
+  Certification: "#3f7f6e", Missing: "#b3261e", Clause: "#4f63b0", Finding: "#b3483d", Invoice: "#5b86b0",
+  AgentRun: "#2f8a8a", Conversation: "#8a8f98", Turn: "#8a8f98", Requirement: "#7a7f88", Contract: "#6d8bb8",
 };
 const SIZE: Record<string, number> = { Client: 7, Person: 6, Work: 5, Case: 8, Company: 8, Tender: 6, Bid: 6, Missing: 5 };
 
@@ -34,13 +35,14 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
   const [width, setWidth] = useState(600);
   const store = useRef<Map<string, any>>(new Map());
   const [hover, setHover] = useState<string | null>(null);
-  const [pal, setPal] = useState({ edge: "rgba(15,23,42,0.16)", label: "#1f2328", dim: "rgba(31,35,40,0.45)", stroke: "#ffffff", path: "#20beff" });
+  const [pal, setPal] = useState({ edge: "rgba(27,28,31,0.16)", label: "#1b1c1f", dim: "rgba(27,28,31,0.45)", stroke: "#ffffff", path: "#2b4c9b", halo: "rgba(43,76,155,0.16)" });
   useEffect(() => {
     const read = () => {
       const cs = getComputedStyle(document.documentElement);
       const v = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
-      setPal({ edge: v("--graph-edge", "rgba(15,23,42,0.16)"), label: v("--graph-label", "#1f2328"),
-               dim: v("--graph-label-dim", "rgba(31,35,40,0.45)"), stroke: v("--graph-node-stroke", "#fff"), path: v("--kb", "#20beff") });
+      setPal({ edge: v("--graph-edge", "rgba(27,28,31,0.16)"), label: v("--graph-label", "#1b1c1f"),
+               dim: v("--graph-label-dim", "rgba(27,28,31,0.45)"), stroke: v("--graph-node-stroke", "#fff"),
+               path: v("--graph-path", "#2b4c9b"), halo: v("--graph-halo", "rgba(43,76,155,0.16)") });
     };
     read();
     const mo = new MutationObserver(read);
@@ -119,7 +121,7 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
         nodeRelSize={1}
         linkColor={(l: any) => (linkOnPath(l) ? pal.path : pal.edge)}
         linkWidth={(l: any) => (linkOnPath(l) ? 2.2 : 0.8)}
-        linkDirectionalParticles={(l: any) => (linkOnPath(l) ? 3 : 0)}
+        linkDirectionalParticles={(l: any) => (linkOnPath(l) ? 2 : 0)}
         linkDirectionalParticleWidth={2.6}
         linkDirectionalParticleColor={() => pal.path}
         linkDirectionalArrowLength={(l: any) => (linkOnPath(l) ? 3.5 : 0)}
@@ -128,7 +130,7 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
         onNodeClick={(n: any) => onNodeClick?.(n)}
         nodeCanvasObject={(node: any, ctx: CanvasRenderingContext2D, scale: number) => {
           const r = (SIZE[node.label] || 4) * (isHl(node.id) ? 1.35 : 1);
-          const color = LABEL_COLORS[node.label] || "#94a3b8";
+          const color = LABEL_COLORS[node.label] || "#8a8f98";
           const dim = hl.size > 0 && !isHl(node.id);
           ctx.globalAlpha = dim ? 0.35 : 1;
           if (node.label === "Missing") {
@@ -142,7 +144,7 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
           } else {
             if (isHl(node.id)) {
               ctx.beginPath(); ctx.arc(node.x, node.y, r + 3.5, 0, 2 * Math.PI);
-              ctx.fillStyle = "rgba(32,190,255,0.20)"; ctx.fill();
+              ctx.fillStyle = pal.halo; ctx.fill();
             }
             ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
             ctx.fillStyle = color; ctx.fill();
@@ -164,16 +166,16 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
         }}
       />
       {labelsPresent.length > 0 && (
-        <div className="pointer-events-none absolute bottom-3 left-4 flex max-w-[calc(100%-2rem)] flex-wrap gap-x-3.5 gap-y-1 rounded-md bg-surface-solid/85 px-2 py-1 backdrop-blur-sm">
+        <div className="pointer-events-none absolute bottom-3 left-4 flex max-w-[calc(100%-2rem)] flex-wrap gap-x-3.5 gap-y-1 rounded-md border border-line bg-surface/95 px-2 py-1">
           {labelsPresent.map((l) => (
-            <span key={l} className="inline-flex items-center gap-1.5 text-[12px] text-ink-3">
-              <span className="h-2 w-2 rounded-full" style={{ background: LABEL_COLORS[l] || "#94a3b8" }} />
+            <span key={l} className="inline-flex items-center gap-1.5 text-[12px] text-ink-2">
+              <span className="h-2 w-2 rounded-full" style={{ background: LABEL_COLORS[l] || "#8a8f98" }} />
               {l}
             </span>
           ))}
         </div>
       )}
-      <div className="num pointer-events-none absolute right-4 top-3 rounded-md bg-surface-solid/85 px-2 py-0.5 text-[12px] text-ink-3 backdrop-blur-sm">
+      <div className="num pointer-events-none absolute right-4 top-3 rounded-md border border-line bg-surface/95 px-2 py-0.5 text-[12px] text-ink-3">
         {graph.nodes.length} nodes · {graph.links.length} edges
       </div>
     </div>

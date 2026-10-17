@@ -1,118 +1,114 @@
 @import "tailwindcss";
 
-/* BidBrain: a calm research-tool language (warm neutrals, charcoal actions, small type, pastel category
-   tiles, soft data bars) on frosted-glass panels. Light is the default; dark mirrors every token.
-   Pages use tokens only. */
+/* BidBrain design tokens: a light enterprise console (warm neutral canvas, charcoal text, one navy accent,
+   1px borders, restrained status colours). Pages use tokens only; see frontend/DESIGN.md.
+   Light only: there is no dark theme, so `data-theme` is ignored. */
 :root {
-  --canvas: #ecebe8;
-  --blob-a: rgb(196 181 253 / 0.45);
-  --blob-b: rgb(253 196 168 / 0.40);
-  --blob-c: rgb(167 214 214 / 0.38);
-  --bg: rgb(247 246 244 / 0.55);
-  --frame: rgb(252 251 250 / 0.62);
-  --main: rgb(255 255 255 / 0.70);
-  --surface: rgb(255 255 255 / 0.80);
+  /* ---- surfaces */
+  --canvas: #f7f7f5;            /* app background behind content */
+  --bg: #f7f7f5;
+  --sidebar: #f1f1ee;           /* left navigation */
+  --main: #f7f7f5;              /* content column */
+  --surface: #ffffff;           /* cards, panels, inputs */
   --surface-solid: #ffffff;
-  --well: rgb(244 243 241 / 0.92);
-  --well-hover: rgb(236 234 231 / 0.95);
-  --line: rgb(28 25 23 / 0.08);
-  --line-strong: rgb(28 25 23 / 0.15);
-  --text: #1c1917;
-  --text-2: #57534e;
-  --text-3: #8b857f;
-  --kb: #7c6be6;
-  --kb-ink: #5f4fcf;
-  --kb-soft: rgb(124 107 230 / 0.11);
-  --ok: #3c8a5f;
-  --ok-soft: rgb(60 138 95 / 0.11);
-  --bad: #c4553d;
-  --bad-soft: rgb(196 85 61 / 0.10);
-  --warn: #b87a1d;
-  --warn-soft: rgb(214 158 46 / 0.15);
-  --violet: #a86592;
-  --violet-soft: rgb(168 101 146 / 0.11);
-  --bar-1: #e3936c;
-  --bar-2: #7fa9b1;
-  --bar-3: #9db07c;
-  --bar-4: #a99be9;
-  --bar-track: rgb(28 25 23 / 0.06);
-  --tile-lavender: #ece8fd; --tile-lavender-ink: #6a58d6;
-  --tile-peach: #fde9dc;    --tile-peach-ink: #c26a3e;
-  --tile-teal: #dff0ef;     --tile-teal-ink: #3f8a8f;
-  --tile-sage: #e8efdc;     --tile-sage-ink: #5f7d3a;
-  --tile-rose: #f8e3ea;     --tile-rose-ink: #b44f73;
-  --tile-sand: #f5ecd7;     --tile-sand-ink: #9a7425;
-  --highlight: rgb(255 255 255 / 0.9);
-  --shadow-border: 0 0 0 1px rgb(28 25 23 / 0.07), 0 1px 2px 0 rgb(28 25 23 / 0.04);
-  --shadow-border-hover: 0 0 0 1px rgb(28 25 23 / 0.12), 0 2px 6px -1px rgb(28 25 23 / 0.07);
-  --shadow-pop: 0 0 0 1px rgb(28 25 23 / 0.06), 0 16px 40px -12px rgb(28 25 23 / 0.22), 0 4px 10px -4px rgb(28 25 23 / 0.08);
-  --shadow-frame: 0 0 0 1px rgb(28 25 23 / 0.07), 0 30px 70px -30px rgb(28 25 23 / 0.25);
-  --graph-edge: rgb(28 25 23 / 0.15);
-  --graph-label: #1c1917;
-  --graph-label-dim: rgb(28 25 23 / 0.45);
-  --graph-node-stroke: #ffffff;
-  color-scheme: light;
-}
+  --surface-2: #fafaf9;         /* table headers, card footers */
+  --well: #f3f3f0;              /* inset block / hover row */
+  --well-hover: #ebebe7;        /* pressed / selected neutral */
+  --nav-active: #e6e6e2;
 
-:root[data-theme="dark"] {
-  --canvas: #111010;
-  --blob-a: rgb(124 107 230 / 0.22);
-  --blob-b: rgb(227 147 108 / 0.14);
-  --blob-c: rgb(127 169 177 / 0.14);
-  --bg: rgb(26 25 24 / 0.5);
-  --frame: rgb(28 27 26 / 0.62);
-  --main: rgb(34 32 31 / 0.66);
-  --surface: rgb(42 40 38 / 0.72);
-  --surface-solid: #282624;
-  --well: rgb(255 255 255 / 0.045);
-  --well-hover: rgb(255 255 255 / 0.075);
-  --line: rgb(255 255 255 / 0.08);
-  --line-strong: rgb(255 255 255 / 0.15);
-  --text: #f1efec;
-  --text-2: #b4aea7;
-  --text-3: #857f78;
-  --kb: #9d8ff2;
-  --kb-ink: #b3a8f7;
-  --kb-soft: rgb(157 143 242 / 0.15);
-  --ok: #5fbf8a;
-  --ok-soft: rgb(95 191 138 / 0.13);
-  --bad: #ec7f66;
-  --bad-soft: rgb(236 127 102 / 0.13);
-  --warn: #e3ac4c;
-  --warn-soft: rgb(227 172 76 / 0.14);
-  --violet: #d38ab9;
-  --violet-soft: rgb(211 138 185 / 0.14);
-  --bar-1: #e39a76;
-  --bar-2: #86b3bb;
-  --bar-3: #a6ba85;
-  --bar-4: #ab9ff0;
-  --bar-track: rgb(255 255 255 / 0.07);
-  --tile-lavender: rgb(157 143 242 / 0.16); --tile-lavender-ink: #b9aff8;
-  --tile-peach: rgb(227 147 108 / 0.16);    --tile-peach-ink: #efb08f;
-  --tile-teal: rgb(127 169 177 / 0.16);     --tile-teal-ink: #9fcbd0;
-  --tile-sage: rgb(157 176 124 / 0.16);     --tile-sage-ink: #bcd09a;
-  --tile-rose: rgb(211 138 185 / 0.16);     --tile-rose-ink: #e3a9cb;
-  --tile-sand: rgb(214 175 90 / 0.16);      --tile-sand-ink: #e1c27f;
-  --highlight: rgb(255 255 255 / 0.05);
-  --shadow-border: 0 0 0 1px rgb(255 255 255 / 0.07);
-  --shadow-border-hover: 0 0 0 1px rgb(255 255 255 / 0.13);
-  --shadow-pop: 0 0 0 1px rgb(255 255 255 / 0.09), 0 18px 44px -10px rgb(0 0 0 / 0.6);
-  --shadow-frame: 0 0 0 1px rgb(255 255 255 / 0.07), 0 30px 70px -30px rgb(0 0 0 / 0.7);
-  --graph-edge: rgb(255 255 255 / 0.15);
-  --graph-label: #f1efec;
-  --graph-label-dim: rgb(241 239 236 / 0.42);
-  --graph-node-stroke: #1a1918;
-  color-scheme: dark;
+  /* ---- borders */
+  --line: #e4e4df;              /* default 1px border and row divider */
+  --line-strong: #cfcfc9;       /* inputs, secondary buttons, hover border */
+
+  /* ---- text (contrast on #fff: 16.8, 8.6, 5.3; --text-3 stays >= 4.6 on every neutral surface) */
+  --text: #1b1c1f;
+  --text-2: #4a4d55;
+  --text-3: #686c75;
+
+  /* ---- accent (navy). --kb is the historical name; --accent is the same colour */
+  --kb: #2b4c9b;
+  --kb-ink: #233f84;            /* accent as text / links: 8.4:1 on white */
+  --kb-soft: #edf1fa;
+  --accent: var(--kb);
+  --accent-hover: #233f84;
+  --accent-ink: var(--kb-ink);
+  --accent-soft: var(--kb-soft);
+
+  /* ---- status: one meaning each (text colours are AA on their soft background and on white) */
+  --ok: #17703f;      --ok-soft: #e8f3ec;      --ok-line: #bcdcc8;       /* pass, bid, approved, resolved */
+  --bad: #b3261e;     --bad-soft: #fbeceb;     --bad-line: #efc2bf;      /* fail, no-bid, rejected */
+  --warn: #935b00;    --warn-soft: #fcf2e1;    --warn-line: #ecd3a6;     /* at risk, bid with fixes */
+  --violet: #5b3fb5;  --violet-soft: #f1eefb;  --violet-line: #d5cbf1;   /* needs review, awaiting a person */
+  --info: #1d5fb8;    --info-soft: #ebf2fc;    --info-line: #c3d6f1;     /* informational, declare, open */
+  --neutral: #4a4d55; --neutral-soft: #f0f0ed; --neutral-line: #dcdcd6;  /* pending, unknown */
+
+  /* ---- data bars (ResultBar, benchmark): accent first, then slates */
+  --bar-1: #2b4c9b;
+  --bar-2: #6b7a90;
+  --bar-3: #9aa7b8;
+  --bar-4: #c4ccd7;
+  --bar-track: #ecece8;
+
+  /* ---- legacy category tiles: neutral now (IconTile marks a type without colour) */
+  --tile-lavender: #f1f1ee; --tile-lavender-ink: #4a4d55;
+  --tile-peach: #f1f1ee;    --tile-peach-ink: #4a4d55;
+  --tile-teal: #f1f1ee;     --tile-teal-ink: #4a4d55;
+  --tile-sage: #f1f1ee;     --tile-sage-ink: #4a4d55;
+  --tile-rose: #f1f1ee;     --tile-rose-ink: #4a4d55;
+  --tile-sand: #f1f1ee;     --tile-sand-ink: #4a4d55;
+  --highlight: transparent;
+
+  /* ---- elevation: borders do the work; shadows only lift popovers and dialogs */
+  --shadow-xs: 0 1px 1px 0 rgb(24 24 27 / 0.04);
+  --shadow-sm: 0 1px 2px 0 rgb(24 24 27 / 0.06);
+  --shadow-border: 0 0 0 1px var(--line), var(--shadow-xs);
+  --shadow-border-hover: 0 0 0 1px var(--line-strong), var(--shadow-xs);
+  --shadow-pop: 0 0 0 1px var(--line), 0 8px 24px -6px rgb(24 24 27 / 0.14), 0 2px 6px -2px rgb(24 24 27 / 0.06);
+  --shadow-frame: none;
+
+  /* ---- focus */
+  --focus: #2b4c9b;
+  --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--focus);
+
+  /* ---- radius (6-8px; full only for dots and avatars) */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+
+  /* ---- type scale (px) */
+  --fs-micro: 11px;     /* table column headers, nav group labels */
+  --fs-caption: 12px;   /* meta, secondary cells */
+  --fs-small: 12.5px;   /* dense table cells, badges */
+  --fs-body: 13.5px;    /* body */
+  --fs-title: 14px;     /* card titles */
+  --fs-heading: 16px;   /* section headings, KPI values */
+  --fs-page: 20px;      /* page title */
+
+  /* ---- layout */
+  --nav-w: 220px;
+  --topbar-h: 48px;
+
+  /* ---- graph canvas */
+  --graph-edge: rgb(27 28 31 / 0.16);
+  --graph-label: #1b1c1f;
+  --graph-label-dim: rgb(27 28 31 / 0.45);
+  --graph-node-stroke: #ffffff;
+  --graph-path: #2b4c9b;
+  --graph-halo: rgb(43 76 155 / 0.16);
+  color-scheme: light;
 }
 
 @theme inline {
   --color-bg: var(--bg);
   --color-canvas: var(--canvas);
+  --color-sidebar: var(--sidebar);
   --color-main: var(--main);
   --color-surface: var(--surface);
   --color-surface-solid: var(--surface-solid);
+  --color-surface-2: var(--surface-2);
   --color-well: var(--well);
   --color-well-hover: var(--well-hover);
+  --color-nav-active: var(--nav-active);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-ink: var(--text);
@@ -121,14 +117,24 @@
   --color-kb: var(--kb);
   --color-kb-ink: var(--kb-ink);
   --color-kb-soft: var(--kb-soft);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
   --color-ok: var(--ok);
   --color-ok-soft: var(--ok-soft);
+  --color-ok-line: var(--ok-line);
   --color-bad: var(--bad);
   --color-bad-soft: var(--bad-soft);
+  --color-bad-line: var(--bad-line);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
+  --color-warn-line: var(--warn-line);
   --color-violet: var(--violet);
   --color-violet-soft: var(--violet-soft);
+  --color-violet-line: var(--violet-line);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-line: var(--info-line);
   --color-bar-1: var(--bar-1);
   --color-bar-2: var(--bar-2);
   --color-bar-3: var(--bar-3);
@@ -136,141 +142,163 @@
   --color-bar-track: var(--bar-track);
   --font-sans: var(--font-inter);
   --font-mono: var(--font-jbm);
+
+  /* font-size utilities: text-micro … text-page */
+  --text-micro: 11px;
+  --text-caption: 12px;
+  --text-small: 12.5px;
+  --text-body: 13.5px;
+  --text-title: 14px;
+  --text-heading: 16px;
+  --text-page: 20px;
+
+  /* clamp the large radii so no page can drift into big rounded cards */
+  --radius-xl: 8px;
+  --radius-2xl: 8px;
+  --radius-3xl: 8px;
 }
 
 html, body {
-  background-color: var(--canvas);
-  background-image:
-    radial-gradient(900px 620px at 0% 0%, var(--blob-a), transparent 62%),
-    radial-gradient(800px 560px at 100% 6%, var(--blob-b), transparent 60%),
-    radial-gradient(1000px 680px at 55% 110%, var(--blob-c), transparent 62%);
-  background-attachment: fixed;
+  background: var(--canvas);
   color: var(--text);
   font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  font-size: 13.5px;
+  font-size: var(--fs-body);
   line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-  -webkit-tap-highlight-color: transparent;
-}
-body {
-  background-color: var(--bg);
-  background-image:
-    radial-gradient(1100px 620px at 8% -12%, var(--tint-a), transparent 62%),
-    radial-gradient(900px 560px at 96% -6%, var(--tint-b), transparent 60%);
-  background-attachment: fixed;
-  color: var(--text);
-  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  font-size: 14px;
-  line-height: 1.5;
+  font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
 
-::selection { background: var(--kb-soft); }
+::selection { background: #d8e1f4; }
 
-/* ---------- surfaces ---------- */
-.frame {                                         /* the app window */
-  background: var(--frame);
-  -webkit-backdrop-filter: blur(30px) saturate(170%);
-  backdrop-filter: blur(30px) saturate(170%);
-  border: 1px solid transparent;
-  box-shadow: inset 0 1px 0 0 var(--highlight), var(--shadow-frame);
+@layer base {
+/* ---------- focus: one visible ring for every interactive element (keyboard only) */
+:where(a, button, [role="tab"], [role="button"], summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
-.main-panel {                                    /* the content side of the window */
-  background: var(--main);
-  box-shadow: inset 1px 0 0 0 var(--line);
+:where(input, textarea, select):focus-visible { outline: none; }
 }
-.glass {                                         /* a card */
+
+/* component classes live in the components layer, so Tailwind utilities on the same element win */
+@layer components {
+/* ---------- surfaces (legacy names kept; no glass, no blur) */
+.frame { background: var(--canvas); }
+.main-panel { background: var(--main); }
+.glass, .card {                                  /* a card / panel */
   background: var(--surface);
-  -webkit-backdrop-filter: blur(14px) saturate(150%);
-  backdrop-filter: blur(14px) saturate(150%);
-  border: 1px solid transparent;                 /* forced-colors keeps an edge */
-  border-radius: 12px;
-  box-shadow: inset 0 1px 0 0 var(--highlight), var(--shadow-border);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-xs);
 }
-.glass-pop {
-  background: var(--surface-solid);
-  border: 1px solid transparent;
-  border-radius: 14px;
+.glass-pop {                                     /* dialogs, popovers */
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-pop);
 }
-.well {
+.well {                                          /* inset block inside a card */
   background: var(--well);
-  border-radius: 8px;
+  border-radius: var(--r-md);
 }
 .interactive-card {
-  transition-property: box-shadow, background-color;
-  transition-duration: 150ms;
+  transition-property: border-color, background-color;
+  transition-duration: 120ms;
   transition-timing-function: ease-out;
 }
 @media (hover: hover) {
-  .interactive-card:hover { box-shadow: inset 0 1px 0 0 var(--highlight), var(--shadow-border-hover); }
+  .interactive-card:hover { border-color: var(--line-strong); }
 }
-
-/* soft lavender panel for AI entry points */
+/* formerly the lavender AI panel: now a plain panel */
 .ai-panel {
-  border-radius: 12px;
-  background:
-    radial-gradient(640px 240px at 12% 0%, rgb(255 255 255 / 0.6), transparent 70%),
-    color-mix(in oklab, var(--kb) 10%, var(--surface-solid));
-  box-shadow: inset 0 1px 0 0 var(--highlight), 0 0 0 1px color-mix(in oklab, var(--kb) 16%, transparent);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
 }
-:root[data-theme="dark"] .ai-panel { background: color-mix(in oklab, var(--kb) 13%, var(--surface-solid)); }
 
-.num { font-family: var(--font-jbm), ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+/* tabular figures in the UI face; .mono for ids and code */
+.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv11", "ss01"; }
+.mono { font-family: var(--font-jbm), ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 
-/* ---------- inputs ---------- */
+/* ---------- inputs */
 .field {
   width: 100%;
-  background: var(--surface-solid);
+  background: var(--surface);
   border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  padding: 8px 11px;
+  border-radius: var(--r-md);
+  padding: 6px 10px;
+  min-height: 32px;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13.5px;
   outline: none;
   transition-property: border-color, box-shadow;
-  transition-duration: 150ms;
+  transition-duration: 120ms;
   transition-timing-function: ease-out;
 }
 .field::placeholder { color: var(--text-3); }
-.field:focus { border-color: var(--kb); box-shadow: 0 0 0 3px var(--kb-soft); }
+.field:hover:not(:disabled) { border-color: #b9b9b2; }
+.field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(43 76 155 / 0.16); }
+.field:disabled { background: var(--well); color: var(--text-3); cursor: not-allowed; }
 
-/* ---------- leaderboard / data tables ---------- */
+/* ---------- data tables: dense rows, sticky header, right-aligned tabular numerics */
 .kt { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
 .kt th {
-  text-align: left; font-weight: 500; font-size: 12px;
-  color: var(--text-3); padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap;
+  position: sticky; top: 0; z-index: 1;
+  text-align: left; font-weight: 500; font-size: 11.5px; letter-spacing: 0.01em;
+  color: var(--text-3); background: var(--surface-2);
+  padding: 7px 12px; border-bottom: 1px solid var(--line); white-space: nowrap;
 }
-.kt td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.kt td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .kt tr:last-child td { border-bottom: none; }
-.kt tbody tr { transition: background-color 150ms ease-out; }
-@media (hover: hover) { .kt tbody tr:hover { background: var(--well); } }
+.kt tbody tr { transition: background-color 120ms ease-out; }
+@media (hover: hover) { .kt tbody tr:hover { background: var(--surface-2); } }
+.kt tbody tr[aria-selected="true"], .kt tbody tr[data-selected="true"] { background: var(--kb-soft); }
+.kt .n, .kt [data-num] { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kt.dense td { padding-top: 6px; padding-bottom: 6px; }
 
-/* ---------- markdown (memos, explanations) ---------- */
-.md { font-size: 14px; line-height: 1.6; color: var(--text-2); }
-.md h1, .md h2 { font-size: 16px; font-weight: 650; color: var(--text); margin: 4px 0 8px; }
-.md h3 { font-size: 14.5px; font-weight: 650; color: var(--text); margin: 14px 0 6px; }
+/* ---------- markdown (memos, explanations) */
+.md { font-size: 13.5px; line-height: 1.6; color: var(--text-2); }
+.md h1, .md h2 { font-size: 15px; font-weight: 600; color: var(--text); margin: 4px 0 8px; }
+.md h3 { font-size: 14px; font-weight: 600; color: var(--text); margin: 14px 0 6px; }
 .md p { margin: 6px 0; }
 .md ul { list-style: disc; padding-left: 1.25rem; margin: 6px 0; }
+.md ol { list-style: decimal; padding-left: 1.25rem; margin: 6px 0; }
 .md li { margin: 3px 0; }
 .md strong { color: var(--text); font-weight: 600; }
-.md a { color: var(--kb-ink); }
-.md table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0; }
-.md th { text-align: left; font-size: 12px; color: var(--text-3);
-  font-weight: 500; border-bottom: 1px solid var(--line); padding: 7px 8px; }
-.md td { border-bottom: 1px solid var(--line); padding: 7px 8px; vertical-align: top; }
-.md code { font-family: var(--font-jbm); font-size: 12.5px; background: var(--well); padding: 1px 6px; border-radius: 6px; }
+.md a { color: var(--kb-ink); text-decoration: underline; text-underline-offset: 2px; }
+.md table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 10px 0; font-variant-numeric: tabular-nums; }
+.md th { text-align: left; font-size: 11.5px; color: var(--text-3); background: var(--surface-2);
+  font-weight: 500; border-bottom: 1px solid var(--line); padding: 6px 8px; }
+.md td { border-bottom: 1px solid var(--line); padding: 6px 8px; vertical-align: top; }
+.md code { font-family: var(--font-jbm); font-size: 12px; background: var(--well); padding: 1px 5px; border-radius: var(--r-sm); }
+}
 
-/* ---------- misc ---------- */
+/* ---------- misc */
 .scroll-thin { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
 .scroll-thin::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 8px; }
 .contain-scroll { overscroll-behavior: contain; }
 
 @keyframes bb-pulse { 0%, 100% { opacity: .35 } 50% { opacity: 1 } }
-@media (prefers-reduced-motion: no-preference) { .pulse-dot { animation: bb-pulse 1.2s ease-in-out infinite; } }
+@keyframes bb-spin { to { transform: rotate(360deg) } }
+@keyframes bb-shimmer { 0% { background-position: -200px 0 } 100% { background-position: calc(200px + 100%) 0 } }
+@media (prefers-reduced-motion: no-preference) {
+  .pulse-dot { animation: bb-pulse 1.2s ease-in-out infinite; }
+  .spin { animation: bb-spin 0.8s linear infinite; }
+  .skeleton { animation: bb-shimmer 1.4s ease-in-out infinite; }
+}
+.skeleton {
+  border-radius: var(--r-sm);
+  background-color: var(--well);
+  background-image: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.7), transparent);
+  background-size: 200px 100%;
+  background-repeat: no-repeat;
+}
 
 /* grid tracks default to min-width:auto, so one long token (a table, a mono id, a textarea) would widen the
    whole column past the viewport on phones; let columns shrink and their content wrap or scroll instead */
 .grid > * { min-width: 0; }
+
+@media (forced-colors: active) {
+  .glass, .card, .glass-pop, .ai-panel { border: 1px solid CanvasText; }
+}

@@ -26,6 +26,14 @@ a hash, never the session id) and a copy of the decision it was LEARNED_FROM wit
 its rationale. Every session then consults company rules after its own rules and
 before recency and authority (policy `org_rule`), and the Decision cites the
 promoted rule. Retiring a company rule takes it out of play for everyone.
+
+Governance. Company rules apply only in sessions that opted in (`use_company_memory`, off by
+default), so one visitor's promoted rule never changes another visitor's scripted demo. Provenance
+is the promoting session's tag, not a name the caller types (a display name is kept as an unverified
+label). Only the promoting session retires a rule; any other session can *contest* it, which takes the
+rule out of play in that session only and reopens the decisions it made there as resolve cards. A
+promote, retire or contest re-checks the acting session: open cards of the rule's shape are re-run
+through the engine, and decisions made by a rule that is now retired or contested are reopened.
 """
 from __future__ import annotations
 
@@ -73,7 +81,7 @@ CLAIMS_FOR = """MATCH (c:Claim)-[:ABOUT]->(s) WHERE c.status <> 'superseded' AND
 RETURN c.id AS id, c.subject_label AS subject_label, c.subject_key AS subject_key, c.predicate AS predicate,
        c.value AS value, c.value_str AS value_str, c.source_doc AS source_doc, c.source_kind AS source_kind,
        c.authority AS authority, c.precision AS precision, c.issuer AS issuer, c.observed_day AS observed_day,
-       c.page AS page, c.status AS status, c.planted AS planted
+       c.page AS page, c.status AS status, c.planted AS planted, c.company_record AS company_record
 ORDER BY c.subject_key, c.predicate"""
 
 
@@ -165,6 +173,13 @@ def propose(conflict: dict, rules: list[dict], org_rules: list[dict] | None = No
     recency (same issuer), then authority; otherwise a human decides."""
     cl = conflict["claims"]
     groups = _groups(cl)
+    # a fact the company already decided (published from another workspace) is not re-litigated here
+    rec = [c for c in cl if c.get("company_record")]
+    if rec:
+        win = rec[-1]
+        return {"auto": True, "policy": "company_record", "winner": win,
+                "rationale": f"company record {win['company_record']}: this fact was decided and published to the "
+                             f"company record from another workspace; its source is {win['source_doc']}"}
     for r in rules:
         if r["predicate"] != conflict["predicate"]:
             continue
@@ -229,6 +244,10 @@ def _materialize(g: Graph, label: str, key: str, predicate: str, value) -> None:
         if len(props) > 2 and props[2] == "completed_year":
             sets[props[2]] = int(value[:4])
     g.run(f"MATCH (s:{label} {{key:$k}}) SET s += $p", {"k": key, "p": sets})
+    if label == "Work" and predicate == "value":
+        # WORKED_FOR / ENGAGED carry sum(w.value): rebuild the projections from the corrected value
+        from bidbrain.ingest.load_graph import project
+        project(g)
 
 
 def _decision(g: Graph, did: str, conflict_id: str, subject_key: str, predicate: str, policy: str,
@@ -268,15 +287,19 @@ def record(g: Graph, conflict: dict, winner_id: str, policy: str, rationale: str
         # the company rule lives in another graph: cite it with a local reference node (not a
         # PolicyRule, so it never becomes a session rule) and on the decision itself
         g.run("""MERGE (o:OrgRuleRef {id:$id}) SET o.key = $id, o.graph = $graph, o.predicate = $p,
-                     o.prefer_kind = $pk, o.over_kind = $ok, o.promoted_by = $by,
-                     o.source_decision = $src, o.rationale = $why
-                 WITH o MATCH (d:Decision {id:$d}) SET d.org_rule = $id CREATE (d)-[:APPLIED_ORG_RULE]->(o)""",
+                     o.prefer_kind = $pk, o.over_kind = $ok, o.promoted_by = $by, o.promoted_by_label = $lab,
+                     o.source_decision = $src, o.rationale = $why, o.status = 'active'
+                 WITH o MATCH (d:Decision {id:$d}) SET d.org_rule = $id, d.org_rule_status = 'active'
+                 CREATE (d)-[:APPLIED_ORG_RULE]->(o)""",
               {"id": org_rule["id"], "graph": ORG_GRAPH, "p": org_rule["predicate"],
                "pk": org_rule["prefer_kind"], "ok": org_rule["over_kind"], "by": org_rule.get("promoted_by"),
+               "lab": org_rule.get("promoted_by_label"),
                "src": org_rule.get("source_decision"), "why": org_rule.get("rationale"), "d": did})
     losers = [c["id"] for c in conflict["claims"] if c["id"] != winner_id and _differs(c, win)]
     agree = [c["id"] for c in conflict["claims"] if c["id"] != winner_id and not _differs(c, win)]
-    g.run("MATCH (c:Claim) WHERE c.id IN $ids SET c.status = $st", {"ids": losers, "st": loser_status})
+    # transaction time: a set-aside claim keeps its value and records when, and by which decision, it stopped counting
+    g.run("""MATCH (c:Claim) WHERE c.id IN $ids SET c.status = $st, c.invalidated_at = timestamp(),
+             c.invalidated_by = $d""", {"ids": losers, "st": loser_status, "d": did})
     g.run("MATCH (c:Claim) WHERE c.id IN $ids SET c.status = 'active'", {"ids": agree + [winner_id]})
     g.run("""MATCH (w:Claim {id:$w}) UNWIND $ids AS lid MATCH (l:Claim {id:lid})
              WHERE NOT (w)-[:SUPERSEDES]->(l) CREATE (w)-[:SUPERSEDES {decision:$d}]->(l)""",
@@ -327,7 +350,7 @@ def run(g: Graph, subject_keys: list[str] | None = None) -> dict:
     """detect -> propose -> record | open_card, for the given subjects (None = everything)."""
     found = detect(g, subject_keys)
     rules = _rules(g)
-    orgs = org_rules() if found["conflicts"] and g.name.startswith("session_") else []
+    orgs = session_org_rules(g) if found["conflicts"] else []
     decisions, cards = [], []
     for cf in found["conflicts"]:
         prop = propose(cf, rules, orgs)
@@ -424,19 +447,33 @@ def resolve_card(g: Graph, card_id: str, winner_claim: str, rationale: str, user
 
 
 # ------------------------------------------------------------------ organisational (company) memory
-# A separate graph every session reads and only an explicit promote / retire writes. Session rules
-# stay private; a rule enters company memory only when a person promotes it, with provenance.
+# A separate graph that opted-in sessions read and only an explicit promote / retire / contest writes.
+# Session rules stay private; a rule enters company memory only when a session promotes it.
 
 ORG_GRAPH = os.getenv("ORG_GRAPH", "bidbrain_org")
 ORG_MAX_ACTIVE = int(os.getenv("ORG_MAX_RULES", "50"))     # active company rules (a public sandbox)
 ORG_MAX_KEPT = 200                                         # retired rules kept for the audit trail
+ORG_MAX_CONTESTS = 100                                     # contests recorded per rule (one per session)
 RULE_ID_RE = re.compile(r"^RULE-[0-9a-f]{10}$")
 ORG_ID_RE = re.compile(r"^ORG-[0-9a-f]{10}$")
-_ORG_LOCK = threading.Lock()
+_ORG_LOCK = threading.RLock()
+
+
+def _export_path_from_env() -> str | None:
+    """Where company memory is mirrored as JSON (survives a lost FalkorDB data dir or a format change).
+    ORG_EXPORT_PATH wins; else <BIDBRAIN_STATE_DIR>/org_memory.json; else no export (local dev, tests)."""
+    if os.getenv("ORG_EXPORT_PATH"):
+        return os.environ["ORG_EXPORT_PATH"]
+    if os.getenv("BIDBRAIN_STATE_DIR"):
+        return os.path.join(os.environ["BIDBRAIN_STATE_DIR"], "org_memory.json")
+    return None
+
+
+ORG_EXPORT_PATH = _export_path_from_env()
 
 
 class OrgMemoryError(ValueError):
-    """A promote / retire the company graph refuses; `status` is the HTTP code to answer with."""
+    """A promote / retire / contest the company graph refuses; `status` is the HTTP code to answer with."""
 
     def __init__(self, msg: str, status: int = 409):
         super().__init__(msg)
@@ -445,6 +482,23 @@ class OrgMemoryError(ValueError):
 
 def _org() -> Graph | None:
     return Graph(ORG_GRAPH) if ORG_GRAPH in db().list_graphs() else None
+
+
+def _label(user) -> str | None:
+    """A display name the caller typed: kept as an unverified label, never as provenance."""
+    lab = re.sub(r"[^\w .@-]", "", str(user or ""))[:64].strip()
+    return lab or None
+
+
+def session_tag(session_graph: str) -> str:
+    """Provenance names the source session by a hash: a session id is a capability (it opens that graph)."""
+    return "s-" + hashlib.sha256(session_graph.encode()).hexdigest()[:12]
+
+
+def _need_session(g: Graph | None) -> str:
+    if g is None or not g.name.startswith("session_"):
+        raise OrgMemoryError("company memory changes need a session (X-Session header)", 400)
+    return session_tag(g.name)
 
 
 def org_rules() -> list[dict]:
@@ -456,38 +510,175 @@ def org_rules() -> list[dict]:
                      OPTIONAL MATCH (r)-[:LEARNED_FROM]->(d:SourceDecision)
                      RETURN r.id AS id, r.predicate AS predicate, r.prefer_kind AS prefer_kind,
                             r.over_kind AS over_kind, r.rationale AS rationale, r.promoted_by AS promoted_by,
-                            d.id AS source_decision
+                            r.promoted_by_label AS promoted_by_label, d.id AS source_decision
                      ORDER BY r.promoted_at, r.id""")
 
 
-def list_org(include_retired: bool = False) -> list[dict]:
-    """Company rules with full provenance, newest first."""
+# ---- per-session opt-in
+
+def uses_company_memory(g: Graph) -> bool:
+    """Off by default: a session consults company memory only after it opts in."""
+    return bool(g.scalar("MATCH (m:Meta {key:'meta'}) RETURN coalesce(m.use_company_memory, false)"))
+
+
+def contested_here(g: Graph) -> set[str]:
+    return {r["id"] for r in g.read("MATCH (o:OrgRuleRef) WHERE o.contested = true RETURN o.id AS id")}
+
+
+def session_org_rules(g: Graph) -> list[dict]:
+    """The company rules this graph applies: none outside sessions (building the base graph and the
+    evals stay hermetic), none in a session that has not opted in, and never one it contested."""
+    if not g.name.startswith("session_") or not uses_company_memory(g):
+        return []
+    skip = contested_here(g)
+    return [r for r in org_rules() if r["id"] not in skip]
+
+
+def set_company_memory(g: Graph, on: bool) -> dict:
+    """Turn company memory on or off for this session. Turning it on re-checks open cards, so a card
+    a company rule can settle is settled now (and cites the rule)."""
+    g.run("MATCH (m:Meta {key:'meta'}) SET m.use_company_memory = $on", {"on": bool(on)})
+    out = {"use_company_memory": bool(on), "decisions": [], "cards": []}
+    if on:
+        out.update(recheck_open_cards(g))
+    return out
+
+
+# ---- re-checking past state
+
+def recheck_open_cards(g: Graph) -> dict:
+    """Re-run the engine over the subjects of this session's open cards: a card that a rule now in play
+    (a newly learned or promoted one) can settle is auto-resolved; the rest stay open (merged)."""
+    keys = [r["k"] for r in g.read("MATCH (k:ConflictCard {status:'open'}) RETURN DISTINCT k.subject_key AS k")]
+    if not keys:
+        return {"decisions": [], "cards": []}
+    out = run(g, keys)
+    return {"decisions": out["decisions"], "cards": out["cards"]}
+
+
+def reopen_decision(g: Graph, decision_id: str, reason: str) -> dict | None:
+    """Turn a settled decision back into a resolve card: its claims become contested again, the
+    claim-level SUPERSEDES / CORROBORATES edges it wrote are removed, and the Decision is kept (marked
+    reopened, with the reason) for the audit trail. The subject keeps the old winner's value until a
+    person resolves the card."""
+    rows = g.read("""MATCH (d:Decision {id:$id})-[:BASED_ON]->(c:Claim)
+                     OPTIONAL MATCH (d)-[:SELECTS]->(w:Claim)
+                     RETURN d.conflict_id AS cid, d.subject_key AS sk, d.predicate AS p, w.id AS winner,
+                            collect(DISTINCT c {.*}) AS claims""", {"id": decision_id})
+    if not rows or not rows[0]["claims"] or len(rows[0]["claims"]) < 2:
+        return None
+    r = rows[0]
+    claims = sorted(r["claims"], key=_rank_key)
+    g.run("""MATCH (:Claim)-[e:SUPERSEDES]->(:Claim) WHERE e.decision = $d DELETE e""", {"d": decision_id})
+    g.run("""MATCH (:Claim)-[e:CORROBORATES]->(:Claim) WHERE e.decision = $d DELETE e""", {"d": decision_id})
+    cf = {"id": r["cid"] or _id("CF-", r["sk"], r["p"], decision_id), "subject_label": claims[0]["subject_label"],
+          "subject_key": r["sk"], "predicate": r["p"], "claims": claims}
+    win = next((c for c in claims if c["id"] == r["winner"]), claims[0])
+    card = open_card(g, cf, {"suggested": win, "rationale": reason})
+    g.run("""MATCH (d:Decision {id:$id}) SET d.reopened = true, d.review = $why, d.reopened_card = $card,
+                 d.reopened_at = timestamp()
+             WITH d MATCH (k:ConflictCard {id:$card}) SET k.reopened_from = $id""",
+          {"id": decision_id, "why": reason, "card": card["card_id"]})
+    g.run("MATCH (m:Meta {key:'meta'}) SET m.version = m.version + 1")
+    return {**card, "decision_id": decision_id, "rationale": reason, "conflict": _brief(cf)}
+
+
+_REVIEW = {"retired": "company rule {id} was retired: review this decision",
+           "contested": "company rule {id} is contested in this session: decide this fact yourself",
+           "unknown": "company rule {id} is no longer in company memory: review this decision"}
+
+
+def review_org_rule(g: Graph, org_id: str, status: str, reopen: bool = True) -> dict:
+    """Mark every decision this session made by `org_id` with the rule's current status, and reopen
+    the ones that still stand (the head decision for their fact) as resolve cards."""
+    why = _REVIEW[status].format(id=org_id)
+    g.run("MATCH (o:OrgRuleRef {id:$id}) SET o.status = $s", {"id": org_id, "s": status})
+    flagged = g.run("""MATCH (d:Decision)-[:APPLIED_ORG_RULE]->(:OrgRuleRef {id:$id})
+                       SET d.org_rule_status = $s RETURN count(d) AS n""", {"id": org_id, "s": status})
+    heads = g.read("""MATCH (d:Decision)-[:APPLIED_ORG_RULE]->(:OrgRuleRef {id:$id})
+                      WHERE NOT ()-[:SUPERSEDES]->(d) AND coalesce(d.reopened, false) = false
+                      RETURN d.id AS id ORDER BY d.at""", {"id": org_id})
+    reopened = []
+    for h in heads:
+        if reopen:
+            card = reopen_decision(g, h["id"], why)
+            if card:
+                reopened.append(card)
+                continue
+        g.run("MATCH (d:Decision {id:$id}) SET d.review = $why", {"id": h["id"], "why": why})
+    return {"flagged": int(flagged[0]["n"]) if flagged else 0, "reopened": reopened}
+
+
+def sync_org_status(g: Graph) -> dict[str, str]:
+    """Bring this session's view of the company rules it applied up to date (a rule retired by its
+    promoter elsewhere, or pruned): OrgRuleRef.status and Decision.org_rule_status become
+    active | retired | contested | unknown, and a still-standing decision by a rule that is no longer
+    active is flagged for review (Decision.review). Cheap when nothing changed."""
+    refs = g.read("MATCH (o:OrgRuleRef) RETURN o.id AS id, o.status AS status, "
+                  "coalesce(o.contested, false) AS contested")
+    if not refs:
+        return {}
+    org = _org()
+    live = {}
+    if org is not None:
+        live = {r["id"]: ("retired" if r["retired"] else "active") for r in org.read(
+            "MATCH (o:OrgRule) WHERE o.id IN $ids RETURN o.id AS id, o.retired AS retired",
+            {"ids": [r["id"] for r in refs]})}
+    out = {}
+    for r in refs:
+        st = live.get(r["id"], "unknown")
+        if st == "active" and r["contested"]:
+            st = "contested"
+        out[r["id"]] = st
+        if st != r["status"]:
+            g.run("""MATCH (o:OrgRuleRef {id:$id}) SET o.status = $s
+                     WITH o MATCH (d:Decision)-[:APPLIED_ORG_RULE]->(o) SET d.org_rule_status = $s""",
+                  {"id": r["id"], "s": st})
+            if st in ("retired", "unknown"):
+                g.run("""MATCH (d:Decision)-[:APPLIED_ORG_RULE]->(:OrgRuleRef {id:$id})
+                         WHERE NOT ()-[:SUPERSEDES]->(d) AND d.review IS NULL SET d.review = $why""",
+                      {"id": r["id"], "why": _REVIEW[st].format(id=r["id"])})
+    return out
+
+
+# ---- listing, promote, retire, contest
+
+def list_org(include_retired: bool = False, session_graph: str | None = None) -> list[dict]:
+    """Company rules with full provenance, newest first. With a session, each rule says whether that
+    session promoted it (`mine`: it may retire it) — the session tag itself is public provenance."""
     g = _org()
     if g is None:
         return []
-    return g.read("""MATCH (r:OrgRule) WHERE $all OR r.retired = false
+    rows = g.read("""MATCH (r:OrgRule) WHERE $all OR r.retired = false
                      OPTIONAL MATCH (r)-[:PROMOTED_BY]->(u:User)
                      OPTIONAL MATCH (r)-[:LEARNED_FROM]->(d:SourceDecision)
+                     OPTIONAL MATCH (c:Contest)-[:CONTESTS]->(r)
+                     WITH r, u, d, count(c) AS contests
                      RETURN r.id AS id, r.predicate AS predicate, r.prefer_kind AS prefer, r.over_kind AS over,
-                            r.rationale AS rationale, r.retired AS retired, r.promoted_at AS promoted_at,
-                            r.retired_at AS retired_at, r.retired_by AS retired_by,
+                            r.rationale AS rationale, r.retired AS retired,
+                            CASE WHEN r.retired THEN 'retired' ELSE 'active' END AS status,
+                            r.promoted_at AS promoted_at, r.retired_at AS retired_at, r.retired_by AS retired_by,
+                            r.retired_by_label AS retired_by_label,
                             r.source_rule AS source_rule, r.source_session AS source_session,
-                            u.key AS promoted_by,
+                            coalesce(r.promoted_by, u.key) AS promoted_by, r.promoted_by_label AS promoted_by_label,
+                            contests,
                             d {.id, .rationale, .policy, .decided_by, .subject_key, .subject, .predicate,
                                .chosen_value, .source_doc, .at} AS learned_from
-                     ORDER BY r.promoted_at DESC, r.id""", {"all": include_retired})
+                     ORDER BY promoted_at DESC, id""", {"all": include_retired})
+    if session_graph:
+        tag = session_tag(session_graph)
+        for r in rows:
+            r["mine"] = r["source_session"] == tag
+    return rows
 
 
-def session_tag(session_graph: str) -> str:
-    """Provenance names the source session by a hash: a session id is a capability (it opens that graph)."""
-    return "s-" + hashlib.sha256(session_graph.encode()).hexdigest()[:12]
-
-
-def promote(g: Graph, rule_id: str, user: str = "bid-manager") -> dict:
-    """Copy a session's learned PolicyRule into company memory, with provenance. Explicit only."""
+def promote(g: Graph, rule_id: str, user: str | None = None) -> dict:
+    """Copy a session's learned PolicyRule into company memory, with provenance, then re-check this
+    session's open cards. Explicit only. `promoted_by` is the session's tag; `user` is only a label."""
+    tag = _need_session(g)
     if not isinstance(rule_id, str) or not RULE_ID_RE.match(rule_id):
         raise OrgMemoryError("rule_id must look like RULE-<10 hex>", 400)
-    user = re.sub(r"[^\w .@-]", "", str(user or "bid-manager"))[:64].strip() or "bid-manager"
+    label = _label(user)
     rows = g.read("""MATCH (r:PolicyRule {id:$id})
                      OPTIONAL MATCH (r)-[:LEARNED_FROM]->(d:Decision)
                      OPTIONAL MATCH (d)-[:DECIDED_BY]->(a)
@@ -500,16 +691,14 @@ def promote(g: Graph, rule_id: str, user: str = "bid-manager") -> dict:
     r, d = rows[0]["rule"], rows[0]["decision"] or {}
     if r.get("retired"):
         raise OrgMemoryError(f"{rule_id} was retired in this session (a later decision overrode it)")
-    src = session_tag(g.name)
     with _ORG_LOCK:
         org = Graph(ORG_GRAPH)
-        live = _org() is not None
-        if live:
+        if _org() is not None:
             same = org.read("""MATCH (o:OrgRule {predicate:$p, prefer_kind:$pk, over_kind:$ok}) WHERE o.retired = false
                                RETURN o.id AS id""",
                             {"p": r["predicate"], "pk": r["prefer_kind"], "ok": r["over_kind"]})
             if same:
-                return {"org_rule": same[0]["id"], "already": True}
+                return {"org_rule": same[0]["id"], "already": True, "recheck": recheck_open_cards(g)}
             opposite = org.read("""MATCH (o:OrgRule {predicate:$p, prefer_kind:$ok, over_kind:$pk}) WHERE o.retired = false
                                    RETURN o.id AS id""",
                                 {"p": r["predicate"], "pk": r["prefer_kind"], "ok": r["over_kind"]})
@@ -519,39 +708,172 @@ def promote(g: Graph, rule_id: str, user: str = "bid-manager") -> dict:
             n = org.scalar("MATCH (o:OrgRule) WHERE o.retired = false RETURN count(o)") or 0
             if n >= ORG_MAX_ACTIVE:
                 raise OrgMemoryError(f"company memory is full ({ORG_MAX_ACTIVE} active rules); retire one first")
-        oid = _id("ORG-", r["predicate"], r["prefer_kind"], r["over_kind"], src, time.time_ns())
-        org.run("""MERGE (u:User {key:$u}) ON CREATE SET u.name = $u
+        oid = _id("ORG-", r["predicate"], r["prefer_kind"], r["over_kind"], tag, time.time_ns())
+        org.run("""MERGE (u:User {key:$tag}) ON CREATE SET u.name = $tag, u.kind = 'session'
                    CREATE (o:OrgRule {id:$id, key:$id, predicate:$p, prefer_kind:$pk, over_kind:$ok, rationale:$why,
-                                      retired:false, promoted_at:timestamp(), promoted_by:$u,
-                                      source_rule:$rid, source_session:$src})
+                                      retired:false, promoted_at:timestamp(), promoted_by:$tag,
+                                      source_rule:$rid, source_session:$tag})
+                   SET o.promoted_by_label = $lab
                    CREATE (o)-[:PROMOTED_BY {at:timestamp()}]->(u)
                    CREATE (o)-[:LEARNED_FROM]->(:SourceDecision {id:$did, key:$did, rationale:$drat, policy:$dpol,
                           decided_by:$dby, subject_key:$sk, subject:$subj, predicate:$p, chosen_value:$val,
-                          source_doc:$doc, at:$dat, source_session:$src})""",
-                {"u": user, "id": oid, "p": r["predicate"], "pk": r["prefer_kind"], "ok": r["over_kind"],
-                 "why": r.get("rationale") or "", "rid": rule_id, "src": src,
+                          source_doc:$doc, at:$dat, source_session:$tag})""",
+                {"tag": tag, "lab": label, "id": oid, "p": r["predicate"], "pk": r["prefer_kind"],
+                 "ok": r["over_kind"], "why": r.get("rationale") or "", "rid": rule_id,
                  "did": d.get("id"), "drat": d.get("rationale"), "dpol": d.get("policy"),
                  "dby": rows[0]["decided_by"], "sk": d.get("subject_key"), "subj": rows[0]["subject"],
                  "val": d.get("chosen_value"), "doc": rows[0]["source_doc"], "dat": d.get("at")})
         # bounded audit trail: drop the oldest retired rules beyond the cap
         org.run("""MATCH (o:OrgRule) WHERE o.retired = true WITH o ORDER BY o.retired_at DESC SKIP $keep
-                   OPTIONAL MATCH (o)-[:LEARNED_FROM]->(d:SourceDecision) DETACH DELETE o, d""",
+                   OPTIONAL MATCH (o)-[:LEARNED_FROM]->(d:SourceDecision)
+                   OPTIONAL MATCH (c:Contest)-[:CONTESTS]->(o) DETACH DELETE o, d, c""",
                 {"keep": ORG_MAX_KEPT})
-    return {"org_rule": oid, "already": False}
+        _export_locked()
+    return {"org_rule": oid, "already": False, "recheck": recheck_open_cards(g)}
 
 
-def retire_org(org_id: str, user: str = "bid-manager") -> dict:
-    """Take a company rule out of play for every session (kept, marked retired, for the audit trail)."""
+def _owner_check(o: dict, tag: str | None, admin: bool, org_id: str) -> None:
+    if admin:
+        return
+    if tag is None:
+        raise OrgMemoryError("retiring a company rule needs a session (X-Session header)", 400)
+    if o.get("source_session") != tag:
+        raise OrgMemoryError(f"only the session that promoted {org_id} can retire it; contest it instead "
+                             f"(POST /api/memory/org/{org_id}/contest) to take it out of play in your session", 403)
+
+
+def retire_org(org_id: str, g: Graph | None = None, user: str | None = None, admin: bool = False) -> dict:
+    """Take a company rule out of play for every session (kept, marked retired, for the audit trail).
+    Only the promoting session (or an operator with the admin token) may retire; the acting session's
+    decisions made by the rule are then reopened as cards."""
     if not isinstance(org_id, str) or not ORG_ID_RE.match(org_id):
         raise OrgMemoryError("id must look like ORG-<10 hex>", 400)
-    user = re.sub(r"[^\w .@-]", "", str(user or "bid-manager"))[:64].strip() or "bid-manager"
+    tag = session_tag(g.name) if g is not None and g.name.startswith("session_") else None
     with _ORG_LOCK:
         org = _org()
-        rows = org.read("MATCH (o:OrgRule {id:$id}) RETURN o.retired AS retired", {"id": org_id}) if org else []
+        rows = org.read("MATCH (o:OrgRule {id:$id}) RETURN o.retired AS retired, o.source_session AS source_session",
+                        {"id": org_id}) if org else []
         if not rows:
             raise OrgMemoryError(f"no company rule {org_id}", 404)
-        if rows[0]["retired"]:
-            return {"org_rule": org_id, "retired": True, "already": True}
-        org.run("MATCH (o:OrgRule {id:$id}) SET o.retired = true, o.retired_at = timestamp(), o.retired_by = $u",
-                {"id": org_id, "u": user})
-    return {"org_rule": org_id, "retired": True, "already": False}
+        _owner_check(rows[0], tag, admin, org_id)
+        already = bool(rows[0]["retired"])
+        if not already:
+            org.run("""MATCH (o:OrgRule {id:$id}) SET o.retired = true, o.retired_at = timestamp(),
+                           o.retired_by = $by, o.retired_by_label = $lab""",
+                    {"id": org_id, "by": tag if tag and not admin else "admin", "lab": _label(user)})
+            _export_locked()
+    review = review_org_rule(g, org_id, "retired") if tag else {"flagged": 0, "reopened": []}
+    return {"org_rule": org_id, "retired": True, "already": already, **review}
+
+
+def contest_org(g: Graph, org_id: str, user: str | None = None, reason: str | None = None) -> dict:
+    """A session that disagrees with a company rule it did not promote: the rule stops applying in this
+    session, the decisions it made here are reopened as resolve cards, and the contest is recorded on
+    the rule in company memory (one per session) for its promoter to see."""
+    tag = _need_session(g)
+    if not isinstance(org_id, str) or not ORG_ID_RE.match(org_id):
+        raise OrgMemoryError("id must look like ORG-<10 hex>", 400)
+    with _ORG_LOCK:
+        org = _org()
+        rows = org.read("""MATCH (o:OrgRule {id:$id}) RETURN o {.*} AS o""", {"id": org_id}) if org else []
+        if not rows:
+            raise OrgMemoryError(f"no company rule {org_id}", 404)
+        o = rows[0]["o"]
+        if o.get("retired"):
+            raise OrgMemoryError(f"{org_id} is already retired: it applies nowhere")
+        if o.get("source_session") == tag:
+            raise OrgMemoryError(f"this session promoted {org_id}: retire it instead")
+        n = org.scalar("MATCH (c:Contest)-[:CONTESTS]->(:OrgRule {id:$id}) RETURN count(c)", {"id": org_id}) or 0
+        if n < ORG_MAX_CONTESTS:
+            org.run("""MATCH (o:OrgRule {id:$id})
+                       MERGE (c:Contest {key:$key}) ON CREATE SET c.at = timestamp(), c.session = $tag
+                       SET c.label = $lab, c.reason = $why
+                       MERGE (c)-[:CONTESTS]->(o)""",
+                    {"id": org_id, "key": f"{org_id}:{tag}", "tag": tag, "lab": _label(user),
+                     "why": (str(reason or "")[:200]).strip() or None})
+            _export_locked()
+        contests = org.scalar("MATCH (c:Contest)-[:CONTESTS]->(:OrgRule {id:$id}) RETURN count(c)", {"id": org_id})
+    g.run("""MERGE (r:OrgRuleRef {id:$id}) SET r.key = $id, r.graph = $graph, r.predicate = $p,
+                 r.prefer_kind = $pk, r.over_kind = $ok, r.promoted_by = $by, r.rationale = $why,
+                 r.contested = true, r.contested_at = timestamp()""",
+          {"id": org_id, "graph": ORG_GRAPH, "p": o.get("predicate"), "pk": o.get("prefer_kind"),
+           "ok": o.get("over_kind"), "by": o.get("promoted_by"), "why": o.get("rationale")})
+    review = review_org_rule(g, org_id, "contested")
+    return {"org_rule": org_id, "contested": True, "contests": int(contests or 0), **review}
+
+
+# ---- JSON mirror of company memory (FalkorDB persistence is the primary store)
+
+def _export_locked(path: str | None = None) -> str | None:
+    path = path or ORG_EXPORT_PATH
+    if not path:
+        return None
+    g = _org()
+    rows = [] if g is None else g.read(
+        """MATCH (o:OrgRule)
+           OPTIONAL MATCH (o)-[:LEARNED_FROM]->(d:SourceDecision)
+           OPTIONAL MATCH (o)-[:PROMOTED_BY]->(u:User)
+           OPTIONAL MATCH (c:Contest)-[:CONTESTS]->(o)
+           WITH o, d, u, collect(c {.*}) AS contests ORDER BY o.promoted_at, o.id
+           RETURN o {.*} AS rule, d {.*} AS source, u {.*} AS user, contests""")
+    import json
+    import pathlib
+    p = pathlib.Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    tmp.write_text(json.dumps({"format": "bidbrain-org-memory/1", "graph": ORG_GRAPH,
+                               "exported_at": int(time.time() * 1000), "rules": rows}, indent=1, default=str))
+    os.replace(tmp, p)
+    return str(p)
+
+
+def export_org(path: str | None = None, only_if_present: bool = False) -> str | None:
+    """Write company memory to JSON (atomic rename). With only_if_present, an absent company graph
+    leaves the file alone (a failed import must never be followed by an empty export)."""
+    with _ORG_LOCK:
+        if only_if_present and _org() is None:
+            return None
+        return _export_locked(path)
+
+
+def import_org(path: str | None = None) -> int:
+    """Rebuild company memory from its JSON mirror, only when the company graph is absent (a FalkorDB
+    data dir that survived the restart is newer and wins). Returns the number of rules restored."""
+    import json
+    import pathlib
+    path = path or ORG_EXPORT_PATH
+    if not path or not pathlib.Path(path).is_file():
+        return 0
+    clean = lambda m: {k: v for k, v in (m or {}).items() if v is not None and not k.startswith("_")}
+    with _ORG_LOCK:
+        if _org() is not None:
+            return 0
+        data = json.loads(pathlib.Path(path).read_text())
+        org = Graph(ORG_GRAPH)
+        n = 0
+        for row in data.get("rules", []):
+            rule = clean(row.get("rule"))
+            if not ORG_ID_RE.match(str(rule.get("id", ""))):
+                continue
+            org.run("CREATE (o:OrgRule) SET o += $r", {"r": rule})
+            if row.get("source"):
+                org.run("MATCH (o:OrgRule {id:$id}) CREATE (o)-[:LEARNED_FROM]->(d:SourceDecision) SET d += $d",
+                        {"id": rule["id"], "d": clean(row["source"])})
+            user = clean(row.get("user"))
+            if user.get("key"):
+                org.run("""MATCH (o:OrgRule {id:$id}) MERGE (u:User {key:$k}) SET u += $u
+                           CREATE (o)-[:PROMOTED_BY {at:o.promoted_at}]->(u)""",
+                        {"id": rule["id"], "k": user["key"], "u": user})
+            for c in row.get("contests") or []:
+                c = clean(c)
+                if c.get("key"):
+                    org.run("MATCH (o:OrgRule {id:$id}) CREATE (c:Contest) SET c += $c CREATE (c)-[:CONTESTS]->(o)",
+                            {"id": rule["id"], "c": c})
+            n += 1
+        return n
+
+
+def apply_event(g: Graph, ev: dict, **kw) -> dict:
+    """Convenience re-export of conflicts.events.apply_event (a document + its claims -> engine)."""
+    from bidbrain.conflicts.events import apply_event as _apply
+    return _apply(g, ev, **kw)

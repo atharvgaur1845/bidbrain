@@ -2,7 +2,7 @@
 
 `trace_from_credential` is the README's hero question as a single query: from a person's credential, through
 the work they led, to that work's client, to every work the client commissioned, to each completion
-certificate. Six relationships, one round trip; the database (not Python) does the joins and the aggregation,
+certificate. Five relationships on the chain (plus each work's lead, matched beside it), one round trip; the database (not Python) does the joins and the aggregation,
 and the path itself comes back so the answer can be shown hop by hop.
 """
 from __future__ import annotations
@@ -43,7 +43,7 @@ RETURN creds, lead.name AS work_led_by, lead.key AS work_lead_key,
 
 
 @tool("trace_from_credential",
-      """The 6-hop chain in ONE Cypher query: credential <-HOLDS- person <-LED_BY- work -FOR_CLIENT->
+      """The 5-hop chain in ONE Cypher query: credential <-HOLDS- person <-LED_BY- work -FOR_CLIENT->
       client <-FOR_CLIENT- every work for that client -EVIDENCED_BY-> its completion certificate. For
       questions like "starting from Sunita Joshi's Six Sigma certificate on the Pkg-107 job, what is the
       combined value of every work for that client?". Give `person` and/or `credential` (an id like

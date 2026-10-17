@@ -79,8 +79,12 @@ def _resolve(g: Graph, text: str | None, kind: str) -> tuple[str | None, dict | 
             if not hits:    # never let "Pkg-999" fuzzy-match Pkg-99
                 raise LookupError(f"no work with package number {m.group(1)}")
     ranked = aliases.resolve(text, cands, limit=3)
-    if ranked and ranked[0]["score"] >= 70 and not ranked[0].get("ambiguous"):
+    if ranked and ranked[0]["score"] >= RESOLVE_MIN and not ranked[0].get("ambiguous") \
+            and _strict_score(text, cands[ranked[0]["key"]]) >= RESOLVE_MIN:
         return ranked[0]["key"], {"via": "fuzzy", "matched": ranked[0]["name"], "score": ranked[0]["score"]}
+    if not any(_strict_score(text, cands[r["key"]]) >= RESOLVE_MIN for r in ranked):
+        raise LookupError(f"no {kind} named like '{text}' in the graph; nearest (not matches): "
+                          + ", ".join(f"{r['name']} ({r['score']})" for r in ranked))
     raise LookupError(f"could not resolve {kind} '{text}' unambiguously; candidates: "
                       + ", ".join(f"{r['name']} ({r['score']})" for r in ranked))
 
@@ -120,10 +124,33 @@ def _works_payload(rows: list[dict], scope_nodes: list[dict], scope_edges: list[
 # entity resolution
 
 
+# Below this score a mention is "not in the graph" (the same bar `_resolve` uses before it will act on a name).
+RESOLVE_MIN = 70.0
+
+
+def _strict_score(text: str, forms: list[str]) -> float:
+    """aliases.resolve's score without its partial match against a form shorter than 4 characters: a
+    two-letter alias ('ai') is contained in almost any query ('NHAI'), which is not a match."""
+    from rapidfuzz import fuzz
+    q, nq = (text or "").lower().strip(), aliases.norm((text or "").lower().strip())
+    best = 0.0
+    for f in forms:
+        fl = (f or "").lower()
+        if not fl:
+            continue
+        if nq and nq == aliases.norm(fl):
+            return 100.0
+        best = max(best, fuzz.token_set_ratio(q, fl) * 0.97,
+                   fuzz.partial_ratio(q, fl) * 0.9 if len(q) >= 4 and len(fl) >= 4 else 0)
+    return round(best, 1)
+
+
 @tool("resolve_entity",
       """Resolve a free-text mention to graph entities (client, person, work, category, tender).
       Handles informal forms like 'phed odisha', 'gujarat pw', 'Pkg-59'. Returns ranked
-      candidates; if `ambiguous` is true, narrow with more context instead of guessing.""",
+      candidates; if `ambiguous` is true, narrow with more context instead of guessing. When nothing
+      scores at least 70 the entity is not in the graph: `result` is empty, `not_found` is true and
+      `nearest` lists the closest names (which are NOT matches).""",
       {"text": {"type": "string"},
        "kind": {"type": "string", "enum": ["client", "person", "work", "category", "tender"]}},
       ["text", "kind"])
@@ -134,9 +161,37 @@ def resolve_entity(g: Graph, text: str, kind: str) -> dict:
         if len(hits) == 1:
             return {"result": [{"key": hits[0], "name": cands[hits[0]][0], "score": 100.0}]}
         if not hits:
-            return {"result": [], "note": f"no work with package number {m.group(1)}"}
+            return {"result": [], "not_found": True, "nearest": [],
+                    "note": f"no work with package number {m.group(1)}"}
     ranked = aliases.resolve(text, cands, limit=5)
-    return {"result": ranked}
+    kept = [r for r in ranked if _strict_score(text, cands[r["key"]]) >= RESOLVE_MIN]
+    if not kept:
+        near = sorted(({"key": k, "name": f[0], "score": _strict_score(text, f)} for k, f in cands.items()),
+                      key=lambda r: -r["score"])[:3]
+        return {"result": [], "not_found": True, "nearest": near,
+                "note": f"no {kind} named like '{text}' in the graph (best score below {RESOLVE_MIN:.0f})"}
+    if len(kept) == 1:
+        kept[0].pop("ambiguous", None)
+    return {"result": kept}
+
+
+_DOC_TYPES: dict[str, list[str]] = {}
+
+
+def doc_types(g: Graph) -> list[str]:
+    if g.name not in _DOC_TYPES:
+        _DOC_TYPES[g.name] = sorted(r["t"] for r in g.read("MATCH (d:Document) WHERE d.doc_type IS NOT NULL "
+                                                           "RETURN DISTINCT d.doc_type AS t"))
+    return _DOC_TYPES[g.name]
+
+
+def doc_type_error(g: Graph, doc_type: str | None) -> str | None:
+    """Why `doc_type` is not a document type in this graph, or None. A filter on an unknown type matches no
+    document, which a search tool would otherwise report as an empty, confident result."""
+    if not doc_type:
+        return None
+    valid = doc_types(g)
+    return None if doc_type in valid else f"unknown doc_type {doc_type!r}; use one of {valid}"
 
 
 @tool("fact_history",

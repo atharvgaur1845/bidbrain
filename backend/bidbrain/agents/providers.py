@@ -19,10 +19,14 @@ to the next bucket and, if every bucket rejects it, raises with the real reason.
   recorded runs); replay also accepts entries recorded under the older
   model-agnostic key. Entries written before this key change are otherwise
   unreachable (they are simply re-generated).
-* Stickiness: `chat(..., prefer=bucket)` tries that bucket first (cache and live) while it is not
-  parked, so one agent run keeps one model; it falls back to the rest of the pool only when the
-  preferred bucket is rate-limited, unwell or rejects the request. `run_agent` passes the bucket
-  that served its first step.
+* Pinning: `chat(..., prefer=bucket)` is a hard pin, so one agent run keeps one model. Only that
+  bucket's cache entries count, and a parked pinned bucket is waited for up to the whole LLM_MAX_WAIT
+  (Groq's per-minute token windows often reset 30-60 s out, so a shorter wait still mixed models).
+  Another bucket serves only when the pinned one rejects the request, is not configured, or stays
+  parked beyond the wait; the reply then says why in `Reply.switched`. `run_agent` pins the bucket
+  that served its first step and moves the pin (once, recorded) only on such a switch.
+* Errors that leave this module are redacted (`redact`): no organization / request ids, keys or URLs
+  from a provider's error body reach a client, only the kind and a short message.
 * Reasoning is kept short: gpt-oss gets reasoning_effort=low, Qwen gets
   thinking disabled — tool routing does not need a long hidden chain of thought.
 """
@@ -52,7 +56,6 @@ ENDPOINTS = {
 DEFAULT_POOL = "groq:openai/gpt-oss-120b,groq:qwen/qwen3.8-27b,groq:openai/gpt-oss-20b,cerebras:gpt-oss-120b"
 REPLAY = os.getenv("BIDBRAIN_REPLAY", "0") == "1"
 MAX_WAIT = float(os.getenv("LLM_MAX_WAIT", "45"))      # seconds a call may wait for a rate limit to reset
-STICKY_WAIT = float(os.getenv("LLM_STICKY_WAIT", "20"))  # seconds worth waiting for the model that began the answer
 MIN_PARK = 1.0          # a 429 with 'retry-after: 0' must not turn into a tight retry loop
 SHORT_PARK = 5.0        # 5xx, timeouts, connection errors: the endpoint is briefly unwell
 AUTH_PARK = 3600.0      # 401/403: the key is wrong or lacks access; retrying soon will not help
@@ -79,7 +82,7 @@ class LLMUnavailable(RuntimeError):
     'not_configured', 'replay_miss'."""
 
     def __init__(self, msg: str, kind: str = "unavailable"):
-        super().__init__(msg)
+        super().__init__(redact(msg))
         self.kind = kind
 
 
@@ -92,6 +95,30 @@ class Reply:
     usage: dict
     cached: bool
     ms: float
+    switched: str | None = None     # set when `prefer` was given and another bucket served: why
+
+
+# ── redaction ────────────────────────────────────────────────────────────────
+# Provider error bodies carry account details (Groq: "in organization `org_01...`", billing URLs, request
+# ids). Nothing of that may reach the browser, SSE or an MCP client.
+_SECRETS = [
+    (re.compile(r"\b(?:org|req|request|proj|user|sess)_[A-Za-z0-9]{6,}\b"), "[id]"),
+    (re.compile(r"\b(?:gsk|csk|sk|pk|key|xai)[-_][A-Za-z0-9_\-]{10,}\b"), "[key]"),
+    (re.compile(r"\bBearer\s+\S+", re.I), "Bearer [key]"),
+    (re.compile(r"https?://\S+"), "[url]"),
+    (re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I), "[id]"),
+    (re.compile(r"\b(?:api[_ -]?key|access[_ -]?token|token|request[_ -]?id|x-request-id|org(?:anization)?[_ -]?id)"
+                r"\s*[:=]\s*[`'\"]?[^\s`'\",;]+[`'\"]?", re.I), "[redacted]"),
+    (re.compile(r"\b(organization|org|project|account)\s+[`'\"][^`'\"]+[`'\"]", re.I), r"\1 [id]"),
+]
+
+
+def redact(text) -> str:
+    """Provider error text with ids, keys and URLs removed."""
+    out = str(text or "")
+    for rx, sub in _SECRETS:
+        out = rx.sub(sub, out)
+    return out
 
 
 class _Cache:
@@ -193,10 +220,22 @@ def _classify(exc) -> tuple[str, float]:
     return "request", 0.0       # 400 / 413 / 422 / other 4xx / client-side failure
 
 
-def _describe(bucket: str, exc) -> str:
+def _describe(bucket: str, exc, kind: str | None = None) -> str:
+    """'bucket: kind (HTTP n): short message', redacted. A rate limit is reported only as when it resets."""
     status = getattr(exc, "status_code", None)
-    msg = getattr(exc, "message", None) or str(exc)
-    return f"{bucket}: {('HTTP ' + str(status)) if status else type(exc).__name__} {msg}"[:300]
+    kind = kind or _classify(exc)[0]
+    if kind == "rate_limited":
+        short = f"retry in {_reset_seconds(exc):.0f}s"
+    else:
+        body = getattr(exc, "body", None)
+        msg = None
+        if isinstance(body, dict):
+            err = body.get("error") if isinstance(body.get("error"), dict) else body
+            msg = err.get("message") if isinstance(err, dict) else None
+        msg = redact(msg or getattr(exc, "message", None) or str(exc))
+        msg = re.sub(r"^Error code: \d+ - ", "", msg)
+        short = re.split(r"(?<=[.!?])\s", msg.strip(), maxsplit=1)[0][:140]
+    return f"{bucket}: {kind}{f' (HTTP {status})' if status else ''}: {short}"
 
 
 def _shape(prov: str, model: str, messages: list[dict]) -> tuple[list[dict], dict]:
@@ -219,8 +258,13 @@ def _prefer_first(buckets: list[tuple[str, str]], prefer: str | None) -> list[tu
 
 
 def _hit(messages, tools, temperature, max_tokens, prefer: str | None = None) -> dict | None:
-    for prov, model in _prefer_first(POOL, prefer):
-        if hit := _cache.get(_key(f"{prov}:{model}", messages, tools, temperature, max_tokens)):
+    """A cached completion. With `prefer`, only that bucket's entry counts (one model per answer); the
+    rest of the pool is consulted only in replay mode, where nothing can go live instead."""
+    buckets = [f"{p}:{m}" for p, m in _prefer_first(POOL, prefer)]
+    if prefer and not REPLAY:
+        buckets = [b for b in buckets if b == prefer]
+    for b in buckets:
+        if hit := _cache.get(_key(b, messages, tools, temperature, max_tokens)):
             return hit
     if REPLAY:
         return _cache.get(_legacy_key(messages, tools, temperature))
@@ -237,15 +281,22 @@ def _fail(errors: list[tuple[str, str]], why: str) -> LLMUnavailable:
 
 
 def chat(messages: list[dict], tools: list[dict] | None = None, temperature: float = 0.0,
-         max_tokens: int = 1500, use_cache: bool = True, prefer: str | None = None) -> Reply:
-    """One completion from the pool. `prefer` ('provider:model') is tried first while it is not parked."""
+         max_tokens: int = 1500, use_cache: bool = True, prefer: str | None = None,
+         max_wait: float | None = None) -> Reply:
+    """One completion from the pool.
+
+    `prefer` ('provider:model') is a hard pin: only its cache entries count, and while it is parked the call
+    waits for it (up to `max_wait`, default LLM_MAX_WAIT). Another bucket serves only when the pinned one
+    rejects this request, is not configured, or stays parked beyond the wait; `Reply.switched` says why."""
     if use_cache and (hit := _hit(messages, tools, temperature, max_tokens, prefer)):
         return Reply(**{**hit, "cached": True, "ms": 0.0})
     if REPLAY:
         raise LLMUnavailable("replay mode: no recorded completion for this request", "replay_miss")
+    budget = MAX_WAIT if max_wait is None else max_wait
     errors: list[tuple[str, str]] = []          # (kind, message) per failed attempt in this call
     rejected: dict[str, str] = {}               # bucket -> why it rejected *this* request (not parked)
-    deadline = time.time() + MAX_WAIT
+    deadline = time.time() + budget
+    switched: str | None = None                 # why the pinned bucket is not the one serving
     while True:
         now = time.time()
         live = [(p, m) for p, m in POOL if _client(p) is not None]
@@ -257,27 +308,43 @@ def chat(messages: list[dict], tools: list[dict] | None = None, temperature: flo
             raise LLMUnavailable("every LLM endpoint rejected this request: " + "; ".join(rejected.values()),
                                  "request")
         if now > deadline:
-            raise _fail(errors, f"gave up after {MAX_WAIT:.0f}s")
-        # one model per answer: a preferred bucket that is only briefly rate-limited is waited for, not swapped out
-        if prefer and prefer not in rejected and any(f"{p}:{m}" == prefer for p, m in cands):
-            w = _parked.get(prefer, 0) - now
-            if 0 < w <= STICKY_WAIT and now + w < deadline:
-                time.sleep(w)
+            raise _fail(errors, f"gave up after {budget:.0f}s")
+        names = [f"{p}:{m}" for p, m in cands]
+        pinned = prefer if prefer in names else None
+        if prefer and not pinned and not switched:
+            switched = (f"{prefer} rejected this request ({rejected[prefer].split(': ', 1)[-1]})"
+                        if prefer in rejected else f"{prefer} is not configured on this server")
+        if pinned:
+            wake = _parked.get(pinned, 0)
+            if wake <= now:
+                ready = [(p, m) for p, m in cands if f"{p}:{m}" == pinned]
+            elif wake <= deadline:                    # one model per answer: wait for it, the whole budget
+                time.sleep(max(0.2, wake - now))
                 continue
-        ready = _prefer_first([(p, m) for p, m in cands if _parked.get(f"{p}:{m}", 0) <= now], prefer)
-        if not ready:
-            wake = min(_parked[f"{p}:{m}"] for p, m in cands)
-            if wake > deadline:
-                why = f"next endpoint free in {wake - now:.0f}s, beyond the {MAX_WAIT:.0f}s wait limit"
-                if not errors:      # parked by other calls: say what they saw
-                    errors = [(_park_kind.get(f"{p}:{m}", "parked"),
-                               f"{p}:{m} parked ({_park_kind.get(f'{p}:{m}', '?')}) for "
-                               f"{_parked[f'{p}:{m}'] - now:.0f}s more") for p, m in cands]
-                raise _fail(errors, why)
-            time.sleep(max(0.2, wake - now))
-            continue
+            else:                                     # parked beyond the wait: hand over, and say why
+                switched = (f"{pinned} {_park_kind.get(pinned, 'parked')} for {wake - now:.0f}s more, "
+                            f"beyond the {budget:.0f}s wait")
+                pinned = None
+        if not pinned:
+            ready = [(p, m) for p, m in cands if _parked.get(f"{p}:{m}", 0) <= now and f"{p}:{m}" != prefer]
+            if not ready:
+                others = [(p, m) for p, m in cands if f"{p}:{m}" != prefer] or cands
+                wake = min(_parked.get(f"{p}:{m}", 0) for p, m in others)
+                if wake > deadline:
+                    why = f"next endpoint free in {wake - now:.0f}s, beyond the {budget:.0f}s wait limit"
+                    if not errors:      # parked by other calls: say what they saw
+                        errors = [(_park_kind.get(f"{p}:{m}", "parked"),
+                                   f"{p}:{m} parked ({_park_kind.get(f'{p}:{m}', '?')}) for "
+                                   f"{_parked.get(f'{p}:{m}', 0) - now:.0f}s more") for p, m in cands]
+                    raise _fail(errors, why)
+                time.sleep(max(0.2, wake - now))
+                continue
         for prov, model in ready:
             bucket = f"{prov}:{model}"
+            if prefer and bucket != prefer and use_cache:
+                key = _key(bucket, messages, tools, temperature, max_tokens)
+                if hit := _cache.get(key):          # the bucket taking over may already have this one
+                    return Reply(**{**hit, "cached": True, "ms": 0.0, "switched": switched})
             msgs, extra = _shape(prov, model, messages)
             kw = dict(model=model, messages=msgs, temperature=temperature, max_tokens=max_tokens, **extra)
             if tools:
@@ -287,7 +354,7 @@ def chat(messages: list[dict], tools: list[dict] | None = None, temperature: flo
                 resp = _client(prov).chat.completions.create(**kw)
             except Exception as exc:
                 kind, wait = _classify(exc)
-                desc = _describe(bucket, exc)
+                desc = _describe(bucket, exc, kind)
                 errors.append((kind, desc))
                 if kind == "request":
                     rejected[bucket] = desc
@@ -295,8 +362,8 @@ def chat(messages: list[dict], tools: list[dict] | None = None, temperature: flo
                     with _lock:
                         _parked[bucket] = max(_parked.get(bucket, 0), time.time() + wait)
                         _park_kind[bucket] = kind
-                if time.time() > deadline:
-                    break
+                if bucket == prefer or time.time() > deadline:
+                    break                   # re-plan: wait for the pinned bucket, or hand over with a reason
                 continue
             choice = resp.choices[0]
             m = choice.message
@@ -312,4 +379,5 @@ def chat(messages: list[dict], tools: list[dict] | None = None, temperature: flo
             truncated_empty = getattr(choice, "finish_reason", None) == "length" and not rep["content"] and not calls
             if use_cache and not truncated_empty:
                 _cache.put(_key(bucket, messages, tools, temperature, max_tokens), rep)
-            return Reply(**rep, cached=False, ms=round((time.perf_counter() - t0) * 1000, 1))
+            return Reply(**rep, cached=False, ms=round((time.perf_counter() - t0) * 1000, 1),
+                         switched=switched if bucket != prefer else None)

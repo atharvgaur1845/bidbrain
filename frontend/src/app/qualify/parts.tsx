@@ -12,7 +12,7 @@ export const AGENTS = [
   { key: "EvidenceHunter", desc: "Qualifies each clause by graph traversal", llm: false },
   { key: "AbsenceAuditor", desc: "Finds missing letters, lapsing credentials, gaps", llm: false },
   { key: "ConflictSentinel", desc: "Checks the conflict history of every relied-on fact", llm: false },
-  { key: "Verifier", desc: "Re-derives every verdict without an LLM", llm: false },
+  { key: "Verifier", desc: "Re-reads clause text, recomputes from claims, re-derives", llm: false },
   { key: "Assembler", desc: "Writes the bid memo with citations", llm: true },
 ];
 
@@ -22,7 +22,7 @@ export type Handoff = { from: string; to: string; reason: string; clauses: strin
 
 export type Finding = { kind: string; text: string; severity?: string; agent: string };
 export type Clause = { clause_id: string; ref: string; kind: string; text: string; params?: any; verdict?: string; basis?: string;
-  evidence?: any[]; subgraph?: GData; findings: Finding[] };
+  corrected?: string; evidence?: any[]; subgraph?: GData; findings: Finding[] };
 
 const humanize = (s: string) => (s || "").replace(/_/g, " ");
 
@@ -180,6 +180,13 @@ export function VerdictTable({ clauses, focus, onFocus, running }:
                 <td className="align-top!">
                   <div className={clsx("text-[13.5px] text-ink", active ? "whitespace-normal" : "truncate")} title={c.text}>{c.text}</div>
                   {c.basis && <div className="num mt-1 text-[12px] leading-snug text-ink-3">{c.basis}</div>}
+                  {c.corrected && (
+                    <div className="mt-2 rounded-r-md border-l-2 border-warn bg-well px-3 py-2 text-[12.5px] leading-snug text-ink-2">
+                      <span className="font-medium text-ink">ClauseParser</span>
+                      <span className="text-ink-3"> · corrected</span>
+                      <span className="block">{c.corrected}</span>
+                    </div>
+                  )}
                   {c.findings.map((f, k) => <FindingNote key={k} f={f} />)}
                 </td>
                 <td className="hidden align-top! text-[12.5px] text-ink-2 md:table-cell">
@@ -208,9 +215,14 @@ export function VerifierBanner({ verified }: { verified: any }) {
       <div className="text-ink-2">
         <span className="font-semibold text-ink">Verifier, no LLM. </span>
         {ok
-          ? <>Re-derived all <span className="num font-semibold text-ink">{verified.checked}</span> verdicts from the graph. Every one agrees
+          ? <>Checked all <span className="num font-semibold text-ink">{verified.checked}</span> verdicts three ways (clause text re-read by the rule parser, credited values recomputed from the winning claims, verdict re-derived from the graph). Every one agrees
               {verified.retried?.length ? <> after the EvidenceHunter re-derived <span className="num font-semibold text-ink">{verified.retried.length}</span> that first disagreed</> : null}.</>
-          : <><span className="num font-semibold text-bad">{verified.mismatches.length}</span> verdicts disagree. The case is flagged.</>}
+          : <><span className="num font-semibold text-bad">{verified.mismatches.length}</span> verdicts disagree after one re-derivation. The case is flagged.
+              <ul className="mt-1 list-disc pl-4 text-[12.5px]">
+                {verified.mismatches.map((m: any, i: number) => (
+                  <li key={i}>Clause <span className="num">{m.clause}</span>: {m.note || (m.reasons || []).join("; ")}</li>
+                ))}
+              </ul></>}
       </div>
     </div>
   );

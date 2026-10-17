@@ -115,4 +115,5 @@ def ask(g: Graph, question: str, emit=None, history: list[dict] | None = None, m
     value, raw = parse_answer(res.final)
     return {"answer": value, "answer_text": raw, "explanation": res.final, "steps": res.steps,
             "evidence": res.evidence, "subgraph": res.subgraph, "usage": res.usage, "ms": res.ms,
-            "providers": res.providers, "error": res.error, "note": getattr(res, "note", None)}
+            "providers": res.providers, "switches": res.switches, "error": res.error,
+            "note": getattr(res, "note", None)}

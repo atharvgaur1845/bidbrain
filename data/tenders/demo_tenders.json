@@ -12,7 +12,7 @@
    {
     "id": "2.1",
     "kind": "similar_works",
-    "text": "Similar works (roads/highways/expressways), last 7 years, CPWD 80/60/40% of INR 250 Cr, govt/PSU clients, reference letters enclosed",
+    "text": "2.1 Similar works: The bidder should have satisfactorily completed similar works (roads, highways or expressways) during the last 7 years ending on the last date of bid submission, for Central Government / State Government / PSU clients, as under: (a) one similar completed work costing not less than 80% of the estimated cost of INR 250 Cr; or (b) two similar completed works each costing not less than 60% of the estimated cost; or (c) three similar completed works each costing not less than 40% of the estimated cost. Client reference letters shall be enclosed for each work claimed.",
     "params": {
      "categories": [
       "roads highways",
@@ -31,7 +31,7 @@
    {
     "id": "2.2",
     "kind": "turnover",
-    "text": "Average annual turnover, last 3 FY >= INR 75 Cr",
+    "text": "2.2 Financial turnover: Average annual financial turnover during the last 3 financial years ending 31 March 2026 shall be at least INR 75 Cr.",
     "params": {
      "min_average": 750000000,
      "years": 3
@@ -40,7 +40,7 @@
    {
     "id": "2.3",
     "kind": "key_personnel",
-    "text": "PM: PMP, >= 15 yrs, led expressway/highway",
+    "text": "2.3 Key personnel: Project Manager — PMP certified with minimum 15 years of experience, having led at least one expressway or highway project.",
     "params": {
      "credential": "PMP",
      "min_experience_years": 15,
@@ -54,7 +54,7 @@
    {
     "id": "2.4a",
     "kind": "certification",
-    "text": "ISO 9001:2015",
+    "text": "2.4 Certification: Valid ISO 9001:2015 and ISO 45001:2018 certificates.",
     "params": {
      "standard": "ISO 9001"
     }
@@ -62,7 +62,7 @@
    {
     "id": "2.4b",
     "kind": "certification",
-    "text": "ISO 45001:2018",
+    "text": "2.4 Certification: Valid ISO 9001:2015 and ISO 45001:2018 certificates.",
     "params": {
      "standard": "ISO 45001"
     }
@@ -70,7 +70,7 @@
    {
     "id": "2.5",
     "kind": "years_in_business",
-    "text": ">= 10 years in business",
+    "text": "2.5 The bidder shall have been in business for at least 10 years.",
     "params": {
      "min_years": 10
     }
@@ -78,7 +78,7 @@
    {
     "id": "2.6",
     "kind": "other",
-    "text": "Non-blacklisting declaration",
+    "text": "2.6 The bidder shall not have been blacklisted by any Central/State agency (declaration).",
     "params": {}
    }
   ]
@@ -96,7 +96,7 @@
    {
     "id": "i",
     "kind": "similar_works",
-    "text": "Water treatment / supply / sewerage, CPWD 80/60/40% of INR 60 Cr, last 7 years",
+    "text": "(i) Experience: three similar works (water treatment, water supply or sewerage & drainage) each of value not less than 40% of the estimated cost of INR 60 Cr completed in the last 7 years; or two works of 60%; or one work of 80%.",
     "params": {
      "categories": [
       "water treatment",
@@ -110,7 +110,7 @@
    {
     "id": "ii",
     "kind": "key_personnel",
-    "text": "2 PMs with PMP valid on bid date, >= 12 yrs, water projects",
+    "text": "(ii) Two Project Managers holding a valid PMP certification on the bid due date, with at least 12 years' experience each, having executed water treatment or water supply projects.",
     "params": {
      "credential": "PMP",
      "min_experience_years": 12,
@@ -124,7 +124,7 @@
    {
     "id": "iii",
     "kind": "turnover",
-    "text": "Average turnover last 3 FY >= INR 150 Cr",
+    "text": "(iii) Average annual turnover of the last three financial years not less than INR 150 Cr.",
     "params": {
      "min_average": 1500000000,
      "years": 3
@@ -133,7 +133,7 @@
    {
     "id": "iv",
     "kind": "certification",
-    "text": "ISO 14001:2015",
+    "text": "(iv) ISO 14001:2015 environmental management certification.",
     "params": {
      "standard": "ISO 14001"
     }
@@ -153,7 +153,7 @@
    {
     "id": "1",
     "kind": "similar_works",
-    "text": "Bridges, CPWD 80/60/40% of INR 450 Cr, last 7 years",
+    "text": "1. Similar work experience: completed bridge works (large bridges or bridges & flyovers) in the last 7 years: one work >= 80% of the estimated cost of INR 450 Cr, or two works >= 60%, or three works >= 40%.",
     "params": {
      "categories": [
       "large bridges",
@@ -166,7 +166,7 @@
    {
     "id": "2",
     "kind": "turnover",
-    "text": "Average turnover last 3 FY >= INR 200 Cr",
+    "text": "2. Average annual turnover over the last 3 financial years of at least INR 200 Cr.",
     "params": {
      "min_average": 2000000000,
      "years": 3
@@ -175,7 +175,7 @@
    {
     "id": "3",
     "kind": "key_personnel",
-    "text": "PM: PMP, 20 yrs, led bridge works",
+    "text": "3. A Project Manager with PMP certification and 20 years' experience who has led bridge works.",
     "params": {
      "credential": "PMP",
      "min_experience_years": 20,
@@ -189,7 +189,7 @@
    {
     "id": "4",
     "kind": "certification",
-    "text": "CPWD Class I registration",
+    "text": "4. CPWD Class I registration.",
     "params": {
      "standard": "CPWD"
     }
@@ -209,7 +209,7 @@
    {
     "id": "A",
     "kind": "turnover",
-    "text": "Turnover >= INR 240 Cr each of last 3 FY",
+    "text": "A. Annual Turnover >= INR 240 Cr in each of the last 3 financial years (audited).",
     "params": {
      "min_each_year": 2400000000,
      "years": 3
@@ -218,7 +218,7 @@
    {
     "id": "B",
     "kind": "similar_works",
-    "text": "Buildings, CPWD 80/60/40% of INR 90 Cr, last 7 years",
+    "text": "B. Similar works (buildings or small buildings): one completed work of at least INR 72 Cr, or two of INR 54 Cr, or three of INR 36 Cr, in the last 7 years.",
     "params": {
      "categories": [
       "buildings",
@@ -231,7 +231,7 @@
    {
     "id": "C",
     "kind": "years_in_business",
-    "text": ">= 15 years in business",
+    "text": "C. Minimum 15 years in business.",
     "params": {
      "min_years": 15
     }
@@ -239,10 +239,79 @@
    {
     "id": "D",
     "kind": "certification",
-    "text": "ISO 9001:2015",
+    "text": "D. ISO 9001:2015.",
     "params": {
      "standard": "ISO 9001"
     }
+   }
+  ]
+ },
+ {
+  "id": "T-RBC-2026-31",
+  "title": "Major River Bridge with Approach Flyover (EPC)",
+  "authority": "State Road & Bridge Corporation",
+  "category": "large bridges",
+  "estimated_cost": 1100000000,
+  "bid_date": "2026-06-30",
+  "story": "Either/or clause met on its second alternative (two flyovers of 35 Cr+), which a first-option reading would turn into NO-BID. The AbsenceAuditor hands clause 1 back: the strongest bridge has no client letter, so the EvidenceHunter re-selects a referenced one; for clause 2 the referenced works fall short, so it keeps the original. No relied-on fact has claim history, so the Planner skips the ConflictSentinel.",
+  "text": "Eligibility Criteria (technical envelope)\n1. Major bridge experience: the bidder shall have completed at least one large bridge work of value not less than INR 70 Cr during the last 7 years. Client reference letters shall be enclosed for the work claimed.\n2. Approach flyover experience: either one completed flyover / ROB work of value at least INR 60 Cr, or two completed flyover / ROB works each of value at least INR 35 Cr, in the last 7 years.\n3. Valid ISO 9001:2015 quality management certificate.\n4. The bidder shall have been in business for at least 10 years.\n5. Bid security of INR 1 Cr in the form of a bank guarantee, with a signed integrity pact.",
+  "clauses": [
+   {
+    "id": "1",
+    "kind": "similar_works",
+    "text": "1. Major bridge experience: the bidder shall have completed at least one large bridge work of value not less than INR 70 Cr during the last 7 years. Client reference letters shall be enclosed for the work claimed.",
+    "params": {
+     "categories": [
+      "large bridges"
+     ],
+     "lookback_years": 7,
+     "min_value": 700000000,
+     "count": 1,
+     "require_reference": false
+    }
+   },
+   {
+    "id": "2",
+    "kind": "similar_works",
+    "text": "2. Approach flyover experience: either one completed flyover / ROB work of value at least INR 60 Cr, or two completed flyover / ROB works each of value at least INR 35 Cr, in the last 7 years.",
+    "params": {
+     "categories": [
+      "bridges flyovers"
+     ],
+     "lookback_years": 7,
+     "options": [
+      {
+       "count": 1,
+       "min_value": 600000000
+      },
+      {
+       "count": 2,
+       "min_value": 350000000
+      }
+     ]
+    }
+   },
+   {
+    "id": "3",
+    "kind": "certification",
+    "text": "3. Valid ISO 9001:2015 quality management certificate.",
+    "params": {
+     "standard": "ISO 9001"
+    }
+   },
+   {
+    "id": "4",
+    "kind": "years_in_business",
+    "text": "4. The bidder shall have been in business for at least 10 years.",
+    "params": {
+     "min_years": 10
+    }
+   },
+   {
+    "id": "5",
+    "kind": "other",
+    "text": "5. Bid security of INR 1 Cr in the form of a bank guarantee, with a signed integrity pact.",
+    "params": {}
    }
   ]
  }

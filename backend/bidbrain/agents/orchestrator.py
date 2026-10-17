@@ -17,6 +17,11 @@ conclusions there (HANDED_OFF_TO links the runs, in the order they actually ran)
   runs again, re-selects preferring referenced works (kept only if the clause passes as well with them)
   and marks the finding resolved. A Verifier mismatch is likewise a request: the EvidenceHunter re-derives
   that clause once and the Verifier re-checks; NEEDS REVIEW only if the mismatch persists.
+* The **Verifier** does not replay the EvidenceHunter: it re-reads each clause's text with the rule parser
+  and compares the thresholds with the params the team used (a disagreement that would change the verdict
+  persists -> NEEDS REVIEW), recomputes every credited value from the winning claims rather than the
+  materialized property, and re-derives the verdict. The Assembler rejects an LLM memo that cites a DOC or
+  a ₹ amount it was not given (amounts are formatted as ₹X.XX Cr in Python before the model sees them).
 
 Only two steps need language: reading the tender (ClauseParser) and writing the memo (Assembler). Both
 degrade to deterministic fallbacks, so a demo can never be stopped by a rate limit.
@@ -24,6 +29,7 @@ degrade to deterministic fallbacks, so a demo can never be stopped by a rate lim
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections import Counter
 
@@ -43,6 +49,11 @@ RELEVANT = {"similar_works": ["value", "completed", "role", "client", "grading"]
             "turnover": ["revenue_operations"], "key_personnel": ["experience_years", "valid_through"],
             "certification": ["valid_until"], "years_in_business": [], "other": []}
 RANK = {"PASS": 2, "AT_RISK": 1}                          # verdicts that pass, best first
+CLAIM_PRED = {"Work": "value", "FinancialStatement": "revenue_operations", "Person": "experience_years"}
+MONEY_LABELS = {"Work", "FinancialStatement"}             # SATISFIED_BY.credited is rupees for these
+# the params that decide a threshold (what a params/text disagreement can change)
+THRESHOLD_KEYS = {"estimated_cost", "min_value", "count", "options", "lookback_years", "min_average",
+                  "min_each_year", "years", "min_experience_years", "min_years", "credential"}
 AUDITABLE = {"similar_works", "key_personnel"}            # clauses that cite works or people
 PIPELINE = ["EvidenceHunter", "AbsenceAuditor", "ConflictSentinel", "Verifier", "Assembler"]
 CONTINGENCIES = [
@@ -160,11 +171,13 @@ class _Team:
     def clauses(self, ids: list[str]) -> list[dict]:
         """Clauses as the case graph holds them now (kind may have been downgraded, verdict re-derived)."""
         rows = self.g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause) WHERE k.id IN $ids
-                              OPTIONAL MATCH (k)-[:SATISFIED_BY]->(s)
+                              OPTIONAL MATCH (k)-[sb:SATISFIED_BY]->(s)
                               RETURN k.id AS id, k.ref AS ref, k.kind AS kind, k.text AS text, k.params AS params,
                                      k.verdict AS verdict, k.detail AS detail, k.prefer_reference AS pref,
                                      collect(CASE WHEN s:Work THEN s.key END) AS works,
-                                     collect(s.key) AS sat""", {"c": self.case_id, "ids": ids})
+                                     collect(s.key) AS sat,
+                                     collect(CASE WHEN s IS NULL THEN NULL ELSE {label: labels(s)[0], key: s.key,
+                                             credited: sb.credited} END) AS edges""", {"c": self.case_id, "ids": ids})
         order = {k: i for i, k in enumerate(ids)}
         for r in rows:
             r["params"] = json.loads(r["params"] or "{}")
@@ -280,21 +293,96 @@ class _Team:
                    "summary": f"re-selected {n_re} of {len(reqs)} clause(s) with referenced works"})
 
     # ── Verifier ────────────────────────────────────────────────────────────
-    def verify(self, ids: list[str]) -> tuple[list[dict], int]:
+    def claim_check(self, s: dict) -> list[str]:
+        """Recompute what each SATISFIED_BY edge credits from the winning claims (status 'active', highest
+        authority, then most precise) rather than the materialized property, and re-check the clause's
+        threshold on those values. Facts with no active claim (contested) are left to the AT_RISK flag."""
+        by_label: dict[str, list[dict]] = {}
+        for e in s.get("edges") or []:
+            if e and e["label"] in CLAIM_PRED and e.get("credited") is not None:
+                by_label.setdefault(e["label"], []).append(e)
+        if not by_label:
+            return []
+        out, values = [], {}
+        for label, edges in by_label.items():
+            rows = self.g.read(f"""MATCH (x:{label}) WHERE x.key IN $keys
+                                   OPTIONAL MATCH (c:Claim {{predicate: $p, status: 'active'}})-[:ABOUT]->(x)
+                                   WITH x, c ORDER BY coalesce(c.authority, 0) DESC, coalesce(c.precision, 1) ASC
+                                   WITH x, collect(c)[0] AS c
+                                   RETURN x.key AS key, c.value AS value, c.precision AS prec, c.source_doc AS doc""",
+                               {"keys": [e["key"] for e in edges], "p": CLAIM_PRED[label]})
+            self.M.tool()
+            claim = {r["key"]: r for r in rows}
+            for e in edges:
+                r = claim.get(e["key"]) or {}
+                v = r.get("value")
+                if not isinstance(v, (int, float)):
+                    continue
+                values[e["key"]] = v
+                if abs(float(e["credited"]) - float(v)) > max(1.0, float(r.get("prec") or 1)):
+                    out.append(f"{e['key']} credited {_fmt_amount(label, e['credited'])} but its winning claim "
+                               f"({r.get('doc')}) says {_fmt_amount(label, v)}")
+        passing = s["verdict"] in RANK
+        p, vals = s["params"], list(values.values())
+        if s["kind"] == "similar_works" and passing and vals:
+            alts = clause_mod.alternatives(p) or set()
+            if alts and not any(sum(v >= mv for v in vals) >= n for n, mv in alts):
+                out.append("the credited works' claimed values meet none of the clause's alternatives")
+        elif s["kind"] == "turnover" and vals:
+            if p.get("min_each_year"):
+                ok = all(v >= int(p["min_each_year"]) for v in vals)
+            else:
+                ok = sum(vals) / len(vals) >= int(p.get("min_average") or 0)
+            if ok != passing:
+                out.append(f"claimed revenues give {'a pass' if ok else 'a fail'}, the case says {s['verdict']}")
+        elif s["kind"] == "key_personnel" and passing and p.get("min_experience_years"):
+            short = [k for k, v in values.items() if v < int(p["min_experience_years"])]
+            if short:
+                out.append(f"claimed experience below {p['min_experience_years']} yrs for {', '.join(short)}")
+        return out
+
+    def verify(self, ids: list[str], immaterial: frozenset | set = frozenset()) -> tuple[list[dict], int]:
+        """Three checks per clause, none of which is the EvidenceHunter's own reasoning replayed:
+        (1) the clause's TEXT re-read by the rule parser must give the params the team used (skipped for a
+        clause whose disagreement was already shown not to change the verdict); (2) every credited value is
+        recomputed from the winning claims and the threshold re-checked on those; (3) the verdict and the
+        satisfying set are re-derived from the graph."""
         mismatches, checked = [], 0
         for s in self.clauses(ids):
             if s["kind"] == "other":
                 continue
             checked += 1
-            out, _, n = select(self.g, s["kind"], s["params"], self.bid_date, bool(s["pref"]))
-            self.M.tool(n)
-            fresh = out["result"]
+            reasons = [] if s["id"] in immaterial else \
+                [f"text: {d}" for d in clause_mod.reading_diff(s["kind"], s["params"], s["text"] or "")]
+            reasons += [f"claims: {d}" for d in self.claim_check(s)]
+            try:
+                out, _, n = select(self.g, s["kind"], s["params"], self.bid_date, bool(s["pref"]))
+                self.M.tool(n)
+                fresh = out["result"]
+            except Exception as exc:
+                fresh = {"verdict": "ERROR", "satisfied_by": []}
+                reasons.append(f"re-derivation failed: {exc}")
             fresh_keys = sorted(x["key"] for x in fresh.get("satisfied_by") or [] if "key" in x)
             stored_keys = sorted(k for k in s["sat"] if k and not k.startswith("FS-") and k != "company")
             if not (fresh["verdict"] == s["verdict"] and (not fresh_keys or fresh_keys == stored_keys)):
+                reasons.append(f"re-derived {fresh['verdict']} vs stored {s['verdict']}")
+            if reasons:
                 mismatches.append({"clause": s["ref"] or s["id"], "clause_id": s["id"], "stored": s["verdict"],
-                                   "fresh": fresh["verdict"]})
+                                   "fresh": fresh["verdict"], "reasons": reasons})
         return mismatches, checked
+
+    def text_verdict(self, k: dict) -> str | None:
+        """The verdict the clause would get under its text's reading (thresholds from the rule parser, the
+        rest of the clause as the team had it): does a params/text disagreement change the outcome?"""
+        rules = [r for r in clause_mod.parse_rules(k["text"] or "") if r["kind"] == k["kind"]]
+        if len(rules) != 1:
+            return None
+        params = {x: v for x, v in k["params"].items() if x not in THRESHOLD_KEYS}
+        params.update({x: v for x, v in rules[0]["params"].items() if x in THRESHOLD_KEYS})
+        try:
+            return select(self.g, k["kind"], params, self.bid_date, bool(k["pref"]))[0]["result"]["verdict"]
+        except Exception:
+            return None
 
     # ── hand-back 2: Verifier -> EvidenceHunter -> Verifier ─────────────────
     def rederive(self, first: list[dict]) -> list[dict]:
@@ -302,26 +390,48 @@ class _Team:
         reqs = self.requests("rederive")
         run = M.start("EvidenceHunter", requested_by="Verifier", reason="rederive")
         self.emit({"type": "handoff", "from": "Verifier", "to": "EvidenceHunter", "run": run,
-                   "reason": "re-derived verdict disagrees with the case", "clauses": [m["clause"] for m in first]})
+                   "reason": "the Verifier's independent checks disagree with the case",
+                   "clauses": [m["clause"] for m in first]})
         self.emit({"type": "agent_start", "agent": "EvidenceHunter", "run": run, "pass_no": M.passes["EvidenceHunter"]})
         ids = [r["clause_id"] for r in reqs]
+        by_id = {m["clause_id"]: m for m in first}
+        immaterial, notes = set(), {}
         for k in self.clauses(ids):
-            self.hunt(k["id"], {"id": k["ref"], "kind": k["kind"], "params": k["params"]}, run, bool(k["pref"]))
+            res = self.hunt(k["id"], {"id": k["ref"], "kind": k["kind"], "params": k["params"]}, run, bool(k["pref"]))
+            m = by_id.get(k["id"]) or {}
+            if any(r.startswith("text:") for r in m.get("reasons", [])):
+                now = (res or {}).get("verdict", k["verdict"])
+                alt = self.text_verdict(k)
+                M.tool()
+                if alt == now:
+                    immaterial.add(k["id"])
+                    notes[k["id"]] = (f"its params and its text disagree, but both readings give {now}; "
+                                      f"the params were kept")
+                else:
+                    notes[k["id"]] = (f"its params give {now} but its own text reads {alt or 'differently'}: "
+                                      f"a person must confirm which reading applies")
+                    m["fresh"] = alt or m.get("fresh")
         M.done(rederived=len(ids))
         self.emit({"type": "agent_done", "agent": "EvidenceHunter", "summary": f"re-derived {len(ids)} clause(s)"})
         rv = M.start("Verifier", uses_llm=False, requested_by="EvidenceHunter", reason="re-verify")
         self.emit({"type": "agent_start", "agent": "Verifier", "run": rv, "pass_no": M.passes["Verifier"]})
-        left, _ = self.verify(ids)
+        left, _ = self.verify(ids, immaterial)
+        for m in left:
+            if m["clause_id"] in notes:
+                m["fresh"] = by_id.get(m["clause_id"], {}).get("fresh", m["fresh"])
+                m["note"] = notes[m["clause_id"]]
         bad = {m["clause_id"] for m in left}
         for r in reqs:
+            note = notes.get(r["clause_id"])
             if r["clause_id"] in bad:
-                self.close(r["finding"], rv, "persisted", "Still differs after one re-derivation: needs a person.")
+                self.close(r["finding"], rv, "persisted", "Still differs after one re-derivation"
+                           + (f": {note}." if note else ": needs a person."))
             else:
-                self.close(r["finding"], rv, "resolved",
-                           "Resolved: re-derived by the EvidenceHunter and re-verified.", severity="info")
+                self.close(r["finding"], rv, "resolved", "Resolved: re-derived by the EvidenceHunter and re-verified"
+                           + (f"; {note}." if note else "."), severity="info")
         M.done(mismatches=len(left))
         self.plan["handoffs"].append({"from": "Verifier", "to": "EvidenceHunter", "run": run,
-                                      "why": "verdict mismatch", "outcomes": [
+                                      "why": "verification mismatch", "outcomes": [
                                           {"clause": m["clause"], "outcome": "persisted" if m["clause_id"] in bad
                                            else "resolved"} for m in first]})
         return left
@@ -332,7 +442,7 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
     t_start = time.perf_counter()
     case_id = C.case_open(g, title=tender.get("title", "Tender"), tender_text=tender.get("text", ""),
                           bid_date=tender.get("bid_date"), tender_ref=tender.get("id"),
-                          category=tender.get("category"))["result"]["case_id"]
+                          category=tender.get("category"), authority=tender.get("authority"))["result"]["case_id"]
     emit({"type": "case_open", "case_id": case_id, "title": tender.get("title")})
     M = _Meter(g, case_id)
     T = _Team(g, tender, case_id, emit, M)
@@ -352,9 +462,11 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
         kid = C.add_clause(g, case_id, c, r1)
         clause_ids.append((kid, c))
         emit({"type": "clause", "agent": "ClauseParser", "clause_id": kid, "ref": c["id"], "kind": c["kind"],
-              "text": c["text"], "params": c["params"]})
-    M.done(method=how, n_clauses=len(parsed))
-    emit({"type": "agent_done", "agent": "ClauseParser", "summary": f"{len(parsed)} clauses ({how})"})
+              "text": c["text"], "params": c["params"], **({"corrected": c["corrected"]} if c.get("corrected") else {})})
+    n_corr = sum(bool(c.get("corrected")) for c in parsed)
+    M.done(method=how, n_clauses=len(parsed), corrected=n_corr)
+    emit({"type": "agent_done", "agent": "ClauseParser", "summary": f"{len(parsed)} clauses ({how})"
+          + (f", {n_corr} corrected by the rule parser" if n_corr else "")})
 
     # 2 ── Planner (no LLM): who runs, on which clauses ──────────────────────
     rp = M.start("Planner", uses_llm=False)
@@ -430,9 +542,10 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
                     emit({"type": "finding", "agent": "AbsenceAuditor", "clause_id": kid, "kind": "expiry", "text": txt})
             if kind == "similar_works" and res.get("verdict") == "FAIL" and res.get("near_misses"):
                 nm = res["near_misses"][:3]
+                cats = " / ".join(h["params"].get("categories") or []) or "similar-works"
                 txt = ("No qualifying combination. Closest works: " +
-                       "; ".join(f"{w['title']} ({w['value'] / 1e7:.2f} Cr)" for w in nm) +
-                       ". Consider a JV with a partner holding a larger bridge credential.")
+                       "; ".join(f"{w['title']} ({_cr(w['value'])})" for w in nm) +
+                       f". Consider a JV with a partner holding a larger {cats} credential.")
                 C.add_finding(g, kid, "gap", txt, "high", [("Work", w["key"]) for w in nm], r3)
                 n_find += 1
                 emit({"type": "finding", "agent": "AbsenceAuditor", "clause_id": kid, "kind": "gap", "text": txt})
@@ -497,7 +610,7 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
     first, checked = T.verify(T.assigned("Verifier"))
     for m in first:
         fid = C.add_finding(g, m["clause_id"], "verification_failed",
-                            f"Verifier re-derived {m['fresh']} but the case says {m['stored']}; asked the "
+                            f"Verifier: {'; '.join(m['reasons'])} (case says {m['stored']}); asked the "
                             f"EvidenceHunter to re-derive it once.", "high", [], r5)
         T.request(fid, "rederive", r5)
     M.done(mismatches=len(first))
@@ -520,29 +633,49 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
         # the Verifier's re-derivation still disagrees after one retry: never recommend on that record
         overall = "NEEDS REVIEW"
     evidence = _evidence(g, case_id)
-    memo, how = None, "template"
+    memo, how, check = None, "template", None
     if prefer_llm and (providers.available() or providers.REPLAY):
         try:
-            ctx = json.dumps({"tender": {k: tender.get(k) for k in ("id", "title", "authority", "bid_date")},
-                              "overall": overall, "clauses": rec["clauses"], "evidence": evidence[:40],
-                              "verifier": {"ok": not mismatches, "mismatches": mismatches, "retried": first},
-                              "team_handoffs": T.plan["handoffs"],
-                              "precedents": prec.get("result", [])[:2]}, default=str)[:16000]
-            res = run_agent(g, "Assembler", ASSEMBLER_SYSTEM, ctx, ["who_knows", "key_people"], max_steps=4, emit=emit)
+            # every rupee amount is written as "₹X.XX Cr" here, so the model copies figures instead of
+            # converting them (its own conversions were 10x off)
+            facts = _money_facts({"tender": {k: tender.get(k) for k in ("id", "title", "authority", "bid_date")},
+                                  "overall": overall, "clauses": rec["clauses"], "evidence": evidence[:40],
+                                  "verifier": {"ok": not mismatches, "mismatches": mismatches, "retried": first},
+                                  "team_handoffs": T.plan["handoffs"], "precedents": prec.get("result", [])[:2]})
+            full = json.dumps(facts, default=str, ensure_ascii=False)
+            res = run_agent(g, "Assembler", ASSEMBLER_SYSTEM, full[:16000], ["who_knows", "key_people"], max_steps=4,
+                            emit=emit)
             M.llm(res.usage["llm_calls"], res.usage["prompt"], res.usage["completion"])
             M.tool(res.usage["tool_calls"])
             if res.final and not res.error:
-                memo, how = res.final, "llm"
+                # what the model saw: the record it was given and what its own tools returned
+                seen = full[:16000] + json.dumps(res.evidence, default=str)
+                problems = memo_problems(res.final, seen)
+                check = {"ok": not problems, "problems": problems}
+                if problems:
+                    emit({"type": "memo_check", "agent": "Assembler", "ok": False, "problems": problems,
+                          "summary": "LLM memo rejected; the template memo is used"})
+                else:
+                    memo, how = res.final, "llm"
         except Exception:
             memo = None
     if not memo:
         memo = _template_memo(tender, rec, overall, prec.get("result", []), evidence, mismatches,
                               T.plan["handoffs"])
-    g.run("MATCH (c:Case {id:$c}) SET c.memo = $m, c.verdict = $v, c.status = 'open'",
-          {"c": case_id, "m": memo, "v": overall})
-    M.done(method=how)
-    emit({"type": "memo", "agent": "Assembler", "markdown": memo, "overall": overall, "method": how})
+    g.run("MATCH (c:Case {id:$c}) SET c.memo = $m, c.verdict = $v, c.status = 'open', c.memo_method = $h, "
+          "c.memo_check = $k", {"c": case_id, "m": memo, "v": overall, "h": how,
+                                "k": json.dumps(check) if check else None})
+    M.done(method=how, **({"llm_memo_rejected": len(check["problems"])} if check and not check["ok"] else {}))
+    emit({"type": "memo", "agent": "Assembler", "markdown": memo, "overall": overall, "method": how,
+          **({"memo_check": check} if check else {})})
+    # the Assembler's follow-ups become accountable actions (reference-letter requests, credential renewals)
+    from bidbrain.company import actions as A
+    acts = A.from_findings(g, case_id)
+    if acts:
+        emit({"type": "actions", "agent": "Assembler", "case_id": case_id, "actions": acts,
+              "summary": f"{len(acts)} follow-up action(s) queued for approval"})
     final = C.case_get(g, case_id)["result"]
+    final["actions"] = A.list_actions(g, case_id=case_id)
     final["ms"] = round((time.perf_counter() - t_start) * 1000, 1)
     final["agents"] = M.runs
     final["plan"] = T.plan
@@ -563,21 +696,101 @@ def _evidence(g: Graph, case_id: str) -> list[dict]:
                      ORDER BY clause, credited DESC""", {"c": case_id})
 
 
+# ── money, and the memo's own check ─────────────────────────────────────────
+_MONEY_PARAMS = ("estimated_cost", "min_value", "min_average", "min_each_year", "bid_value")
+_BIG = re.compile(r"(?<![\w.,])\d{1,3}(?:,\d{3}){2,}(?![\d,])")       # 2,500,000,000: rupees, not a count
+_DOC = re.compile(r"\bDOC-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*")
+
+
+def _cr(v) -> str:
+    return f"₹{float(v) / 1e7:,.2f} Cr"
+
+
+def _fmt_amount(label: str, v) -> str:
+    return _cr(v) if label in MONEY_LABELS else f"{v}"
+
+
+def _fmt_text(t: str) -> str:
+    """Raw rupee figures in a basis line ('>= 2,000,000,000') written as ₹ crore."""
+    return _BIG.sub(lambda m: _cr(int(m.group(0).replace(",", ""))), t or "")
+
+
+def _money_facts(x, key: str = ""):
+    """The Assembler's record with every rupee amount formatted as '₹X.XX Cr' in Python."""
+    if isinstance(x, dict):
+        label = x.get("label") or x.get("kind")
+        out = {}
+        for k, v in x.items():
+            if k == "params" and isinstance(v, str):
+                try:
+                    v = json.loads(v)
+                except ValueError:
+                    pass
+            if k in _MONEY_PARAMS and isinstance(v, (int, float)) and v:
+                out[k] = _cr(v)
+            elif k == "credited" and isinstance(v, (int, float)) and label in MONEY_LABELS:
+                out[k] = _cr(v)
+            else:
+                out[k] = _money_facts(v, k)
+        return out
+    if isinstance(x, list):
+        return [_money_facts(v, key) for v in x]
+    if isinstance(x, str):
+        return _fmt_text(x)
+    return x
+
+
+def memo_problems(memo: str, facts: str) -> list[str]:
+    """An LLM memo is kept only if every DOC id it cites and every ₹ amount it states is in what it was
+    given (the case record, its evidence table and its own tool results); amounts within ₹0.01 Cr."""
+    allowed_docs = set(_DOC.findall(facts))
+    bad_docs = sorted(set(_DOC.findall(memo)) - allowed_docs)
+    known = {round(v / 1e5) for v in clause_mod._amounts(facts)}
+    bad_amounts = sorted({_cr(v) for v in clause_mod._amounts(memo)
+                          if not ({round(v / 1e5) - 1, round(v / 1e5), round(v / 1e5) + 1} & known)})
+    return ([f"cites {d}, which is not in the case evidence" for d in bad_docs]
+            + [f"states {a}, which is not among the figures it was given" for a in bad_amounts])
+
+
+def rebuild_memo(g: Graph, case_id: str, cause: str, before: str | None, after: str) -> str:
+    """After a ripple changes verdicts, the memo is re-assembled from the case graph (template), so the bid
+    pack a person downloads matches the case. The note says what changed and that it supersedes the memo
+    written at qualification."""
+    row = g.read("""MATCH (c:Case {id:$c}) RETURN c.title AS title, c.bid_date AS bid_date, c.tender_ref AS id,
+                           c.category AS category, c.authority AS authority, c.plan AS plan""", {"c": case_id})[0]
+    rec = C.case_get(g, case_id)["result"]
+    prec = C.precedents(g, category=row["category"])["result"] if row["category"] else []
+    plan = json.loads(row["plan"] or "{}")
+    memo = _template_memo(row, rec, after, prec, _evidence(g, case_id), None, plan.get("handoffs"))
+    head = (f"> **Updated after {cause}.** Recommendation {before or '—'} → **{after}**. This memo was "
+            f"re-assembled from the case graph and supersedes the one written at qualification.")
+    memo = head + "\n\n" + memo
+    g.run("MATCH (c:Case {id:$c}) SET c.memo = $m, c.memo_method = 'template', c.memo_superseded_at = timestamp(), "
+          "c.memo_superseded_by = $cause", {"c": case_id, "m": memo, "cause": cause})
+    return memo
+
+
 def _template_memo(tender: dict, rec: dict, overall: str, precedents: list, evidence: list | None = None,
                    mismatches: list | None = None, handoffs: list | None = None) -> str:
     lines = [f"## {tender.get('title')} — recommendation: **{overall}**", "",
              f"Authority: {tender.get('authority', '—')} · bid due {tender.get('bid_date', '—')}", "",
              "| Clause | Verdict | Basis |", "|---|---|---|"]
-    for c in rec["clauses"]:
-        lines.append(f"| {c['ref']} {c['kind']} | {c['verdict']} | {(c.get('basis') or '').replace('|', '/')} |")
+    order = lambda c: [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", str(c.get("ref") or ""))]
+    for c in sorted(rec["clauses"], key=order):
+        basis = _fmt_text(c.get("basis") or "")
+        if c.get("corrected"):
+            basis += f" (parser correction: {_fmt_text(c['corrected'])})"
+        lines.append(f"| {c['ref']} {c['kind']} | {c['verdict']} | {basis.replace('|', '/')} |")
     if mismatches:
-        lines += ["", "> **Verifier:** the re-derived verdict differs for "
-                  + ", ".join(f"{m['clause']} ({m['stored']} → {m['fresh']})" for m in mismatches)
+        lines += ["", "> **Verifier:** independent checks still disagree for "
+                  + "; ".join(f"{m['clause']} (case {m['stored']}: {m.get('note') or '; '.join(m.get('reasons') or [])})"
+                              for m in mismatches)
                   + ". Recommendation withheld until a person reviews it."]
     if evidence:
         lines += ["", "### Evidence", "", "| Clause | Relies on | Credited | Document | Page |", "|---|---|---|---|---|"]
         for e in evidence:
-            credited = f"{int(e['credited']):,}" if isinstance(e.get("credited"), (int, float)) else "—"
+            credited = (_fmt_amount(e["kind"], int(e["credited"])) if isinstance(e.get("credited"), (int, float))
+                        else "—")
             lines.append(f"| {e['clause']} | {e['kind']}: {str(e['item']).replace('|', '/')} | {credited} | "
                          f"{e.get('doc') or '—'} | {e.get('page') or '—'} |")
     risks = [(c["ref"], f) for c in rec["clauses"] for f in c["findings"] if f and f.get("severity") in ("high", "medium")]

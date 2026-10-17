@@ -50,13 +50,15 @@ def _id(prefix, *parts):
 
 @tool("case_open", "Open a new bid qualification case (writes a Case node).",
       {"title": {"type": "string"}, "tender_text": {"type": "string"}, "bid_date": {"type": "string"},
-       "tender_ref": {"type": "string"}, "category": {"type": "string"}}, ["title"], writes=True)
+       "tender_ref": {"type": "string"}, "category": {"type": "string"}, "authority": {"type": "string"}},
+      ["title"], writes=True)
 def case_open(g: Graph, title: str, tender_text: str = "", bid_date: str | None = None,
-              tender_ref: str | None = None, category: str | None = None) -> dict:
+              tender_ref: str | None = None, category: str | None = None, authority: str | None = None) -> dict:
     cid = _id("CASE-", title, time.time_ns())
     g.run("""CREATE (c:Case {id:$id, key:$id, title:$t, tender_text:$tx, bid_date:$bd, tender_ref:$tr,
-                             category:$cat, status:'open', created_at:timestamp()})""",
-          {"id": cid, "t": title, "tx": tender_text, "bd": bid_date, "tr": tender_ref, "cat": category})
+                             category:$cat, authority:$au, status:'open', created_at:timestamp()})""",
+          {"id": cid, "t": title, "tx": tender_text, "bd": bid_date, "tr": tender_ref, "cat": category,
+           "au": authority})
     if tender_ref:
         g.run("MATCH (c:Case {id:$id}) MERGE (t:Tender {key:$r}) ON CREATE SET t.ref = $r "
               "MERGE (c)-[:FOR_TENDER]->(t)", {"id": cid, "r": tender_ref})
@@ -81,10 +83,11 @@ def agent_done(g: Graph, run_id: str, **props) -> None:
 
 def add_clause(g: Graph, case_id: str, clause: dict, run_id: str | None = None) -> str:
     kid = _id("CL-", case_id, clause.get("id"), clause.get("text"))
+    # `corrected`: where the rule parser overrode the LLM's reading of this clause, and why
     g.run("""MATCH (c:Case {id:$c}) CREATE (k:Clause {id:$id, key:$id, ref:$ref, text:$text, kind:$kind,
-                 params:$params, verdict:'pending'}) CREATE (c)-[:HAS_CLAUSE]->(k)""",
+                 params:$params, verdict:'pending', corrected:$corr}) CREATE (c)-[:HAS_CLAUSE]->(k)""",
           {"c": case_id, "id": kid, "ref": clause.get("id"), "text": clause.get("text", ""),
-           "kind": clause["kind"], "params": json.dumps(clause.get("params", {}))})
+           "kind": clause["kind"], "params": json.dumps(clause.get("params", {})), "corr": clause.get("corrected")})
     if run_id:
         g.run("MATCH (r:AgentRun {id:$r}), (k:Clause {id:$k}) CREATE (r)-[:WROTE]->(k)", {"r": run_id, "k": kid})
     return kid
@@ -127,7 +130,8 @@ def case_get(g: Graph, case_id: str) -> dict:
            WITH c, k, sat, collect(CASE WHEN f IS NULL THEN NULL ELSE {kind: f.kind, text: f.text, severity: f.severity} END) AS fnd
            RETURN c {.id, .title, .bid_date, .tender_ref, .status, .verdict, .memo} AS case,
                   collect(CASE WHEN k IS NULL THEN NULL ELSE {id: k.id, ref: k.ref, text: k.text, kind: k.kind,
-                          params: k.params, verdict: k.verdict, basis: k.basis, satisfied_by: sat, findings: fnd} END) AS clauses"""
+                          params: k.params, verdict: k.verdict, basis: k.basis, corrected: k.corrected,
+                          satisfied_by: sat, findings: fnd} END) AS clauses"""
     rows = g.read(q, {"id": case_id})
     if not rows:
         raise LookupError(case_id)
@@ -270,28 +274,45 @@ def overall_verdict(g: Graph, case_id: str) -> str:
     return "NO-BID" if "FAIL" in verds else ("BID WITH FIXES" if "AT_RISK" in verds or high else "BID")
 
 
-def apply_flips(g: Graph, flips: list[dict], cause: str, evidence_changed: list[dict] | None = None) -> list[dict]:
+def apply_flips(g: Graph, flips: list[dict], cause: str, evidence_changed: list[dict] | None = None,
+                decision_id: str | None = None, cause_doc: str | None = None) -> list[dict]:
     """Write ripple results back: new verdicts *and* the evidence they now rest on (SATISFIED_BY is
     rebuilt), a 'ripple' finding naming the cause, and the case's recomputed overall recommendation.
     `evidence_changed` (blast_radius's list of same-verdict clauses whose satisfying set moved) is
-    rewired too. Returns per-case before/after."""
+    rewired too. The memo of every changed case is re-assembled (template, marked as superseding the one
+    written at qualification), so the bid pack matches the case. A case the Verifier could not verify stays
+    NEEDS REVIEW. With `decision_id`, each ripple finding is linked (Finding)-[:CAUSED_BY]->(Decision) and every
+    case whose recommendation changed gets a `review_bid` action (company.actions). Returns per-case before/after."""
+    from bidbrain.agents.orchestrator import rebuild_memo
+    from bidbrain.company import actions
+
+    def caused(fid: str) -> None:
+        if decision_id:
+            g.run("MATCH (f:Finding {id:$f}), (d:Decision {id:$d}) MERGE (f)-[:CAUSED_BY]->(d)",
+                  {"f": fid, "d": decision_id})
     for f in flips:
         _rewire(g, f)
-        add_finding(g, f["clause_id"], "ripple", f"verdict changed {f['from']} -> {f['to']} because {cause}",
-                    severity="high" if f["to"] == "FAIL" else "medium")
+        caused(add_finding(g, f["clause_id"], "ripple", f"verdict changed {f['from']} -> {f['to']} because {cause}",
+                           severity="high" if f["to"] == "FAIL" else "medium"))
     for f in evidence_changed or []:
         _rewire(g, f)
-        add_finding(g, f["clause_id"], "ripple", f"verdict {f['to']} unchanged, but the evidence it rests on "
-                                                 f"changed because {cause}", severity="info")
+        caused(add_finding(g, f["clause_id"], "ripple", f"verdict {f['to']} unchanged, but the evidence it rests on "
+                                                        f"changed because {cause}", severity="info"))
     changed = []
     for cid in sorted({f["case_id"] for f in flips + list(evidence_changed or [])}):
-        before = g.scalar("MATCH (c:Case {id:$c}) RETURN c.verdict", {"c": cid})
-        after = overall_verdict(g, cid)
+        row = g.read("MATCH (c:Case {id:$c}) RETURN c.verdict AS v, c.verified AS ok", {"c": cid})[0]
+        before = row["v"]
+        after = "NEEDS REVIEW" if row["ok"] is False else overall_verdict(g, cid)
         g.run("MATCH (c:Case {id:$c}) SET c.verdict = $v", {"c": cid, "v": after})
-        changed.append({"case_id": cid, "from": before, "to": after})
+        rebuild_memo(g, cid, cause, before, after)
+        changed.append({"case_id": cid, "from": before, "to": after, "memo": "rebuilt"})
         for f in flips:
             if f["case_id"] == cid:
                 f["case_from"], f["case_to"] = before, after
+    for a in actions.from_ripple(g, changed, decision_id, cause, cause_doc):
+        for c in changed:
+            if c["case_id"] == g.scalar("MATCH (a:Action {id:$a}) RETURN a.case_id", {"a": a["id"]}):
+                c["action"] = a["id"]
     return changed
 
 

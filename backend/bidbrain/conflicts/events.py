@@ -151,9 +151,11 @@ def build_events(g: Graph, per_type: int = 25, seed: int = 7) -> list[dict]:
     return events
 
 
-def apply_event(g: Graph, ev: dict, resolve: bool = True) -> dict:
-    """Create the event's Document + Claims, then run the conflict engine on its subjects."""
-    from bidbrain.conflicts import engine
+def apply_event(g: Graph, ev: dict, resolve: bool = True, text: str | None = None) -> dict:
+    """Create the event's Document + Claims (a reference letter is also linked HAS_REFERENCE to its
+    work, see live_docs.py), then run the conflict engine on its subjects. With `text`, the document
+    is also chunked and embedded so search finds it (the API passes it; the evals do not need it)."""
+    from bidbrain.conflicts import engine, live_docs
     d = ev["doc"]
     g.run("""MERGE (doc:Document {doc_id:$id}) SET doc.key = $id, doc.doc_type = $t, doc.issuer = $iss,
                doc.issued = $issued, doc.title = $title, doc.pages = 1, doc.planted = $etype, doc.live = true""",
@@ -173,17 +175,21 @@ def apply_event(g: Graph, ev: dict, resolve: bool = True) -> dict:
             rows[-1]["precision"] = max(rows[-1]["precision"] or 1, int(c["precision"]))
     for r in rows:
         g.run(f"""MATCH (s:{r['subject_label']} {{key:$k}}), (d:Document {{doc_id:$doc}})
-                  MERGE (c:Claim {{id:$id}}) SET c += $r
+                  MERGE (c:Claim {{id:$id}}) SET c += $r, c.recorded_at = coalesce(c.recorded_at, timestamp())
                   MERGE (c)-[:ABOUT]->(s) MERGE (c)-[:FROM {{page:$page}}]->(d)""",
               {"k": r["subject_key"], "doc": d["doc_id"], "id": r["id"], "r": r, "page": r["page"]})
+    linked = live_docs.link_reference(g, d["doc_id"], d.get("doc_type"), rows)
+    chunks = live_docs.add_chunks(g, d["doc_id"], text) if text else 0
     if not resolve:
-        return {"event_id": ev["event_id"], "claims": [r["id"] for r in rows]}
+        return {"event_id": ev["event_id"], "claims": [r["id"] for r in rows], "references": linked,
+                "chunks": chunks}
     out = engine.run(g, [c["subject_key"] for c in ev["claims"]])
     # a fact stated for the first time has no rival, so no conflict materializes it: adopt it
     # (kept apart from `decisions`, which are resolved contradictions — what the P/R eval scores)
     in_conflict = {c["id"] for x in out["decisions"] + out["cards"] for c in x["conflict"]["claims"]}
     out["first_claims"] = engine.adopt_uncontested(g, [r["id"] for r in rows], in_conflict)
-    return {"event_id": ev["event_id"], "claims": [r["id"] for r in rows], **out}
+    return {"event_id": ev["event_id"], "claims": [r["id"] for r in rows], "references": linked,
+            "chunks": chunks, **out}
 
 
 def save(events: list[dict], path=None) -> None:

@@ -18,6 +18,11 @@ const POLICIES: { id: string; label: string; tone: string }[] = [
 ];
 
 const STATUS_TONE: Record<string, string> = { active: "ok", contested: "warn" };
+// the current status of the company rule that made a decision (it can be retired or contested later)
+const RULE_STATUS: Record<string, { label: string; tone: string }> = {
+  active: { label: "Company rule active", tone: "violet" }, retired: { label: "Company rule retired", tone: "warn" },
+  contested: { label: "Company rule contested here", tone: "warn" }, unknown: { label: "Company rule gone", tone: "warn" },
+};
 
 const sentence = (s: string) => {
   const t = String(s || "").replace(/_/g, " ");
@@ -131,6 +136,7 @@ export default function DecisionsPage() {
                               <span className="num ml-2 text-[12px] font-normal text-ink-3">{d.predicate}</span>
                             </span>
                             <span className="mt-1 block truncate text-[12.5px] text-ink-3">{d.rationale}</span>
+                            {d.review && <span className="mt-1 block truncate text-[12px] text-warn" title={d.review}>{d.review}</span>}
                           </button>
                         </td>
                         <td><PolicyBadge policy={d.policy} /></td>
@@ -200,6 +206,24 @@ export default function DecisionsPage() {
 
                     {trace.decision.rationale && (
                       <p className="text-[13.5px] leading-relaxed text-ink-2">{trace.decision.rationale}</p>
+                    )}
+
+                    {trace.org_rule && (
+                      <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-ink-3">
+                        <Badge tone={RULE_STATUS[trace.org_rule_status]?.tone || "neutral"}>
+                          {RULE_STATUS[trace.org_rule_status]?.label || `Company rule ${trace.org_rule_status || ""}`}
+                        </Badge>
+                        <span className="num text-ink-2">{trace.org_rule.id}</span>
+                        <span>prefer {trace.org_rule.prefer_kind} over {trace.org_rule.over_kind}</span>
+                        {trace.org_rule.source_decision && <span>· learned from <span className="num">{trace.org_rule.source_decision}</span></span>}
+                      </div>
+                    )}
+                    {trace.review && (
+                      <p className="text-[13px] leading-snug text-warn">
+                        {trace.review}
+                        {trace.reopened_card && <> · reopened as card <span className="num">{trace.reopened_card}</span> on{" "}
+                          <Link href="/live/" className="font-medium text-kb-ink hover:underline">Live documents</Link></>}
+                      </p>
                     )}
 
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-[12.5px] text-ink-3">

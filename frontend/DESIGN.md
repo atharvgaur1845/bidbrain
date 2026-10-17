@@ -1,82 +1,58 @@
-# BidBrain UI design contract (research-tool calm, glass surfaces)
+# BidBrain UI contract: light enterprise console
 
-Every page uses these primitives and tokens. Do not invent new colours, radii, shadows or one-off styles.
+Operations software: dense, legible, calm. Every page uses these tokens and primitives; no one-off colours, radii or shadows.
 
-## Look and feel
+## Look
+* Warm near-white canvas (`--canvas` #f7f7f5), white cards with a 1px `--line` border, charcoal text (`--text`).
+* One accent: navy `--kb` / `--accent` (#2b4c9b). Primary buttons, active tab underline, active nav icon, links (`text-kb-ink`).
+* Shadows: only `--shadow-xs` on cards and `--shadow-pop` on dialogs/drawers. No glass, blur, blobs, gradients, glow.
+* Radius: 4px badges, 6px buttons/inputs, 8px cards (Tailwind `rounded-xl/2xl/3xl` are clamped to 8px). `rounded-full` only for dots/avatars.
+* Light only (no dark theme, no toggle).
 
-* **A calm research tool (Sprig-like).** Warm neutral text (`--text` stone-900), small type (13-13.5px body,
-  19px page titles, 14px card titles), and a **charcoal primary action** in a rounded rectangle (8px), not a pill.
-  The secondary button is white with a hairline ring.
-* **The app is one window.** The whole app sits in a frosted `.frame` with 18px corners over a warm canvas lit by
-  three faint pastel blobs. The sidebar is translucent; the content side is a lighter `.main-panel`. The sidebar
-  carries the wordmark, a black "Qualify a tender" action, and two nav groups split by a hairline.
-* **Pastel category tiles** (`<IconTile tone>`: lavender, peach, teal, sage, rose, sand) mark a *type*: a page in
-  its header, a tender's category, an explore row. Never on every card title.
-* **Lavender is the accent** (`--kb`) for AI entry points (`.ai-panel`), links and the evidence path. Data bars
-  use the soft bar palette (`--bar-1` terracotta, `--bar-2` teal grey, `--bar-3` sage, `--bar-4` lavender) on a
-  `--bar-track`, as in `<ResultBar>`.
-* **Tabs are filled**, not underlined: the active tab is a quiet grey rounded rectangle; tabs can carry an icon.
-* **Glass:** cards are `.glass` (translucent fill, blur, a 1px ring and a 1px inner top highlight). Don't stack
-  glass on glass; inner blocks use `.well`.
-* **Dark mode** exists via `data-theme="dark"`; use only the tokens.
+## Status colours (one meaning each) — `STATUS` map in `ui.tsx`
+| Tone | Token | Statuses |
+|---|---|---|
+| ok (green) | `--ok` | PASS, BID, PROVEN, executed, resolved |
+| bad (red) | `--bad` | FAIL, NO-BID, rejected |
+| warn (amber) | `--warn` | AT_RISK, BID WITH FIXES, ripple |
+| review (violet) | `--violet` | NEEDS REVIEW, open, conflict |
+| info (blue) | `--info` | DECLARE, approved |
+| neutral (slate) | `--neutral` | pending, superseded, unknown |
+Each has `-soft` (fill) and `-line` (border). Never use a status colour for decoration.
 
-## Anti-"AI slop" rules (mandatory)
+## Type scale
+micro 11 (column headers, nav groups) · caption 12 (meta) · small 12.5 (dense cells, badges) · body 13.5 · title 14 (card titles) · heading 16 · page 20 (h1). Utilities: `text-micro … text-page`. Numbers: `.num` (tabular figures). IDs/code: `.mono`. Sentence case everywhere; no uppercase eyebrows, no emoji.
 
-1. No gradient text and no emoji. Icon tiles only where they mark a type (see above), never as filler.
-2. No UPPERCASE eyebrow labels above every block. Section titles are **sentence case**, 15px, semibold
-   (`<Section title=…>`). Uppercase micro-labels are allowed only as table column headers.
-3. Copy is functional and short, like a product, not a landing page. Don't repeat "the graph" in every sentence.
-   Numbers and real data come first.
-4. Use chips/badges only for real categorical values (a verdict, a category, a policy). Never wrap plain text in
-   chips.
-5. One accent colour (lavender). Semantic colours only for meaning: pass `--ok`, fail `--bad`, risk `--warn`. Pastel tiles mark types, bars show data.
-6. Generous but consistent spacing: 4px grid, cards `p-5`, section gaps `gap-5`/`gap-6`. Align everything to the
-   grid.
-7. Icons: lucide-react only, `size={16}` and `strokeWidth={1.75}` next to 14px text, `currentColor`, no decorative
-   icons beside every title.
+## Spacing / layout
+4px grid. Cards `p-4`, header row `min-h-11 px-4` with a bottom border. Page gaps `gap-4`. Shell: 220px left nav (lg+), drawer below lg, 48px top bar (search, Reset graph). Content max 1440px, 16px gutter on phones.
 
-## Tokens (globals.css)
+## Focus and states
+`:focus-visible` = 2px navy outline, offset 2px (global, base layer). Hover = background `surface-2`/`well` or border `line-strong`, 100-120ms. Selected rows: `aria-selected` → `--kb-soft`. Disabled: 50% opacity, `not-allowed`. Loading: `Button loading`, `Spinner`, `Skeleton`, `SkeletonRows`.
 
-`--bg` canvas, `--surface` (glass fill), `--surface-solid`, `--well` (inner flat block), `--line` hairline,
-`--text`, `--text-2` secondary, `--text-3` tertiary, `--kb`, `--kb-ink`, `--kb-soft` (blue tint background), `--ok`,
-`--ok-soft`, `--bad`, `--bad-soft`, `--warn`, `--warn-soft`, `--violet`, `--shadow-border`, `--shadow-border-hover`,
-`--shadow-pop`.
-
-Tailwind color utilities map to them: `bg-surface`, `bg-well`, `text-ink`, `text-ink-2`, `text-ink-3`, `text-kb`,
-`text-kb-ink`, `bg-kb-soft`, `border-line`, `text-ok`, `text-bad`, `text-warn`, and so on.
+## CSS classes (components layer, so utilities override them)
+`.glass`/`.card` card · `.glass-pop` dialog · `.well` inset block · `.interactive-card` · `.ai-panel` (plain panel now) · `.field` input · `.kt` table (sticky header, dense rows; `.n`/`[data-num]` right-aligned tabular; `.kt.dense`) · `.md` markdown · `.scroll-thin` · `.skeleton` · `.spin`.
 
 ## Primitives (`@/components/ui`)
-
-| Primitive | Use |
+| Primitive | API |
 |---|---|
-| `<Card title? icon? tone? action? className? pad?>` | the glass card. `title` = sentence-case section title; `icon`+`tone` add a type tile; `action` = right-aligned node |
-| `<IconTile tone size?>` | pastel rounded-square type marker |
-| `<ResultBar label value max? right? tone? display?>` | "84% · Home ....... 26 responses" result bar |
-| `<Section title subtitle? action?>` | a heading row inside a page without a card |
-| `<Tabs tabs={[{id,label,count?,icon?,disabled?}]} value onChange />` | filled tabs |
-| `<Button variant="primary\|accent\|secondary\|ghost" size="sm\|md" static? …>` | 8px-radius buttons; press scale 0.96 |
-| `<Badge tone="neutral\|blue\|ok\|bad\|warn\|violet">` | soft pill for categorical values |
-| `<Verdict v="PASS\|FAIL\|AT_RISK\|DECLARE\|BID\|NO-BID\|BID WITH FIXES\|PROVEN" size? />` | verdict pill with dot |
-| `<Stat label value sub? tone?>` | big number with a label; inside a card grid, no border of its own |
-| `<Avatar name size?>` | initials avatar (deterministic color) |
-| `<Empty icon? title text?>` | empty-state block |
-| `<CodeCell code lang="cypher" label?>` | notebook-style cell (gutter label "Cypher") |
-| `<Markdown>{md}</Markdown>` | memo / explanation rendering |
-| `<Spinner label?>` | inline progress |
-| `<EvidenceList items max?>` | document citations; opens the PDF viewer at the page |
-| `useOpenDoc()` | open the PDF viewer programmatically |
-| `<Table>` CSS: `.kt` on `<table>` | leaderboard / data tables (sticky header, hairline rows, hover row tint) |
+| `Card` / `Panel` | `title? subtitle? icon? action? footer? pad? className? id?` (`tone` accepted, ignored) |
+| `Section` | `title subtitle? action?` |
+| `Tabs` | `tabs=[{id,label,count?,icon?,disabled?}] value onChange className?` underline, arrow/Home/End keys |
+| `Button` | `variant=primary\|accent\|secondary\|ghost\|danger size=xs\|sm\|md\|lg loading? static?` |
+| `ButtonLink`, `buttonClass()` | link styled as button |
+| `StatusBadge` | `status size=sm\|md\|lg dot? label?`; `statusInfo(s)`, `STATUS`, `TONE_DOT` |
+| `Verdict` | `v size?` → StatusBadge |
+| `Badge` | `tone=neutral\|ok\|bad\|warn\|review\|info\|accent` (legacy `blue`,`violet`) |
+| `Table`, `Th`, `Td`, `Tr` | `Table maxHeight? dense? label?`; `Th align width`; `Td align numeric muted`; `Tr selected onClick` |
+| `KeyValue` | `items=[[label,value]] \| [{label,value,mono}] cols=1\|2\|3` |
+| `Timeline`, `TimelineItem` | `title time? status? icon? children? last?` |
+| `EmptyState` / `Empty` | `icon? title text? action? compact?` |
+| `ErrorState` | `title? text? onRetry? compact?` |
+| `Notice` | `tone title? children? action?` inline banner |
+| `Skeleton`, `SkeletonRows` | `w h` / `rows` |
+| `Stat` | `label value sub? tone?` |
+| `IconTile` | neutral square (`tone` ignored) |
+| `ResultBar` | `label value max? right? tone? display?` thin bar, `--bar-1` accent then slates |
+| `Avatar`, `Spinner`, `CodeCell`, `Markdown`, `EvidenceList`, `useOpenDoc`, `DocProvider` | unchanged APIs |
 
-Page shell: `PageHeader({title, subtitle?, meta?, actions?, icon?, tone?})` from `@/components/Shell`. It
-renders an optional type tile, the title, a one-line subtitle and a meta line of small facts; the page puts
-`<Tabs>` directly under it where the page has sections.
-
-Graph: `GraphCanvas` from `@/components/GraphCanvas` (props unchanged: `data, highlight, height, onNodeClick,
-emptyHint, showAllLabels`). It is theme-aware; wrap it in a `Card pad={false}` with `className="overflow-hidden"`.
-
-## Motion
-
-* Buttons press to `scale: 0.96` over 150ms ease-out (built into `Button`).
-* Hover on rows and cards: `background-color` / `box-shadow` only, 150ms.
-* Page entrance: none (no staggered marketing animations). Spinners only where work is in flight.
-* Anything that moves, scales or blurs goes behind `motion-safe:`.
+Shell: `PageHeader({title, subtitle?, meta?, actions?})` (`icon/tone/eyebrow` accepted, not drawn). Graph: `GraphCanvas` (props unchanged), restrained categorical `LABEL_COLORS`, path colour `--graph-path`.

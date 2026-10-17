@@ -4,12 +4,16 @@ Every visitor works in their own copy of the pristine base graph
 (`GRAPH.COPY bidbrain_base -> session_<id>`), so one judge resolving a conflict
 or approving a bid never changes what the next judge sees — FalkorDB's
 multi-graph feature used as a real requirement. Copies expire after
-SESSION_TTL of inactivity; at most MAX_SESSIONS live at once (oldest evicted).
+SESSION_TTL of inactivity; at most MAX_SESSIONS live at once (oldest idle evicted).
+Creating a session copy is rate-limited per client IP (SESSION_RATE_PER_MIN, default 10), on every
+path that can create one, so a flood of new sessions cannot evict everyone else's.
 Conversation turns are stored in the session graph itself, which is what lets
 a visitor come back later (same session id in their browser) and continue.
 """
 from __future__ import annotations
 
+import collections
+import contextvars
 import hashlib
 import os
 import re
@@ -30,10 +34,34 @@ _busy: dict[str, int] = {}             # session graph -> running streams; never
 _dropped: set[str] = set()             # evicted names; a stray late write may have re-created them
 _lock = threading.Lock()
 SID_RE = re.compile(r"^[a-z0-9]{8,32}$")
+SESSION_RATE = int(os.getenv("SESSION_RATE_PER_MIN", "10"))     # new session copies per client IP per minute
+_created: dict[str, collections.deque] = {}
+# the requesting client's IP, set per request by the API's ASGI middleware (None outside a request:
+# internal callers and tests that call graph_for directly are not rate-limited)
+client_ip: contextvars.ContextVar[str | None] = contextvars.ContextVar("client_ip", default=None)
+
+
+class RateLimited(Exception):
+    """Too many new sessions from one client IP in the last minute."""
 
 
 def new_session() -> str:
     return secrets.token_hex(6)
+
+
+def _allow_new(ip: str) -> bool:
+    """Sliding one-minute window per IP (caller holds _lock)."""
+    now = time.time()
+    q = _created.setdefault(ip, collections.deque())
+    while q and now - q[0] > 60:
+        q.popleft()
+    if len(q) >= SESSION_RATE:
+        return False
+    q.append(now)
+    if len(_created) > 10_000:          # bounded: forget IPs with nothing in the window
+        for k in [k for k, v in _created.items() if not v or now - v[-1] > 60]:
+            _created.pop(k, None)
+    return True
 
 
 def upload_dir(sid_or_name: str):
@@ -52,11 +80,49 @@ def graph_for(sid: str | None) -> Graph:
             Graph(name).delete()       # half-empty graph left by a write that raced the eviction
             live = [n for n in live if n != name]
         if name not in live:
+            ip = client_ip.get()
+            if ip is not None and not _allow_new(ip):
+                raise RateLimited(f"too many new sessions from this address (max {SESSION_RATE} a minute)")
             _evict_if_full(live)
-            Graph(config.BASE_GRAPH).copy_to(name)
+            copy_base(name)
             _dropped.discard(name)
         _last_seen[name] = time.time()
-    return Graph(name)
+    g = Graph(name)
+    try:                                # catch up with the company record (decided facts published by others)
+        from bidbrain.company import record
+        record.apply(g)
+    except Exception:
+        pass
+    return g
+
+
+def _wait_for_no_fork(limit_s: float = 15.0) -> None:
+    """Let a running snapshot finish before copying (both need Redis's single fork slot)."""
+    t0 = time.time()
+    while time.time() - t0 < limit_s:
+        try:
+            info = db().connection.info("persistence")
+        except Exception:
+            return
+        if not any(info.get(k) for k in ("rdb_bgsave_in_progress", "aof_rewrite_in_progress",
+                                         "module_fork_in_progress")):
+            return
+        time.sleep(0.05)
+
+
+def copy_base(name: str, tries: int = 40) -> Graph:
+    """GRAPH.COPY the base graph. FalkorDB forks for the copy and Redis allows one child at a time, so a
+    copy that coincides with a BGSAVE / AOF rewrite (or another process's copy) fails with "could not
+    fork": wait and retry instead of failing the visitor's first request."""
+    for i in range(tries):
+        _wait_for_no_fork()
+        try:
+            return Graph(config.BASE_GRAPH).copy_to(name)
+        except Exception as exc:
+            if "fork" not in str(exc).lower() or i == tries - 1:
+                raise
+            time.sleep(0.05 * min(i + 1, 10))
+    raise RuntimeError("unreachable")
 
 
 @contextmanager
@@ -99,6 +165,14 @@ def reap() -> int:
 
 
 def start_reaper() -> None:
+    # session graphs that survived a restart (FalkorDB persistence) start their TTL now; without
+    # this they would never be reaped, since only sessions seen by this process have a timestamp
+    now = time.time()
+    with _lock:
+        for name in db().list_graphs():
+            if name.startswith("session_"):
+                _last_seen.setdefault(name, now)
+
     def loop():
         while True:
             time.sleep(600)
@@ -123,17 +197,32 @@ _PKG = re.compile(r"\bpkg (\d+)\b")
 # words that name a kind of organisation, not which one ("Public Works Department, Govt of Gujarat" is Gujarat's)
 _GENERIC = {"public", "works", "department", "dept", "govt", "government", "corporation", "corp", "limited",
             "ltd", "pvt", "private", "office", "authority", "national", "company", "bureau", "board", "and",
-            "the", "pkg", "package", "state", "central", "development", "infrastructure", "projects", "project"}
+            "the", "pkg", "package", "state", "central", "development", "infrastructure", "projects", "project",
+            # what a company does, not which company it is ("Trishakti Power Generation Corporation")
+            "power", "generation", "energy", "steel", "petroleum", "engineering", "construction",
+            "constructions", "constructors", "industries", "services", "enterprises", "valley", "group",
+            "buildings", "special"}
+SINGLE_MIN = 6      # a client named by one distinctive word: that word has at least this many letters
+# a refusal ("I can't answer that") is about nothing, whatever it happens to name
+_REFUSAL = re.compile(
+    r"\bi\s+(?:can\s*not|can'?t|cannot|am\s+unable\s+to|was\s+unable\s+to|could\s*n'?o?t|do\s+not\s+have|"
+    r"don'?t\s+have)\s+(?:answer|find|determine|help|access|provide|tell|verify|enough)"
+    r"|\bunable\s+to\s+(?:answer|determine)\b"
+    r"|\b(?:not\s+enough|insufficient)\s+(?:data|information|evidence)\s+to\s+(?:answer|determine)", re.I)
+_NO_ANSWER = {"unknown", "n/a", "na", "cannot determine", "cannot answer", "not available", "insufficient data",
+              "insufficient information", "not found"}
 
 
 def _norm(text: str | None) -> str:
     return " " + _NON_ALNUM.sub(" ", (text or "").lower()).strip() + " "
 
 
-def _named(qn: str, compact: str, label: str, key: str, name: str, loose: bool) -> bool:
-    """Does the normalised text `qn` name this entity? Strict: its full name, its key, or (a work) its
-    package number. Loose (only for entities already talked about): a person's first or last name, or
-    most of the distinctive words of a work's or client's name."""
+def _named(qn: str, compact: str, label: str, key: str, name: str, loose: bool,
+           single: str | None = None) -> bool:
+    """Does the normalised text `qn` name this entity? Strict: its full name, its key, (a work) its
+    package number, or (a client) its one distinctive name word when the rest of its name is generic
+    (`single`, from _single_words). Loose (only for entities already talked about): a person's first or
+    last name, or most of the distinctive words of a work's or client's name."""
     nn = _norm(name)
     if len(nn.strip()) >= 4 and nn in qn:
         return True
@@ -142,6 +231,8 @@ def _named(qn: str, compact: str, label: str, key: str, name: str, loose: bool) 
         return True
     m = _PKG.search(nn)
     if label == "Work" and m and re.search(rf" (?:pkg|package) {m.group(1)} ", qn):
+        return True
+    if single and f" {single} " in qn:
         return True
     if not loose:
         return False
@@ -156,21 +247,44 @@ def _named(qn: str, compact: str, label: str, key: str, name: str, loose: bool) 
     return sum(t in words for t in toks) >= need
 
 
-def entities_named(g: Graph, text: str, labels: tuple[str, ...] = RECALLABLE) -> list[dict]:
+def _single_words(g: Graph, rows: list[dict]) -> dict[str, str]:
+    """Client key -> the one word that names it, when every other word of its name is generic
+    ("Trishakti Power Generation Corporation" -> "trishakti"). Only a word of >= SINGLE_MIN letters
+    that is no state's or category's name and appears in no other client's, work's or person's name, so "Gujarat"
+    never names "Gujarat Municipal Corporation" and "buildings" never names a bureau."""
+    seen: collections.Counter = collections.Counter()
+    for r in rows:
+        seen.update(set(_norm(r["name"]).split()))
+    # state and category names are never a client's name ("Gujarat", "buildings", "bridges")
+    states = {t for r in g.read("MATCH (s) WHERE s:State OR s:Category RETURN coalesce(s.name, s.key) AS n")
+              for t in _norm(r["n"]).split()}
+    out = {}
+    for r in rows:
+        if r["label"] != "Client":
+            continue
+        toks = [t for t in _norm(r["name"]).split() if not t.isdigit() and len(t) >= 4 and t not in _GENERIC]
+        if len(toks) == 1 and len(toks[0]) >= SINGLE_MIN and toks[0] not in states and seen[toks[0]] == 1:
+            out[r["key"]] = toks[0]
+    return out
+
+
+def entities_named(g: Graph, text: str, labels: tuple[str, ...] = RECALLABLE, strict: bool = False) -> list[dict]:
     """Entities the text names: strictly against every Client, Person and Work, loosely against the ones
-    this conversation already MENTIONS."""
+    this conversation already MENTIONS (never with strict=True)."""
     qn = _norm(text)
     if not qn.strip():
         return []
     compact = qn.replace(" ", "")
-    talked = {(r["label"], r["key"]) for r in g.read(
+    talked = set() if strict else {(r["label"], r["key"]) for r in g.read(
         """MATCH (:Conversation {id:'main'})-[:HAS_TURN]->(:Turn)-[:MENTIONS]->(e)
            RETURN DISTINCT labels(e)[0] AS label, e.key AS key""")}
     rows = g.read("""MATCH (e) WHERE labels(e)[0] IN $labels AND e.key IS NOT NULL
                      RETURN labels(e)[0] AS label, e.key AS key, coalesce(e.name, e.title, e.key) AS name""",
                   {"labels": list(labels)})
+    single = _single_words(g, rows) if "Client" in labels else {}
     return [{"id": f"{r['label']}:{r['key']}", **r} for r in rows
-            if _named(qn, compact, r["label"], r["key"], r["name"], (r["label"], r["key"]) in talked)]
+            if _named(qn, compact, r["label"], r["key"], r["name"], (r["label"], r["key"]) in talked,
+                      single.get(r["key"]) if r["label"] == "Client" else None)]
 
 
 def remember_turn(g: Graph, role: str, text: str, mentions: list[str] | None = None,
@@ -203,14 +317,30 @@ def add_mentions(g: Graph, i: int, mentions: list[str]) -> None:
                       MATCH (e:{label} {{key:$k}}) MERGE (x)-[:MENTIONS]->(e)""", {"i": i, "k": key})
 
 
+def is_refusal(out: dict) -> bool:
+    """An answer that declines ("I can't answer that", ANSWER: unknown) or a run that failed outright."""
+    text = out.get("explanation") or ""
+    if out.get("error") and not text.strip():
+        return True
+    if str(out.get("answer") or "").strip().strip(".").lower() in _NO_ANSWER:
+        return True
+    return bool(_REFUSAL.search(text))
+
+
 def answer_mentions(g: Graph, out: dict) -> list[str]:
     """What an answer is about: the entities of its subgraph that the answer text names, or that a
     document cited in its evidence is evidence for (a client through such a work). Not the whole
-    subgraph, which also holds everything a tool merely looked at."""
+    subgraph, which also holds everything a tool merely looked at. A refusal, or an answer that rests
+    on no evidence, is about nothing. An answer with evidence but no subgraph (a tool that returns
+    pages only) MENTIONS what its text names strictly (full name, key, package number)."""
+    if is_refusal(out):
+        return []
+    if not [e for e in out.get("evidence") or [] if isinstance(e, dict) and e.get("doc_id")]:
+        return []
     nodes = [n for n in (out.get("subgraph") or {}).get("nodes", [])
              if isinstance(n, dict) and str(n.get("id", "")).partition(":")[0] in MENTIONABLE]
     if not nodes:
-        return []
+        return [e["id"] for e in entities_named(g, out.get("explanation") or "", strict=True)][:20]
     named = named_among(out.get("explanation") or "", [n["id"] for n in nodes],
                         {n["id"]: n.get("name") for n in nodes})
     docs = sorted({e.get("doc_id") for e in out.get("evidence") or [] if isinstance(e, dict) and e.get("doc_id")})
@@ -242,7 +372,8 @@ def named_among(text: str, ids: list[str], names: dict[str, str] | None = None) 
 
 
 def recall(g: Graph, question: str, before: int, k: int = RECALL_K, named: list[dict] | None = None) -> list[dict]:
-    """Older turns (index < `before`) that MENTION an entity the question names, most overlap first."""
+    """Older turns (index < `before`) that MENTION an entity the question names, most overlap first;
+    a recalled question brings the answer that followed it (`answers` = the question's turn index)."""
     named = entities_named(g, question) if named is None else named
     ids = [e["id"] for e in named if e["label"] in RECALLABLE]
     if not ids:
@@ -252,6 +383,15 @@ def recall(g: Graph, question: str, before: int, k: int = RECALL_K, named: list[
                      WITH t, collect(DISTINCT coalesce(e.name, e.title, e.key)) AS about
                      RETURN t.i AS i, t.role AS role, t.text AS text, about
                      ORDER BY size(about) DESC, i DESC LIMIT $k""", {"before": before, "ids": ids, "k": k})
+    have = {r["i"] for r in rows}
+    want = sorted({r["i"] + 1 for r in rows if r["role"] == "user"} - have)
+    want = [i for i in want if i < before]
+    if want:
+        rows += [{**r, "answers": r["i"] - 1} for r in g.read(
+            """MATCH (:Conversation {id:'main'})-[:HAS_TURN]->(t:Turn) WHERE t.i IN $want AND t.role = 'assistant'
+               OPTIONAL MATCH (t)-[:MENTIONS]->(e)
+               RETURN t.i AS i, t.role AS role, t.text AS text,
+                      collect(DISTINCT coalesce(e.name, e.title, e.key)) AS about""", {"want": want})]
     return sorted(rows, key=lambda r: r["i"])
 
 
@@ -263,10 +403,11 @@ def context(g: Graph, question: str | None = None, n: int = 6,
                      RETURN t.i AS i, t.role AS role, t.text AS text ORDER BY t.i DESC LIMIT $n""", {"n": n})
     rows.reverse()
     old = recall(g, question, rows[0]["i"], named=named) if question and rows else []
+    def label(r):
+        what = f"about {', '.join(r['about'][:4])}" if r["about"] else f"the answer to turn {r.get('answers')}"
+        return f"[Recalled from earlier in this conversation (turn {r['i']}, {what}); it may be out of date] "
     msgs = [{"role": r["role"] if r["role"] in ("user", "assistant") else "user",
-             "content": f"[Recalled from earlier in this conversation (turn {r['i']}, about "
-                        f"{', '.join(r['about'][:4])}); it may be out of date] {(r['text'] or '')[:1500]}"}
-            for r in old]
+             "content": label(r) + (r["text"] or "")[:1500]} for r in old]
     msgs += [{"role": r["role"], "content": r["text"]} for r in rows]
     return msgs, [{"i": r["i"], "role": r["role"], "about": r["about"]} for r in old]
 

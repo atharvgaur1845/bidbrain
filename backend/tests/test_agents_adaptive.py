@@ -75,6 +75,39 @@ def test_unasked_filters_are_lexical_and_generic():
     assert loop.unasked_filters("aggregate", {"op": "sum", "work_keys": []}, "x") == []
 
 
+def test_unasked_filters_need_real_evidence():
+    # "value" / "worth" is what is summed, not a bound: a bound needs a comparison word or an amount
+    assert loop.unasked_filters("find_portfolio", {"client": "Trishakti", "min_value": 100000000},
+                                "What is the total value of Trishakti's works?") == ["min_value=100000000"]
+    assert loop.unasked_filters("find_portfolio", {"min_value": 1}, "how much are our works worth in total?") \
+        == ["min_value=1"]
+    for q in ("works worth more than 50 crore", "works above \u20b950 Cr", "any work of at least 500000000",
+              "jobs valued at 40 cr or more"):
+        assert loop.unasked_filters("find_portfolio", {"min_value": 400000000}, q) == [], q
+    # a client's name is not evidence of a government level, even with "Govt of Gujarat" in it
+    asked = "What is the total value of works for Public Works Department, Govt of Gujarat?"
+    pwd = "Public Works Department, Govt of Gujarat"
+    assert loop.unasked_filters("find_portfolio", {"client": pwd, "govt_levels": ["state"]}, asked) == \
+        ['govt_levels=["state"]']
+    assert loop.unasked_filters("find_portfolio", {"client": "gujarat pw", "govt_levels": ["state"]}, asked,
+                                names=[pwd]) == ['govt_levels=["state"]']
+    assert loop.unasked_filters("find_portfolio", {"govt_levels": ["state"]}, "total for the Govt of Gujarat") == \
+        ['govt_levels=["state"]']
+    assert loop.unasked_filters("find_portfolio", {"client": pwd, "govt_levels": ["state"]},
+                                asked + " Only state-government jobs.") == []
+    # a work title scoping the call is not evidence of a category filter
+    assert loop.unasked_filters("find_portfolio", {"via_work": "Ring Road — Uttar Pradesh Pkg-107",
+                                                   "categories": ["roads highways"]},
+                                "Starting from the Ring Road — Uttar Pradesh Pkg-107 job, total value for that client?") \
+        == ['categories=["roads highways"]']
+    # "years" alone is not a date: a date filter needs a year, a month or a relative-time phrase
+    for q in ("What is the total value of works done over the years?", "Who has 10 years of experience?"):
+        assert loop.unasked_filters("find_portfolio", {"years": [2020, 2021]}, q) == ["years=[2020, 2021]"], q
+    for q in ("works completed in the last five years", "since 2019", "invoices from March 2024",
+              "works finished 3 years ago", "after Sunita got her PMP", "this financial year"):
+        assert loop.unasked_filters("find_portfolio", {"completed_after": "2019-01-01"}, q) == [], q
+
+
 def test_unasked_filter_note_reaches_the_model(g, monkeypatch):
     seen = []
 
@@ -124,6 +157,9 @@ def test_run_agent_sticks_to_the_first_bucket(g, monkeypatch):
     res = loop.run_agent(g, "qa", "sys", "q", ["graph_schema"], max_steps=4)
     assert prefs == [None, "groq:model-b", "groq:model-b"]
     assert res.providers == ["groq:model-b", "groq:model-b", "groq:model-a"]
+    # a reply from another bucket than the pin is recorded as a switch, never silently
+    assert res.switches == [{"step": 2, "from": "groq:model-b", "to": "groq:model-a",
+                             "why": "the pinned model did not serve this step"}]
 
 
 class _RateLimited(Exception):
@@ -141,30 +177,95 @@ def _fake_client(log, fail=()):
     return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
 
 
-def test_chat_prefers_the_sticky_bucket_and_falls_back_on_rate_limit(monkeypatch):
-    log, fail = [], set()
+class _Clock:
+    """providers' time source in tests: sleeping advances the clock instead of waiting."""
+
+    def __init__(self):
+        self.now = 1_000_000.0
+
+    def time(self):
+        return self.now
+
+    def sleep(self, s):
+        self.now += max(0.0, s)
+
+    def perf_counter(self):
+        return self.now
+
+
+def _pool(monkeypatch, log, fail, wait=45.0):
     client = _fake_client(log, fail)
+    clock = _Clock()
     monkeypatch.setattr(providers, "POOL", [("groq", "model-a"), ("groq", "model-b"), ("groq", "model-c")])
     monkeypatch.setattr(providers, "_client", lambda prov: client)
     monkeypatch.setattr(providers, "_parked", {})
     monkeypatch.setattr(providers, "_park_kind", {})
     monkeypatch.setattr(providers, "REPLAY", False)
-    msgs = [{"role": "user", "content": "hi"}]
+    monkeypatch.setattr(providers, "MAX_WAIT", wait)
+    monkeypatch.setattr(providers, "time", clock)
+    return clock
 
+
+def test_chat_pins_the_preferred_bucket_and_waits_for_it(monkeypatch):
+    log, fail = [], set()
+    clock = _pool(monkeypatch, log, fail)
+    msgs = [{"role": "user", "content": "hi"}]
     assert providers.chat(msgs, use_cache=False).provider == "groq:model-a"          # no preference: pool order
     assert providers.chat(msgs, use_cache=False, prefer="groq:model-b").provider == "groq:model-b"
-    # the preferred bucket hits a rate limit: this call falls back, and the bucket is parked
-    fail.add("model-b")
+    # the pinned bucket is rate-limited for 30 s (within the 45 s budget): the call waits for it, no other model
+    providers._parked["groq:model-b"], providers._park_kind["groq:model-b"] = clock.now + 30, "rate_limited"
     log.clear()
+    t0 = clock.now
+    rep = providers.chat(msgs, use_cache=False, prefer="groq:model-b")
+    assert rep.provider == "groq:model-b" and rep.switched is None and log == ["model-b"]
+    assert 29 <= clock.now - t0 <= 31
+
+
+def test_chat_switches_only_beyond_the_wait_and_says_why(monkeypatch):
+    log, fail = [], {"model-b"}
+    clock = _pool(monkeypatch, log, fail, wait=10.0)
+    msgs = [{"role": "user", "content": "hi"}]
+    # a 429 asking for 30 s, beyond the 10 s budget: one switch, with the reason
     rep = providers.chat(msgs, use_cache=False, prefer="groq:model-b")
     assert log == ["model-b", "model-a"] and rep.provider == "groq:model-a"
-    assert providers._parked["groq:model-b"] > 0
-    # while parked it is skipped outright; once free again it is preferred again
-    log.clear()
-    assert providers.chat(msgs, use_cache=False, prefer="groq:model-b").provider == "groq:model-a" and log == ["model-a"]
+    assert "groq:model-b rate_limited" in rep.switched and "beyond the 10s wait" in rep.switched
+    assert providers._parked["groq:model-b"] > clock.now
+    # a request the pinned bucket rejects (400) hands over at once, also with the reason
     fail.clear()
     providers._parked.clear()
-    assert providers.chat(msgs, use_cache=False, prefer="groq:model-b").provider == "groq:model-b"
+
+    class _Bad(Exception):
+        status_code = 400
+        body = {"error": {"message": "Failed to call a function. org_0123456789abc https://x.example/billing"}}
+
+    def create(model, **kw):
+        log.append(model)
+        if model == "model-b":
+            raise _Bad("bad")
+        msg = SimpleNamespace(content=f"from {model}", tool_calls=None)
+        return SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason="stop")],
+                               usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1))
+    monkeypatch.setattr(providers, "_client",
+                        lambda prov: SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    log.clear()
+    rep = providers.chat(msgs, use_cache=False, prefer="groq:model-b")
+    assert log == ["model-b", "model-a"] and "rejected this request" in rep.switched
+    assert "org_" not in rep.switched and "http" not in rep.switched
+
+
+def test_cache_hits_from_other_buckets_do_not_mix_in(monkeypatch):
+    log = []
+    _pool(monkeypatch, log, set())
+    store = {}
+    monkeypatch.setattr(providers, "_cache", SimpleNamespace(get=store.get, put=store.__setitem__))
+    msgs = [{"role": "user", "content": "cached?"}]
+    other = providers._key("groq:model-a", msgs, None, 0.0, 1500)
+    store[other] = dict(content="from cache a", tool_calls=[], provider="groq:model-a", model="model-a", usage={})
+    # no pin: any bucket's cached reply is fine
+    assert providers.chat(msgs).content == "from cache a" and log == []
+    # pinned to model-b: model-a's cached reply is not used, the call goes live on model-b
+    rep = providers.chat(msgs, prefer="groq:model-b")
+    assert rep.provider == "groq:model-b" and not rep.cached and log == ["model-b"]
 
 
 # ------------------------------------------------------------------ 2. adaptive team

@@ -6,7 +6,7 @@ documents, and show the path behind every answer.*
 > **TL;DR**
 > * BidBrain loads a construction company's 687 documents into one FalkorDB graph. A planner and six agents use it to qualify tenders clause by clause, prove what is *missing*, settle documents that contradict each other, and flip a bid from BID to NO-BID when a corrigendum arrives.
 > * Same model (Qwen3-32B), same database, four context strategies. Graph tools score **.810** on true-gold questions, **.780** on absence questions and **.896** on tender questions. The best baseline on each set scores .333, .537 and .542.
-> * The FalkorDB parts are below as copy-paste recipes: an absence proof, a betweenness projection, a full-text gotcha, `algo.SPpaths`, `GRAPH.COPY` tenancy, and a claim → decision → policy-rule schema.
+> * The FalkorDB parts are below as copy-paste recipes: an absence proof, exact betweenness in one Cypher query, a full-text gotcha, `algo.SPpaths`, `GRAPH.COPY` tenancy, WCC as an evidence check, label propagation that beats a random split, and a claim → decision → policy-rule schema.
 > * Caveats sit next to the results table, not at the end: single runs on the pre-final code, one near-gold set whose gold our tools mirror, and GraphRAG-SDK run without a domain ontology.
 
 ---
@@ -107,16 +107,16 @@ the Pkg-113 ring road from ₹200 Cr to ₹188 Cr. `blast_radius` walks outward 
 that rely on it, the past bids that cited it, and the tenders it secured. It then re-runs the affected clauses. The
 expressway bid flips **from BID to NO-BID**, and the reason is one click away.
 
-![Live documents: the corrigendum is auto-resolved by the recency policy, the similar-works clause flips Pass to Fail, the recommendation flips Bid to No-bid, and the ripple graph shows the case and six past bids that cited the work](img/live.png)
+![Live documents: the corrigendum is auto-resolved by the recency policy, the similar-works clause flips Pass to Fail, the recommendation flips Bid to No-bid, and the ripple graph shows the case and the past bid that cited the work](img/live.png)
 
 ## Tools, not text-to-Cypher
 
-The registry has 28 named tools, and the Q&A agent is offered 21 of them. Raw Cypher is not the interface.
+The registry has 29 named tools, and the Q&A agent is offered 23 of them. Raw Cypher is not the interface.
 `find_portfolio` (with a `via_work` hop), `prove_absence`, `qualify_clause` and `explain_path` are each a tested
 traversal that returns evidence (document and page) and a subgraph for the UI. **Arithmetic never happens in the
 model.** `aggregate` takes *work keys*, re-reads values from the graph and computes in exact integer rupees.
 
-The same registry serves our agents, any **MCP** client (`/mcp`, 27 read-only tools), and an evaluation **oracle**.
+The same registry serves our agents, any **MCP** client (`/mcp`, 28 read-only tools), and an evaluation **oracle**.
 The oracle replays a deterministic engine's parsed parameters through our tools and reproduces **354 of 354**
 reference answers. So any accuracy the LLM agent loses comes from planning, not from missing graph capability.
 
@@ -220,8 +220,25 @@ YIELD node, score WITH node AS p, score WHERE p:Person RETURN p.key AS key, scor
 ```
 
 There is a second trap. `algo.betweenness` samples source nodes even when `samplingSize` is larger than the graph,
-so below the top two, one call's ranking depended on the seed. `key_people` (`tools/algos.py`) now averages 32 seeded
-runs. Two disjoint seed sets give the same top 6, and the top 3 match exact Brandes on this projection.
+so below the top two, one call's ranking depends on the seed. Averaging 32 seeded runs was not enough either: ranks
+4-6 still differed from exact Brandes. On a 68-node projection you can afford the exact answer, in one Cypher query:
+
+```cypher
+MATCH (a) WHERE (a:Person OR a:Client) AND (a)-[:WORKED_FOR]-()
+WITH collect(a) AS ns
+UNWIND ns AS a UNWIND ns AS b
+WITH a, b WHERE id(a) < id(b)
+MATCH p = allShortestPaths((a)-[:WORKED_FOR*]-(b))
+WITH a, b, collect(nodes(p)[1..-1]) AS inner              // every shortest path of this pair, endpoints dropped
+WITH inner, toFloat(size(inner)) AS n
+UNWIND inner AS path_inner UNWIND path_inner AS v
+WITH v, sum(1 / n) AS score WHERE v:Person                  // each inner node gets 1/n of the pair
+RETURN v.key AS key, score
+```
+
+That is Brandes' definition, computed by the database over 2,278 pairs in about 0.1 s, and it matches a Python
+Brandes implementation to the decimal. `key_people` (`tools/algos.py`) ranks by it and still runs the sampled
+`algo.betweenness` (32 seeds) as a reported cross-check: same top 3 in order, 9 of the top 10.
 
 ### 3. Full-text: index a whitespace-folded copy
 
@@ -292,6 +309,82 @@ first query, and added **29.5 MB** of Redis memory. `GRAPH.MEMORY USAGE` reports
 its indexes. 9 MB of the graph is page chunks with their 384-d embeddings, which no visitor ever edits. At our cap of
 60 sessions, that is about 1.8 GB. If we did it again, we would keep the chunks and vectors in one shared read-only
 graph and copy only the part people can change.
+
+### 6. Evidence integrity, a compliance audit, and communities that beat chance
+
+Three more uses of the graph, each one call:
+
+**WCC as an evidence check.** `algo.WCC` over evidence edges only (`EVIDENCED_BY`, `HAS_REFERENCE`, `FOR_CLIENT`,
+`LED_BY`, `HOLDS`) should return one component: every fact connected to a document. Everything outside it is a
+finding. On our corpus scope it found 404 workbook rows (210 assets, 194 trial-balance lines) with no path to any
+document, which we then linked to their spreadsheets at load, plus 8 bank statements and 6 RA bills nothing cites, and
+two credentialed staff who never led a work. Leave the hub edges out (`Company-OWNS`, `IN_STATE`, `FOR_FY`): they join
+everything and hide the orphans.
+
+```cypher
+CALL algo.WCC({nodeLabels:['Document','Work','Client','Person','Credential'],
+               relationshipTypes:['EVIDENCED_BY','HAS_REFERENCE','FOR_CLIENT','LED_BY','HOLDS']})
+YIELD node, componentId
+WITH componentId, labels(node)[0] AS label, count(*) AS n
+RETURN componentId, collect({label: label, n: n}) AS parts ORDER BY componentId
+```
+
+**Auditing our own past claims.** The corpus has 40 compliance matrices with 491 `Requirement` rows, every one
+marked MET. `compliance_check` re-tests each row the engine can evaluate *on the date the matrix was submitted*, with
+the same rules the bid team uses: 318 checkable, 194 agree, 119 disagree. Be careful what you conclude from that.
+105 of the 119 follow three patterns that most likely come from the synthetic generator, and the tool labels them
+`likely_generator_artifacts`: all 52 ISO disagreements are 2019-22 matrices citing certificates whose `initial_date`
+is 2022; all 13 PMP ones predate the single issue date every PMP on file shares; all 40 plant ones state "210 owned
+assets", which is the whole register, 154 owned plus 56 leased. That the audit surfaces generator defects is a fair
+test of it, but it is not evidence the company lied.
+
+**Communities that beat a random split.** `algo.labelPropagation` takes no edge weights: it rejects any weight key,
+and parallel edges do not change its answer. So put the weight into the projection. We link two project leads only
+when they share more clients than the configuration model, modularity's own null model, predicts:
+
+```cypher
+MATCH (p:Person)-[:WORKED_FOR]->(c:Client)
+WITH p, sum(size([(c)<-[:WORKED_FOR]-(x:Person) | x]) - 1) AS d          // weighted degree in the co-client graph
+WITH collect({p: p, d: d}) AS deg, sum(d) AS two_m
+UNWIND deg AS x
+MATCH (a:Person)-[:WORKED_FOR]->(c:Client)<-[:WORKED_FOR]-(b:Person) WHERE a = x.p AND id(a) < id(b)
+WITH a, b, x.d AS da, count(c) AS shared, deg, two_m
+WITH a, b, shared, da * [y IN deg WHERE y.p = b][0].d / toFloat(two_m) AS expected
+WHERE shared >= 1.5 * expected
+CREATE (a)-[:OVERLAPS_CLIENTS {shared: shared, expected: expected}]->(b),
+       (b)-[:OVERLAPS_CLIENTS {shared: shared, expected: expected}]->(a)
+```
+
+Label propagation over it finds 3 client circles (15, 12 and 10 people, plus 2 singletons). Scored against the full
+co-client graph:
+
+| Partition | Modularity |
+|---|---|
+| ≥ 2 shared clients (the first try) | −0.007 (one block of 31) |
+| ≥ 2 shared and Jaccard ≥ 0.25 (round 1) | 0.107 |
+| **shared ≥ 1.5 × expected** | **0.203** |
+| greedy local-move optimiser (reference, Python) | 0.21 |
+| random partitions with the same sizes (mean of 200) | −0.021 |
+
+The split is the same for any factor from 1.2 to 1.6. For clients, label propagation on client-client projections
+(shared leads, with or without a Jaccard filter) either merged everything or shattered it, never above 0.14. Placing
+each client in the people circle that holds most of its leads scores 0.175 (random −0.039, greedy 0.18), and gives
+the same circles seen from both sides. `communities` returns the modularity and the random baseline with every answer.
+
+**Everything that rests on one document.** Every dependency edge points from the thing that relies to the thing
+relied on, so provenance is one variable-length match into the document:
+
+```cypher
+MATCH (d:Document {doc_id:$doc})
+MATCH p = (x)-[:FROM|EVIDENCED_BY|HAS_REFERENCE|HOLDS|BASED_ON|SELECTS|CITES|SECURED_BY|CITES_CERT|SATISFIED_BY|HAS_FINDING|HAS_CLAUSE*1..4]->(d)
+WHERE NOT x:Document
+WITH x, p ORDER BY length(p)
+WITH x, collect(p)[0] AS p
+RETURN labels(x)[0] AS label, length(p) AS depth, [r IN relationships(p) | type(r)] AS via
+```
+
+For the ISO 9001 certificate, that is the certificate and its claim at depth 1 and 21 compliance rows at depth 2;
+`depends_on` also lists which direct facts the document is the *only* source for.
 
 ## Steal this pattern: claim → decision → policy rule
 
@@ -381,13 +474,17 @@ came from, and every session checks company rules after its own rules and before
 * **The 144/144 team score is tuned on the test set.** The deterministic six-agent pipeline scored 136/144 on TND at
   first. All 8 misses were one parser bug ("buildings" also matched "small buildings"). We fixed it after seeing them.
 * **Our first community detection found nothing useful.** `algo.labelPropagation` on a "shared at least two
-  clients" projection returned one big community, because the synthetic company is evenly staffed. A projection
-  that is too dense has no structure to find. The reworked version links two people only when their shared
-  clients make up at least 25% of their combined client lists, and reports the split's modularity, so you can see
-  whether it beats one block.
+  clients" projection returned one big community, because the synthetic company is evenly staffed. A Jaccard filter
+  got it to modularity 0.107, which a judge rightly called weak: a greedy optimiser reached 0.21 on the same graph.
+  The fix (recipe 6) was to put the null model into the projection.
 * **Most of our tools are 1-2-hop Cypher composed in Python.** That made them easy to test, but the graph does less
-  of the work than it could. `trace_from_credential`, which runs the six-hop credential → person → work → client →
-  portfolio → certificate chain in one query, is the exception.
+  of the work than it could. The exceptions: `trace_from_credential` runs the five-hop credential → person → work →
+  client → portfolio → certificate chain in one query, `key_people` runs `allShortestPaths` for exact betweenness,
+  and `depends_on` is a variable-length match into a document (recipe 6).
+* **Our past bids cited everything.** Each dossier's Annexure D prints 48 works, but only the first 10-14 are in the
+  tender's category; the rest are the same top-value works in every dossier, so the ripple card said "6 past bids
+  cited this work" for any large job. Annexure E reprints all 39 project managers. Bids now cite only their
+  in-category rows (72 `CITES` edges instead of 288), and a full-roster annexure creates no `PROPOSES` edges.
 * **The demo model is not the benchmark model.** Groq no longer serves Qwen3-32B, so the live app rotates through a
   pool of free Groq models, with 3-62 s latency under rate limits. Each answer now stays on the model that served
   its first step, unless that model hits a rate limit, so an answer is no longer stitched together from several
@@ -399,7 +496,7 @@ came from, and every session checks company rules after its own rules and before
 
 ## Try it
 
-* **Live demo:** _<HF Space URL>_ (every visitor gets their own graph, so break anything you like)
+* **Live demo:** linked at the top of the README (every visitor gets their own graph, so break anything you like)
 * **Code:** github.com/atharvgaur1845/bidbrain
 * **Cypher catalog:** `docs/CYPHER.md`, generated by executing every tool
 * **Run locally:** `docker compose up`, then open http://localhost:7860

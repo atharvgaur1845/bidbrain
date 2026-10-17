@@ -70,36 +70,36 @@ def req_kind(text: str) -> str:
     return next((k for needle, k in rules if needle in t), "other")
 
 
-OVERLAP_MIN_SHARED = 2       # OVERLAPS_CLIENTS: at least this many clients in common ...
-OVERLAP_MIN_JACCARD = 0.25   # ... and they are at least this share of the two people's combined client lists
-LEADS_MIN_SHARED = 2         # SHARES_LEADS: two clients served by at least this many of the same project leads
+OVERLAP_MIN_LIFT = 1.5   # OVERLAPS_CLIENTS: two people share this many times more clients than chance predicts
 
 PROJECTIONS = {
-    # every pair of people with >= 2 clients in common. 70 pairs over 31 people: one connected block, so label
-    # propagation over it returns a single community of 31 (kept for reference; `communities` does not use it)
-    "SHARES_CLIENTS": """MATCH (a:Person)-[:WORKED_FOR]->(c:Client)<-[:WORKED_FOR]-(b:Person) WHERE a.key < b.key
-        WITH a, b, count(c) AS n WHERE n >= 2
-        CREATE (a)-[:SHARES_CLIENTS {n:n}]->(b), (b)-[:SHARES_CLIENTS {n:n}]->(a)""",
-    # the people-community projection: >= 2 shared clients AND Jaccard >= 0.25 over the two client lists, so a lead
-    # with 7 clients is not tied to everyone who once shared one or two of them
-    "OVERLAPS_CLIENTS": f"""MATCH (a:Person)-[:WORKED_FOR]->(c:Client)<-[:WORKED_FOR]-(b:Person) WHERE a.key < b.key
-        WITH a, b, count(c) AS shared
-        MATCH (a)-[:WORKED_FOR]->(ca:Client) WITH a, b, shared, count(ca) AS na
-        MATCH (b)-[:WORKED_FOR]->(cb:Client) WITH a, b, shared, na, count(cb) AS nb
-        WITH a, b, shared, toFloat(shared) / (na + nb - shared) AS jaccard
-        WHERE shared >= {OVERLAP_MIN_SHARED} AND jaccard >= {OVERLAP_MIN_JACCARD}
-        CREATE (a)-[:OVERLAPS_CLIENTS {{shared:shared, jaccard:jaccard}}]->(b),
-               (b)-[:OVERLAPS_CLIENTS {{shared:shared, jaccard:jaccard}}]->(a)""",
-    # the client-community projection: two clients whose works were led by >= 2 of the same people
-    "SHARES_LEADS": f"""MATCH (a:Client)<-[:WORKED_FOR]-(p:Person)-[:WORKED_FOR]->(b:Client) WHERE a.key < b.key
-        WITH a, b, count(p) AS leads WHERE leads >= {LEADS_MIN_SHARED}
-        CREATE (a)-[:SHARES_LEADS {{leads:leads}}]->(b), (b)-[:SHARES_LEADS {{leads:leads}}]->(a)""",
+    # The people-community projection. Two project leads are linked when they led work for more of the same clients
+    # than the configuration model (the null model behind modularity) expects: shared(a,b) >= LIFT * d(a)*d(b)/2m,
+    # where d is a person's weighted degree in the co-client graph and 2m the sum of all degrees. A raw threshold
+    # (>= 2 shared clients) joins everyone to the busiest leads; a Jaccard threshold over-penalises leads with many
+    # clients. algo.labelPropagation takes no edge weights (FalkorDB rejects any weight key, and parallel edges do not
+    # change its result), so the weight is applied here, as the edge filter. Over this projection label propagation
+    # scores modularity 0.203 against the full co-client graph (a greedy local-move optimiser reaches 0.21; random
+    # partitions with the same sizes, -0.02), and the split is the same for any LIFT from 1.2 to 1.6.
+    "OVERLAPS_CLIENTS": f"""MATCH (p:Person)-[:WORKED_FOR]->(c:Client)
+        WITH p, sum(size([(c)<-[:WORKED_FOR]-(x:Person) | x]) - 1) AS d
+        WITH collect({{p: p, d: d}}) AS deg, sum(d) AS two_m
+        UNWIND deg AS x
+        MATCH (a:Person)-[:WORKED_FOR]->(c:Client)<-[:WORKED_FOR]-(b:Person) WHERE a = x.p AND id(a) < id(b)
+        WITH a, b, x.d AS da, count(c) AS shared, deg, two_m
+        WITH a, b, shared, da * [y IN deg WHERE y.p = b][0].d / toFloat(two_m) AS expected
+        WHERE shared >= {OVERLAP_MIN_LIFT} * expected
+        WITH a, b, shared, round(100 * expected) / 100 AS expected, round(100 * shared / expected) / 100 AS lift
+        CREATE (a)-[:OVERLAPS_CLIENTS {{shared:shared, expected:expected, lift:lift}}]->(b),
+               (b)-[:OVERLAPS_CLIENTS {{shared:shared, expected:expected, lift:lift}}]->(a)""",
 }
 
 
 def project(g: Graph) -> None:
     """(Re)build the analysis projections; called at load and after any write
     that changes who-worked-for-whom."""
+    # SHARES_CLIENTS / SHARES_LEADS are older projections, no longer built; deleted here so a graph built before
+    # this change is cleaned on its next projection
     g.run("MATCH ()-[r:WORKED_FOR|ENGAGED|SHARES_CLIENTS|OVERLAPS_CLIENTS|SHARES_LEADS]->() DELETE r")
     g.run("""MATCH (p:Person)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
              WITH p, c, count(w) AS n, sum(w.value) AS v
@@ -390,7 +390,7 @@ def load(graph_name: str = config.BASE_GRAPH, with_chunks: bool = True, quiet: b
         by_label.setdefault(c["subject_label"], []).append(c)
     for label, rows in by_label.items():
         unwind(g, f"""UNWIND $rows AS r MATCH (s:{label} {{key:r.subject_key}})
-            CREATE (c:Claim) SET c = r
+            CREATE (c:Claim) SET c = r, c.recorded_at = timestamp()
             CREATE (c)-[:ABOUT]->(s)
             WITH c, r MATCH (d:Document {{doc_id:r.source_doc}}) CREATE (c)-[:FROM {{page:r.page}}]->(d)""", rows)
 

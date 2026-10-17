@@ -7,7 +7,7 @@ every number that matters.
 ---
 
 ### 0:00 – 0:20 · Hook (Overview page)
-**Screen:** Home: the header facts (687 documents · 7,544 nodes · 12,839 relationships · 114 decisions), the "Ask the company brain" panel and the Explore rows.
+**Screen:** Home: the header facts (687 documents · 7,564 nodes · 13,507 relationships · 114 decisions), the "Ask the company brain" panel and the Explore rows.
 **Say:** "Indian infrastructure firms win public tenders by proving their past: similar works, qualified engineers,
 valid bank guarantees. That proof lives in hundreds of documents that contradict each other. BidBrain is a company
 brain on FalkorDB that turns all of it into one graph that agents act on."
@@ -36,7 +36,7 @@ so it never sees the letter that isn't there. The graph knows the boundary of th
 **Screen:** with the expressway case open, send **"Revised Completion Certificate — Pkg-116"**. It is auto-resolved
 by *recency*, and the feed notes "the bid now rests on one work". Send **"Corrigendum — Ring Road UP Pkg-113"**:
 the old claims are struck through, and the ripple card shows clause 2.1 **PASS → FAIL** and **BID → NO-BID**. The
-ripple graph lights up the case and 6 past bids that cited this work.
+ripple graph lights up the case and the past expressway bid (RFP-132032301) that cited this work in its Annexure D.
 **Say:** "Documents keep arriving. Each becomes a claim, nothing is overwritten, and conflicts are settled by an
 authority-and-recency policy. Then BidBrain walks outward from the changed fact to every open bid that relied on it.
 Two documents later, a winnable bid is a no-bid, and we know exactly why."
@@ -46,8 +46,9 @@ Two documents later, a winnable bid is a no-bid, and we know exactly why."
 
 ### 2:50 – 3:10 · Decisions & graph algorithms (Decisions → Explore)
 **Screen:** Decisions page. Click the corrigendum decision: the trace graph shows Decision → SELECTS → claim → FROM →
-DOC, and DECIDED_BY. Then Explore → **Bus factor (betweenness)**: Rahul Menon tops the list (betweenness averaged over 32 seeded FalkorDB runs, so the ranking is stable). **Audit past bids**:
-every past dossier cited works not yet complete at submission.
+DOC, and DECIDED_BY. Then Explore → **Bus factor (betweenness)**: Rahul Menon tops the list (exact betweenness, computed in one Cypher query over
+`allShortestPaths`, so the ranking never changes). **Audit past bids**: 5 of the 6 past dossiers cited works not yet
+complete at submission.
 **Say:** "Every fact traces back to a decision, a decider, and two documents. FalkorDB's algorithms are tools the
 agents call: betweenness shows who the company can't afford to lose."
 

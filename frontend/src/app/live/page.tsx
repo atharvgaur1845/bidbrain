@@ -8,6 +8,7 @@ import GraphCanvas, { GData, mergeGraph } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/Shell";
 import { Badge, Button, Card, Empty, EvidenceList, Spinner, Tabs, Verdict, useOpenDoc } from "@/components/ui";
 import { API_BASE, api, stream } from "@/lib/api";
+import { CompanyMemoryToggle } from "@/app/memory/parts";
 
 const TYPE_LABEL: Record<string, string> = {
   corrigendum_value: "Corrigendum", revised_completion: "Revised certificate", bond_invoked: "Bank: invocation",
@@ -103,6 +104,9 @@ export default function LivePage() {
     try {
       const out = await api("/api/memory/promote", { method: "POST", body: JSON.stringify({ rule_id: rule.id }) });
       push("promoted", { ...out, local: rule });
+      // promoting re-checks this session's open cards: show what the rule settled
+      for (const d of out.rechecked?.decisions || []) push("decision", d);
+      for (const r of out.rechecked?.ripples || []) push("ripple", { subject: "re-check", result: r });
     } catch (e: any) {
       push("error", { message: `Promote ${rule.id}: ${e?.message || e}` });
     } finally { setPromoting(null); refresh(); }
@@ -250,6 +254,10 @@ export default function LivePage() {
                   <div key={c.id} className="py-4 first:pt-1 last:pb-0">
                     <div className="text-[13.5px] font-semibold leading-snug text-ink">{c.subject}</div>
                     <div className="num mt-1 text-[12px] text-ink-3">{c.predicate}</div>
+                    {c.reopened_from && (
+                      <div className="mt-1"><Badge tone="warn">Reopened</Badge>
+                        <span className="num ml-2 text-[11.5px] text-ink-3">from {c.reopened_from}</span></div>
+                    )}
                     <div className="mt-3 flex flex-col gap-2">
                       {c.claims.map((cl: any) => (
                         <div key={cl.id} className="well p-3">
@@ -285,6 +293,13 @@ export default function LivePage() {
           </Card>
 
           <Card title="Learned rules" action={rules.length ? <span className="num text-[13px] text-ink-3">{rules.length}</span> : null}>
+            <div className="-mt-1 mb-3 border-b border-line pb-3">
+              <CompanyMemoryToggle onChange={(on, out) => {
+                for (const d of out?.decisions || []) push("decision", d);
+                for (const r of out?.ripples || []) push("ripple", { subject: "company memory", result: r });
+                refresh();
+              }} />
+            </div>
             {rules.length ? (
               <ul className="-mt-1 divide-y divide-line">
                 {rules.map((r: any) => (

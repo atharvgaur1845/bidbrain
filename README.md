@@ -31,7 +31,7 @@ questions (Q333) BidBrain scores **.640** against .180 / .099 / .075, and on the
 | A corrigendum arrives, the conflict is settled by policy, and the open bid flips **BID → NO-BID** | **Live documents** |
 | Every settled fact traced to its policy, decider, and both source documents; your decisions become learned rules | **Decisions** |
 | Promote a learned rule to company memory, so other sessions' conflicts resolve by it, with provenance | **Live documents** → **Memory** |
-| Bus factor (betweenness), isolated entities (WCC), how two things connect (SPpaths), audit of past bids | **Explore** |
+| Bus factor (exact betweenness), isolated entities (WCC), client circles (label propagation), how two things connect (SPpaths), audit of past bids | **Explore** |
 | Graph vs. vector RAG vs. text-to-Cypher vs. GraphRAG-SDK, same model, by hop count | **Benchmark** |
 
 ---
@@ -63,13 +63,13 @@ flowchart LR
   subgraph Agents
     QA[Q&A agent] & CP[ClauseParser] & PL[Planner · no LLM] & EH[EvidenceHunter] & AA[AbsenceAuditor] & CS[ConflictSentinel] & V[Verifier · no LLM] & AS[Assembler]
   end
-  T[28 graph tools<br/>Cypher · algo.* · exact maths] --- MCP[MCP server /mcp]
+  T[29 graph tools<br/>Cypher · algo.* · exact maths] --- MCP[MCP server /mcp]
   Agents --> T --> S
   UI[Next.js UI] <-- SSE --> API[FastAPI] --> Agents
   LLM[demo: Groq pool<br/>gpt-oss-120b · qwen3.8-27b · gpt-oss-20b<br/>benchmark: Qwen3-32B on vLLM] --- Agents
 ```
 
-* **One registry, three consumers.** The same 28 tool functions serve the in-app agents, the MCP server (27 of them, annotated read-only; `case_open` writes, so MCP leaves it out)
+* **One registry, three consumers.** The same 29 tool functions serve the in-app agents, the MCP server (28 of them, annotated read-only; `case_open` writes, so MCP leaves it out)
   (`/mcp/`, streamable HTTP; any MCP client can connect) and the evaluation oracle.
 * **Arithmetic never happens in the LLM.** `aggregate` takes *work keys*, re-reads values from the graph, and computes
   in exact integer rupees.
@@ -98,7 +98,7 @@ erDiagram
   FinancialStatement }o--|| FiscalYear : FOR_FY
   Bid }o--|| Tender : FOR_TENDER
   Bid }o--o{ Work : CITES
-  Bid }o--o{ Person : PROPOSES
+  Bid }o--o{ Person : "PROPOSES (named teams only)"
   Claim }o--|| Work : "ABOUT (any subject)"
   Claim }o--|| Document : "FROM {page}"
   Claim }o--o{ Claim : "CONTRADICTS / SUPERSEDES"
@@ -117,7 +117,7 @@ erDiagram
 |---|---|---|
 | Company records | `Work` 155 · `Client` 29 · `Person` 39 · `Credential` 48 · `Category` 13 · `Tender` 63 · `Requirement` 491 · `Bond` 60 · `Invoice` 518 · `Contract` 6 · `BOQItem` 43 · `Measurement` 407 · `FinancialStatement` 8 · `Asset` 210 · `Certification` 5 | the connected estate: every edge is a join the questions need |
 | Provenance | `Document` 687 · `Chunk` 2,564 (fulltext + 384-d HNSW vector index) | every fact links to a document and page, so each answer cites the page |
-| Claims | `Claim` 1,648 | every contestable value (work value, completion date, grading, role, experience, bond status, each statement line) with source, page, issuer, **authority**, date |
+| Claims | `Claim` 1,668 | every contestable value (work value, completion date, grading, role, experience, bond status, each statement line) with source, page, issuer, **authority**, date |
 | Decisions | `Decision` (114 at boot) · `PolicyRule` · `ConflictCard` | how disagreements were settled, by whom, and why |
 | Memory | `Bid` 6 (past bids from the dossiers) · `Case` · `Clause` · `Finding` · `AgentRun` · `Conversation` · `Turn` · `OrgRule` (in `bidbrain_org`) | episodic (past bids, conversations), shared multi-agent state (cases), procedural (learned rules, optionally promoted to company memory) |
 
@@ -134,14 +134,15 @@ the queries it actually ran. The core ones:
 | `find_portfolio` | `MATCH (w:Work)-[:FOR_CLIENT]->(c:Client), (w)-[:LED_BY]->(p:Person), (w)-[e:EVIDENCED_BY {kind:'completion_certificate'}]->(d)` with client / person / **via-work hop** / category / value / date / govt-level filters |
 | `prove_absence` | boundary `(c:Client)<-[:FOR_CLIENT]-(w)`, partition on `(w)-[:HAS_REFERENCE]->()`, then three checks: 3-view attestation, **corpus closure** (every letter is linked to some work), and a full-text orphan search |
 | `qualify_clause` | CPWD 80/60/40% similar-works rule, turnover (conflict-aware), key personnel valid **on the bid date**, certifications, years in business from the CIN |
-| `blast_radius` | `(subject)<-[:SATISFIED_BY]-(:Clause)<-[:HAS_CLAUSE]-(:Case)`, `<-[:CITES\|PROPOSES\|SECURED_BY]-(:Bid)`, `-[:SECURES]->(:Tender)`, then re-runs the affected clauses and reports verdict flips |
-| `key_people` | `CALL algo.betweenness({nodeLabels:['Person','Client'], relationshipTypes:['WORKED_FOR','ENGAGED'], samplingSeed:$seed})` for the bus factor, averaged over 32 seeded runs (one call samples, so ranks past the top two depended on the seed) |
+| `blast_radius` | `(subject)<-[:SATISFIED_BY]-(:Clause)<-[:HAS_CLAUSE]-(:Case)`, `<-[:CITES\|PROPOSES\|SECURED_BY]-(:Bid)` (a past bid cites only its Annexure D works in the tender's category), `-[:SECURES]->(:Tender)`, then re-runs the affected clauses and reports verdict flips |
+| `key_people` | the bus factor as **exact** betweenness: Brandes in one Cypher query, `MATCH p = allShortestPaths((a)-[:WORKED_FOR*]-(b))` over every pair of the 68 people and clients (~0.1 s). `algo.betweenness` samples source nodes even with `samplingSize` above the node count, so it is reported beside it as a cross-check (32-seed mean: same top 3 in order, 4/5 of the top 5, 9/10 of the top 10) |
 | `fact_history` | every competing `Claim` about a fact with its document and page, and the `Decision`s (policy, decider, learned rule) that settled it: the agent's answer to "why do we believe this?" |
 | `explain_path` | `CALL algo.SPpaths({sourceNode, targetNode, relTypes, relDirection:'both', maxLen:6, pathCount:3})` |
 | `isolated_entities` | `CALL algo.WCC(...)` over the evidence edges (`scope:'provenance'` or `'corpus'`): everything outside the main component is a finding, such as documents no fact cites, a client we invoice with no completed work, or staff with credentials who never led a work |
-| `communities` | `CALL algo.labelPropagation(...)` over a client-overlap projection (people, or clients sharing project leads), with the split's modularity reported |
-| `trace_from_credential` | the 6-hop credential → person → work → client → portfolio → certificate chain in one Cypher query |
-| `compliance_check` | re-tests every MET row in the company's past compliance matrices against the graph *on the date the claim was made*, using the `qualify_clause` rules |
+| `communities` | `CALL algo.labelPropagation(...)` over `OVERLAPS_CLIENTS` (two leads who share at least 1.5× the clients the configuration model expects): 3 client circles of 15 / 12 / 10 people, **modularity 0.203** against the full co-client graph (random splits of the same sizes: −0.021; a greedy optimiser: 0.21). `of:'clients'` gives the same circles from the client side (0.175; random −0.039) |
+| `trace_from_credential` | the 5-hop credential → person → work → client → portfolio → certificate chain in one Cypher query |
+| `depends_on` | provenance as a variable-length match, `MATCH p = (x)-[:FROM\|EVIDENCED_BY\|HAS_REFERENCE\|HOLDS\|BASED_ON\|SELECTS\|CITES\|...*1..4]->(:Document {doc_id:$doc})`: everything that rests on one document (claims, works, decisions, past bids, compliance rows, open clauses), and which facts it is the *only* source for |
+| `compliance_check` | re-tests every MET row in the company's past compliance matrices (491 `Requirement` nodes) against the graph *on the date the claim was made*, using the `qualify_clause` rules: 318 checkable, 194 agree, 119 disagree. 105 of the 119 are most likely synthetic-generator artifacts, and the tool says so (`likely_generator_artifacts`): ISO certificates whose `initial_date` (2022) postdates the 2019-22 matrices citing them, one PMP issue date for every holder, and "210 owned assets" when the register holds 154 owned + 56 leased |
 | `vector_search` / `fulltext_search` | `db.idx.vector.queryNodes('Chunk','embedding',k,vecf32($v))` / `db.idx.fulltext.queryNodes('Chunk',$q)` |
 | `cypher_readonly` | the agent's escape hatch, executed as `GRAPH.RO_QUERY`, so the server rejects writes |
 | tenancy | `GRAPH.COPY bidbrain_base session_<id>`; company rules live in a separate `bidbrain_org` graph |
@@ -296,7 +297,7 @@ uvicorn bidbrain.api.main:app --port 7860     # keep running; open a second term
 cd frontend && npm ci && NEXT_PUBLIC_API_BASE=http://localhost:7860 npm run dev
 ```
 
-**Connect an MCP client** (Claude Desktop, etc.): point it at `https://<space>/mcp/` (streamable HTTP), or run
+**Connect an MCP client** (Claude Desktop, etc.): point it at `/mcp/` on the live demo URL above (streamable HTTP), or run
 `python -m bidbrain.mcp.server` for stdio. All read-only graph tools are exposed against the pristine base graph.
 
 **Reproduce the evaluation**
@@ -314,7 +315,7 @@ python -m eval.run --summarize
 
 ```
 backend/bidbrain/ingest     graph loader, claims, page provenance, aliases, past-bid dossiers, chunks+embeddings
-backend/bidbrain/tools      the 28 graph tools (one registry → agents, MCP, eval)
+backend/bidbrain/tools      the 29 graph tools (one registry → agents, MCP, eval)
 backend/bidbrain/conflicts  conflict engine, planted events, PDF rendering + live ingestion, demo scenarios
 backend/bidbrain/agents     provider failover + cache, tool loop, Q&A agent, tender team, baselines
 backend/bidbrain/api        FastAPI + SSE, per-session graphs, conversation memory

@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/Shell";
 import { Card, Stat, Tabs } from "@/components/ui";
 import { api, getSession } from "@/lib/api";
-import { CasesTab, CompanyMemory, ConversationTab, DecisionsTab, type Case, type Decision, type OrgRule, type Rule, type Turn } from "./parts";
+import { CasesTab, CompanyMemory, CompanyMemoryToggle, ConversationTab, DecisionsTab, type Case, type Decision, type OrgRule, type Rule, type Turn } from "./parts";
 
 type Conflicts = { cards?: unknown[]; decisions: Decision[]; rules: Rule[] };
 type Overview = {
@@ -46,14 +46,28 @@ export default function MemoryPage() {
   const [orgError, setOrgError] = useState("");
 
   const loadOrg = () => api("/api/memory/org").then(setOrg).catch(() => {}).finally(() => setOrgReady(true));
+  const loadConf = () => api("/api/conflicts").then(setConf).catch(() => {});
+  const [orgNote, setOrgNote] = useState("");
   async function retire(id: string) {
-    setOrgError("");
+    setOrgError(""); setOrgNote("");
     try {
-      await api(`/api/memory/org/${id}/retire`, { method: "POST", body: "{}" });
+      const out = await api(`/api/memory/org/${id}/retire`, { method: "POST", body: "{}" });
+      if (out.reopened?.length) setOrgNote(`${out.reopened.length} decision(s) made here by ${id} reopened as cards on Live documents.`);
     } catch (e: any) {
       setOrgError(`Retire ${id}: ${e?.message || e}`);
     }
-    await loadOrg();
+    await Promise.all([loadOrg(), loadConf()]);
+  }
+  async function contest(id: string) {
+    setOrgError(""); setOrgNote("");
+    try {
+      const out = await api(`/api/memory/org/${id}/contest`, { method: "POST", body: "{}" });
+      setOrgNote(`${id} no longer applies in this session` +
+        (out.reopened?.length ? `; ${out.reopened.length} decision(s) it made here reopened as cards on Live documents.` : "."));
+    } catch (e: any) {
+      setOrgError(`Contest ${id}: ${e?.message || e}`);
+    }
+    await Promise.all([loadOrg(), loadConf()]);
   }
 
   useEffect(() => {
@@ -102,7 +116,9 @@ export default function MemoryPage() {
       </Card>
 
       <div className="mb-6">
-        <CompanyMemory rules={org.rules || []} cap={org.cap} graph={org.graph} ready={orgReady} onRetire={retire} />
+        <CompanyMemory rules={org.rules || []} cap={org.cap} graph={org.graph} ready={orgReady} onRetire={retire}
+          onContest={contest} toggle={<CompanyMemoryToggle onChange={() => { loadConf(); }} />} />
+        {orgNote && <p className="mt-2 text-[13px] text-ink-2">{orgNote}</p>}
         {orgError && <p className="mt-2 text-[13px] text-bad">{orgError}</p>}
       </div>
 

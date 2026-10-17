@@ -25,8 +25,10 @@ Relationships:
   (Person)-[:HOLDS]->(Credential)  (Tender)-[:REQUIRES]->(Requirement)  (Bond)-[:SECURES]->(Tender)
   (Invoice)-[:BILLED_TO]->(Client)  (Contract)-[:FOR_CLIENT]->(Client)  (FinancialStatement)-[:FOR_FY]->(FiscalYear)
   (Claim)-[:ABOUT]->(subject)  (Claim)-[:FROM]->(Document)  (Claim)-[:CONTRADICTS|SUPERSEDES]->(Claim)
-  Projections: (Person)-[:WORKED_FOR {works,value}]->(Client)  (Person)-[:OVERLAPS_CLIENTS {shared,jaccard}]->(Person)
-  (Client)-[:SHARES_LEADS {leads}]->(Client)
+  (Bid)-[:CITES {annexure,row}]->(Work)  (Bid)-[:FOR_TENDER]->(Tender)  (Bid)-[:SECURED_BY]->(Bond)
+  (Decision)-[:BASED_ON|SELECTS]->(Claim)  (Requirement)-[:CITES_CERT]->(Certification)
+  Projections: (Person)-[:WORKED_FOR {works,value}]->(Client)  (Client)-[:ENGAGED]->(Person)
+  (Person)-[:OVERLAPS_CLIENTS {shared,expected,lift}]->(Person)
 Dialect notes (FalkorDB): no EXISTS{} subqueries (use pattern predicates); shortestPath only in
 WITH/RETURN and directed; dates compare as strings 'YYYY-MM-DD' or via *_day ints.
 """

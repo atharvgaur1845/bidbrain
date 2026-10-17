@@ -25,7 +25,13 @@ const SUGGESTED = [
 
 type Turn = { q: string; answer?: any; explanation?: string; steps: TraceStep[]; evidence: any[]; graph: GData;
   highlight: Set<string>; running: boolean; error?: string; usage?: any; ms?: number; providers?: string[];
-  baseline?: any; baselineLoading?: boolean };
+  switches?: Switch[]; note?: string; warnings?: string[]; baseline?: any; baselineLoading?: boolean };
+type Switch = { step?: number; from: string; to: string; why: string };
+
+/** Every model that served this answer, in order of first use ("groq:openai/gpt-oss-120b (cached)" counts as gpt-oss-120b). */
+const distinctProviders = (ps?: string[]) =>
+  [...new Set((ps || []).map((p) => p.replace(/ \(cached\)$/, "")))];
+const shortModel = (p: string) => (p === "deterministic" ? "no model (deterministic)" : p.split(":").slice(1).join(":") || p);
 
 const EMPTY_GRAPH: GData = { nodes: [], edges: [] };
 /** Smooth scrolling is motion: skip it when the viewer asks for reduced motion. */
@@ -84,10 +90,16 @@ export default function AskPage() {
           return { ...t, steps, graph: g, highlight: hl.size ? hl : t.highlight,
                    evidence: [...t.evidence, ...(ev.evidence || [])] };
         });
+      } else if (ev.type === "warning") {
+        // the model failed mid-run; the agent is still answering from what it has
+        update(i, (t) => ({ ...t, warnings: [...(t.warnings || []), ev.message] }));
+      } else if (ev.type === "provider_switch") {
+        update(i, (t) => ({ ...t, switches: [...(t.switches || []), { step: ev.step, from: ev.from, to: ev.to, why: ev.why }] }));
       } else if (ev.type === "result") {
         const d = ev.data;
         update(i, (t) => ({ ...t, running: false, answer: d.answer_text, explanation: d.explanation, usage: d.usage,
-                            ms: d.ms, providers: d.providers, error: d.error,
+                            ms: d.ms, providers: d.providers, switches: d.switches ?? t.switches, note: d.note ?? undefined,
+                            error: d.error,
                             graph: mergeGraph(t.graph, d.subgraph), evidence: d.evidence?.length ? d.evidence : t.evidence }));
       } else if (ev.type === "error") {
         update(i, (t) => ({ ...t, running: false, error: ev.message }));
@@ -158,11 +170,12 @@ export default function AskPage() {
               const ans = String(t.answer);
               const plain = ans.replace(/,/g, "");
               const explanation = (t.explanation || "").replace(/ANSWER:.*$/im, "").trim();
+              const models = distinctProviders(t.providers);
               const meta = [
                 `${t.usage?.tool_calls ?? t.steps.length} tool calls`,
                 `${t.usage?.llm_calls ?? "–"} LLM calls`,
                 t.ms ? `${(t.ms / 1000).toFixed(1)} s` : "",
-                t.providers?.[0] || "",
+                models.length ? models.map(shortModel).join(" → ") : "",
               ].filter(Boolean);
               return (
                 <div key={i} className={clsx(turns.length > 1 && "cursor-pointer")} onClick={() => setSel(i)}>
@@ -174,6 +187,9 @@ export default function AskPage() {
                   <div className={clsx("mt-3 border-l-2 pl-4 transition-colors duration-150 ease-out",
                     selected ? "border-kb" : "border-line")}>
                     {t.running && <Spinner label={`${t.steps.length} tool calls so far`} />}
+                    {t.running && t.warnings?.length ? (
+                      <div className="mt-1 text-[12.5px] text-ink-3">{t.warnings[t.warnings.length - 1]}</div>
+                    ) : null}
                     {t.error && !t.answer && <div className="text-[13px] text-bad">{t.error}</div>}
                     {!t.running && t.answer === undefined && !t.error && (
                       <div className="text-[13px] text-ink-3">No answer returned.</div>
@@ -187,6 +203,12 @@ export default function AskPage() {
                           <div className="num mt-1 text-[13px] text-ink-2">{fmtINR(Number(plain))}</div>
                         )}
                         <div className="mt-2 text-[12.5px] tabular-nums text-ink-3">{meta.join(" · ")}</div>
+                        {(t.switches || []).map((sw, k) => (
+                          <div key={k} className="mt-1 text-[12.5px] text-warn">
+                            Model switched{sw.step != null ? ` at step ${sw.step + 1}` : ""}: {shortModel(sw.from)} → {shortModel(sw.to)}, because {sw.why}.
+                          </div>
+                        ))}
+                        {t.note && <div className="mt-1 text-[12.5px] text-ink-3">{t.note}</div>}
 
                         {explanation && (
                           <details className="group mt-3">

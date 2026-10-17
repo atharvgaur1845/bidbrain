@@ -192,25 +192,19 @@ def ingest_pdf(g: Graph, path: str | pathlib.Path, doc_id: str | None = None) ->
     if not p.get("subject_key"):
         return {"doc_id": doc_id, "kind": kind, "error": f"could not resolve subject ({p.get('resolved_via')})",
                 "parsed": p}
+    # a client's letter of recommendation / appreciation is a reference letter, as in the corpus
+    doc_type = "reference_letter" if kind == "client_letter" else kind
     ev = {"event_id": doc_id, "type": f"pdf:{kind}",
-          "doc": {"doc_id": doc_id, "doc_type": kind, "issuer": p["issuer"], "issued": p["observed"] or config.AS_OF,
+          "doc": {"doc_id": doc_id, "doc_type": doc_type, "issuer": p["issuer"], "issued": p["observed"] or config.AS_OF,
                   "title": text.splitlines()[2] if len(text.splitlines()) > 2 else kind},
           "claims": [{"subject_label": p["subject_label"], "subject_key": p["subject_key"], "predicate": pred,
                       "value": val, "source_kind": sk, "issuer": p["issuer"], "observed": p["observed"] or config.AS_OF,
                       "page": 1, "extracted_by": "pdf", "precision": (rest or [1])[0]}
                      for pred, val, sk, *rest in p["claims"]]}
-    out = apply_event(g, ev)
-    _add_chunk(g, doc_id, text)
+    out = apply_event(g, ev, text=text)
     return {"doc_id": doc_id, "kind": kind, "subject": {"label": p["subject_label"], "key": p["subject_key"],
                                                         "resolved_via": p["resolved_via"]},
             "issuer": p["issuer"], "observed": p["observed"],
             "extracted": [{"predicate": a, "value": b, "source_kind": c, "precision": (rest or [1])[0]}
                           for a, b, c, *rest in p["claims"]], **out}
 
-
-def _add_chunk(g: Graph, doc_id: str, text: str) -> None:
-    from bidbrain.ingest.chunks import embed
-    vec = embed([text[:1400]])[0].tolist()
-    g.run("""MATCH (d:Document {doc_id:$d}) MERGE (c:Chunk {id:$id}) SET c.key = $id, c.doc_id = $d, c.page = 1,
-               c.text = $t, c.ft = $ft, c.embedding = vecf32($v) MERGE (c)-[:PART_OF]->(d)""",
-          {"d": doc_id, "id": f"{doc_id}#p1#0", "t": text[:1400], "ft": " ".join(text[:1400].split()), "v": vec})

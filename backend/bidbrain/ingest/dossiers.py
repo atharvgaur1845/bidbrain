@@ -1,15 +1,30 @@
 """Past bids from the 6 tender dossiers — BidBrain's episodic memory.
 
 Each dossier is a submitted bid: header (tender, category, bid value, date,
-client), Annexure D (works cited as past performance), Annexure E (people
-proposed), Annexure H (bid security). Loaded as
+client), Annexure D (past performance), Annexure E (key personnel), Annexure H
+(bid security). Loaded as
 
     (:Bid)-[:FOR_TENDER]->(:Tender)  (:Bid)-[:TO_CLIENT]->(:Client)
     (:Bid)-[:CITES]->(:Work)  (:Bid)-[:PROPOSES]->(:Person)  (:Bid)-[:SECURED_BY]->(:Bond)
 
 so a new tender can retrieve precedents ("last time we bid expressways for a
-state client we cited these works and this PM") and a change to a cited work
-ripples to every bid that relied on it.
+state client we cited these works") and a change to a cited work ripples to
+the bids that relied on it.
+
+What the annexures name, and what becomes an edge:
+
+* Annexure D is titled "Past performance (<category>)" and prints 48 rows. The
+  first 10-14 are the company's works in the tender's category; the rest are
+  its highest-value works in other categories, the same ~35 rows in every
+  dossier (the corpus generator pads the table to 48). Only the rows in the
+  tender's category are past performance for that tender, so only they become
+  CITES edges (row number kept on the edge). Linking the padding too made every
+  large work "cited by all 6 past bids".
+* Annexure E reproduces the full project-manager roster (all 39 people on
+  file, including staff who joined after the submission date). It names no
+  proposed team, so no PROPOSES edge is created; the Bid records how many
+  people the annexure lists. PROPOSES is created only for an annexure that
+  names a subset of the roster.
 """
 from __future__ import annotations
 
@@ -51,7 +66,7 @@ def parse_dossier(doc_id: str, text: str) -> dict:
             section = None
         elif "annexure h" in h:
             section = "H"
-        if section == "D":
+        if section == "D" and not re.match(r"\s*d\.\d+ ", pg, re.I):   # the table, not the d.N detail pages
             flat = " ".join(pg.split())
             cited += [int(n) for n in re.findall(r"Pkg-(\d+)", flat)]
         elif section == "E":
@@ -63,11 +78,12 @@ def parse_dossier(doc_id: str, text: str) -> dict:
                             "valid_to": X.parse_date(m.group(4))}
     return {"key": ref, "tender_ref": ref, "doc_id": doc_id, "category": cat.group(1).lower() if cat else None,
             "bid_value": value, "submitted": submitted, "client": client,
-            "cited_pkgs": sorted(set(cited)), "people": sorted(set(people)), "security": security}
+            "rows_pkgs": list(dict.fromkeys(cited)), "people": sorted(set(people)), "security": security}
 
 
 def load_bids(g, pages) -> list[dict]:
     bids = [parse_dossier(d, t) for d, t in sorted(pages.raw.items()) if d.startswith("DOC-DOSSIER-")]
+    roster = {r["k"] for r in g.read("MATCH (p:Person) RETURN p.key AS k")}
     for b in bids:
         g.run("""MERGE (t:Tender {key:$ref}) ON CREATE SET t.ref = $ref, t.category = $cat
                  CREATE (b:Bid {key:$ref, tender_ref:$ref, category:$cat, bid_value:$val, submitted:$sub,
@@ -78,12 +94,23 @@ def load_bids(g, pages) -> list[dict]:
                  FOREACH (_ IN CASE WHEN c IS NULL THEN [] ELSE [1] END | CREATE (b)-[:TO_CLIENT]->(c))""",
               {"ref": b["tender_ref"], "cat": b["category"], "val": b["bid_value"], "sub": b["submitted"],
                "sday": _day(b["submitted"]), "doc": b["doc_id"], "client": norm(b["client"] or "")})
-        g.run("""MATCH (b:Bid {key:$ref}) UNWIND $pkgs AS n
-                 MATCH (w:Work) WHERE w.title ENDS WITH ('Pkg-' + toString(n))
-                 CREATE (b)-[:CITES {annexure:'D'}]->(w)""", {"ref": b["tender_ref"], "pkgs": b["cited_pkgs"]})
-        g.run("""MATCH (b:Bid {key:$ref}) UNWIND $ppl AS nm
-                 MATCH (p:Person {key:nm}) CREATE (b)-[:PROPOSES {annexure:'E'}]->(p)""",
-              {"ref": b["tender_ref"], "ppl": [norm(p) for p in b["people"]]})
+        # Annexure D: only the rows in the tender's own category (see the module docstring)
+        g.run("""MATCH (b:Bid {key:$ref}) UNWIND range(0, size($pkgs) - 1) AS i
+                 MATCH (w:Work) WHERE w.title ENDS WITH ('Pkg-' + toString($pkgs[i])) AND w.category = b.category
+                 CREATE (b)-[:CITES {annexure:'D', row:i + 1}]->(w)""", {"ref": b["tender_ref"], "pkgs": b["rows_pkgs"]})
+        cited = g.scalar("MATCH (:Bid {key:$ref})-[c:CITES]->() RETURN count(c)", {"ref": b["tender_ref"]})
+        # Annexure E: a full-roster listing names nobody in particular
+        named = [norm(p) for p in b["people"]]
+        full_roster = len(set(named) & roster) >= len(roster)
+        if not full_roster:
+            g.run("""MATCH (b:Bid {key:$ref}) UNWIND $ppl AS nm
+                     MATCH (p:Person {key:nm}) CREATE (b)-[:PROPOSES {annexure:'E'}]->(p)""",
+                  {"ref": b["tender_ref"], "ppl": named})
+        g.run("""MATCH (b:Bid {key:$ref})
+                 SET b.annexure_d_rows = $rows, b.cited_in_category = $cited,
+                     b.annexure_e_listed = $listed, b.annexure_e_full_roster = $full""",
+              {"ref": b["tender_ref"], "rows": len(b["rows_pkgs"]), "cited": cited, "listed": len(named),
+               "full": full_roster})
         if b["security"]:
             # the annexure prints the amount rounded to 0.01 Cr (Rs 1 lakh), so match within that precision,
             # preferring the bond that secures this bid's own tender over a same-bank bond on another one

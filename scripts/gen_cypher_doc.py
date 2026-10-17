@@ -36,6 +36,7 @@ SAMPLES = {
     "communities": {},
     "trace_from_credential": {"person": "Sunita Joshi", "credential": "Six Sigma", "work": "Pkg-107"},
     "compliance_check": {"tender": "RFP-132000970"},
+    "depends_on": {"doc_id": "DOC-CERT-001"},
     "fact_history": {"key": "Pkg-113", "kind": "work"},
     "vector_search": {"text": "client praised the safety record", "k": 3},
     "fulltext_search": {"text": "Anganwadi"},
@@ -71,7 +72,7 @@ EXTRA = {
     "Analysis projections (bidbrain/ingest/load_graph.py)": [
         ("Person <-> client projection for centrality", "MATCH (p:Person)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)\n"
          "WITH p, c, count(w) AS n, sum(w.value) AS v\nCREATE (p)-[:WORKED_FOR {works:n, value:v}]->(c), (c)-[:ENGAGED {works:n, value:v}]->(p)"),
-        *[(f"{name} projection (communities)" if name != "SHARES_CLIENTS" else "SHARES_CLIENTS projection (unfiltered, reference only)",
+        *[(f"{name} projection (communities: shared clients >= 1.5x the configuration-model expectation)",
            "\n".join(l.strip() for l in q.strip().splitlines())) for name, q in PROJECTIONS.items()],
         ("Workbook provenance (found by isolated_entities scope='corpus')",
          "UNWIND $rows AS r MATCH (n:Asset {key:r.key}), (d:Document {doc_id:r.doc})\n"

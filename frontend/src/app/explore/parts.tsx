@@ -11,9 +11,9 @@ export type Kind = (typeof KINDS)[number];
 export const LABEL_OF: Record<string, string> = { client: "Client", person: "Person", work: "Work", tender: "Tender" };
 
 export const ALGOS = [
-  { id: "key_people", label: "Bus factor", proc: "algo.betweenness", hint: "People that most client relationships run through" },
+  { id: "key_people", label: "Bus factor", proc: "exact betweenness", hint: "People that most client relationships run through" },
   { id: "isolated_entities", label: "Isolated entities", proc: "algo.WCC", hint: "People and clients outside the main component" },
-  { id: "communities", label: "Teams by shared clients", proc: "algo.labelPropagation", hint: "People who served two or more of the same clients" },
+  { id: "communities", label: "Teams by shared clients", proc: "algo.labelPropagation", hint: "People who keep serving more of the same clients than chance predicts" },
   { id: "audit_bid", label: "Audit past bids", proc: "Cypher integrity check", hint: "Works cited before completion, people proposed before certification" },
 ];
 const RESULT: Record<string, { label: string; proc: string }> = {
@@ -183,9 +183,9 @@ export function AlgoResult({ a, onOpen }: { a: { name: string; data: any } | nul
       action={meta ? <span className="num text-[12px] text-ink-3">{meta.proc}</span> : null}>
       <div className="scroll-thin contain-scroll -mx-2 max-h-[26rem] overflow-y-auto px-2">
         {r == null ? <p className="text-[13px] text-ink-3">{a.data?.error || "No result."}</p>
-          : a.name === "key_people" ? <KeyPeople people={r.people || []} onOpen={onOpen} />
+          : a.name === "key_people" ? <KeyPeople people={r.people || []} check={r.algo_betweenness_check} onOpen={onOpen} />
           : a.name === "isolated_entities" ? <Isolated r={r} onOpen={onOpen} />
-          : a.name === "communities" ? <Communities rows={r} />
+          : a.name === "communities" ? <Communities rows={Array.isArray(r) ? r : r.groups || []} q={r.modularity} q0={r.random_partition_modularity} />
           : a.name === "audit_bid" ? <Audit rows={r} evidence={a.data?.evidence || []} onOpen={onOpen} />
           : a.name === "explain_path" ? <Paths rows={r} />
           : <CodeCell code={JSON.stringify(r, null, 2)} label="JSON" />}
@@ -203,10 +203,11 @@ export function AlgoResult({ a, onOpen }: { a: { name: string; data: any } | nul
   );
 }
 
-function KeyPeople({ people, onOpen }: { people: any[]; onOpen: OpenFn }) {
+function KeyPeople({ people, check, onOpen }: { people: any[]; check?: any; onOpen: OpenFn }) {
   if (!people.length) return <p className="text-[13px] text-ink-3">No people found.</p>;
   const max = Math.max(...people.map((p) => Number(p.score) || 0));
   return (
+    <>
     <ol className="-mx-2 flex flex-col gap-0.5">
       {people.map((p, i) => (
         <li key={p.key}>
@@ -227,6 +228,14 @@ function KeyPeople({ people, onOpen }: { people: any[]; onOpen: OpenFn }) {
         </li>
       ))}
     </ol>
+    {check && (
+      <p className="mt-3 text-[12.5px] leading-snug text-ink-3">
+        Exact betweenness (Brandes, every pair, one Cypher query over allShortestPaths). FalkorDB&apos;s algo.betweenness samples
+        source nodes, so it is shown only as a cross-check: averaged over <span className="num">{check.runs_averaged}</span> seeds it
+        agrees on the top <span className="num">{check.same_order_until_rank}</span> in order and on <span className="num">{check.top10_overlap}</span> of the top 10.
+      </p>
+    )}
+    </>
   );
 }
 
@@ -268,7 +277,7 @@ function AvatarStack({ names }: { names: string[] }) {
   );
 }
 
-function Communities({ rows }: { rows: any[] }) {
+function Communities({ rows, q, q0 }: { rows: any[]; q?: number; q0?: number }) {
   const teams = rows.filter((c) => c.size > 1);
   const solo: string[] = rows.filter((c) => c.size <= 1).flatMap((c) => c.people || []);
   if (!rows.length) return <p className="text-[13px] text-ink-3">No communities found.</p>;
@@ -286,6 +295,12 @@ function Communities({ rows }: { rows: any[] }) {
       {solo.length > 0 && (
         <li className="py-3 text-[13px] leading-snug text-ink-3">
           <span className="num">{solo.length}</span> outside any team: {solo.slice(0, 8).join(", ")}{solo.length > 8 ? ` and ${solo.length - 8} more` : ""}
+        </li>
+      )}
+      {q != null && (
+        <li className="py-3 text-[12.5px] leading-snug text-ink-3">
+          Modularity <span className="num">{q.toFixed(3)}</span> against the full co-client graph
+          {q0 != null && <> (random splits with the same sizes: <span className="num">{q0.toFixed(3)}</span>)</>}.
         </li>
       )}
     </ul>

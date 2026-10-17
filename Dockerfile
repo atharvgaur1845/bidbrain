@@ -2,8 +2,9 @@
 # Built for Hugging Face Spaces (Docker SDK, port 7860, runs as uid 1000) and
 # equally runnable anywhere:  docker build -t bidbrain . && docker run -p 7860:7860 --env-file .env bidbrain
 #
-# The graph is rebuilt from facts at every boot (~2 s) instead of shipping an RDB
-# snapshot: deterministic, and immune to on-disk format changes.
+# The base graph is rebuilt from facts at every boot (~2 s) instead of shipping an RDB
+# snapshot: deterministic, and immune to on-disk format changes. Runtime state (company
+# memory, session graphs) persists in $BIDBRAIN_STATE_DIR (default /app/state; see infra/start.sh).
 
 # ---------- 1. the UI (static export) ----------
 FROM node:22-bookworm-slim AS ui
@@ -45,7 +46,8 @@ RUN rm -rf backend/vendor_bidintel/dataset && mkdir -p backend/vendor_bidintel/d
     && git remote add origin https://github.com/satvikGIKA/BITS-Hackathon-Dataset.git \
     && git fetch -q --depth 1 origin 707c80fc7a57dad0c0f58cb4b305f4ecfba27c8a \
     && git checkout -q FETCH_HEAD && rm -rf .git
-RUN mkdir -p /app/data/uploads /app/data/conflicts/pdf
+RUN mkdir -p /app/data/uploads /app/data/conflicts/pdf /app/state/falkordb
+ENV BIDBRAIN_STATE_DIR=/app/state
 EXPOSE 7860
 ENTRYPOINT []
 CMD ["/app/start.sh"]

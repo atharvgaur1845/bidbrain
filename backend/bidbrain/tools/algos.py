@@ -1,6 +1,8 @@
 """Graph algorithms as agent tools (FalkorDB's built-in `algo.*` procedures)."""
 from __future__ import annotations
 
+import random
+
 from bidbrain.graph.client import Graph
 from bidbrain.tools.read import _edge, _node, _resolve
 from bidbrain.tools.registry import tool
@@ -8,14 +10,48 @@ from bidbrain.tools.registry import tool
 LABEL_KIND = {"Person": "person", "Client": "client", "Work": "work", "Tender": "tender"}
 
 
-SEEDS = 32           # seeded algo.betweenness runs averaged by key_people
+SEEDS = 32           # seeded algo.betweenness runs averaged for the cross-check in key_people
+
+# Exact betweenness (Brandes' definition) in one Cypher statement: for every pair of people/clients, every shortest
+# path between them over WORKED_FOR (allShortestPaths, a variable-length match), and each inner node gets 1/n of the
+# pair's n shortest paths. 68 nodes, 2,278 pairs, ~0.1 s; it matches a Python Brandes implementation to the decimal.
+BETWEENNESS_EXACT = """
+MATCH (a) WHERE (a:Person OR a:Client) AND (a)-[:WORKED_FOR]-()
+WITH collect(a) AS ns
+UNWIND ns AS a UNWIND ns AS b
+WITH a, b WHERE id(a) < id(b)
+MATCH p = allShortestPaths((a)-[:WORKED_FOR*]-(b))
+WITH a, b, collect(nodes(p)[1..-1]) AS inner
+WITH inner, toFloat(size(inner)) AS n
+UNWIND inner AS path_inner UNWIND path_inner AS v
+WITH v, sum(1 / n) AS score WHERE v:Person
+RETURN v.key AS key, score"""
+
+# FalkorDB's own procedure. It samples source nodes: even with samplingSize >= the 68 nodes the scores change with
+# samplingSeed, so it cannot give the exact ranking. It is kept as a cross-check (mean of SEEDS seeded runs).
+BETWEENNESS_ALGO = """CALL algo.betweenness({nodeLabels:['Person','Client'], relationshipTypes:['WORKED_FOR','ENGAGED'],
+                                     samplingSize:100000, samplingSeed:$seed})
+                YIELD node, score WITH node AS p, score WHERE p:Person RETURN p.key AS key, score"""
+
+
+def _agreement(exact: dict[str, float], approx: dict[str, float]) -> dict:
+    """How far the sampled algo.betweenness ranking is from the exact one."""
+    ex = sorted(exact, key=lambda k: (-exact[k], k))
+    ap = sorted(approx, key=lambda k: (-approx[k], k))
+    first = next((i + 1 for i, (x, y) in enumerate(zip(ex, ap)) if x != y), None)
+    return {"runs_averaged": SEEDS,
+            **{f"top{k}_overlap": f"{len(set(ex[:k]) & set(ap[:k]))}/{k}" for k in (3, 5, 10)},
+            "same_order_until_rank": (first - 1) if first else len(ex),
+            "sampled_top6": ap[:6]}
 
 
 @tool("key_people",
       """Who the company depends on. algo='betweenness' (default) ranks people by how many
       shortest person<->client paths run through them — the knowledge brokers whose loss would
-      disconnect client relationships ('bus factor'). algo='reach' ranks by distinct clients and
-      works led. Optional client / category to restrict to people who worked there.""",
+      disconnect client relationships ('bus factor'). The score is exact (Brandes, computed in one
+      Cypher query over allShortestPaths); FalkorDB's sampled algo.betweenness is reported beside it
+      as a cross-check. algo='reach' ranks by distinct clients and works led. Optional client /
+      category to restrict to people who worked there.""",
       {"algo": {"type": "string", "enum": ["betweenness", "reach"]},
        "client": {"type": "string"}, "category": {"type": "string"}, "limit": {"type": "integer"}})
 def key_people(g: Graph, algo: str = "betweenness", client: str | None = None,
@@ -23,26 +59,24 @@ def key_people(g: Graph, algo: str = "betweenness", client: str | None = None,
     ck = _resolve(g, client, "client")[0] if client else None
     cat = _resolve(g, category, "category")[0] if category else None
     if algo == "betweenness":
-        # algo.betweenness samples source nodes even when samplingSize exceeds the node count, so one call's
-        # ranking past the top two depends on the seed. The score is the mean over SEEDS seeded runs: two disjoint
-        # seed sets give the same top 6, and the top 3 match exact Brandes on this projection.
-        bq = """CALL algo.betweenness({nodeLabels:['Person','Client'], relationshipTypes:['WORKED_FOR','ENGAGED'],
-                                     samplingSize:100000, samplingSeed:$seed})
-                YIELD node, score WITH node AS p, score WHERE p:Person RETURN p.key AS key, score"""
-        mean: dict[str, float] = {}
+        exact = {r["key"]: r["score"] for r in g.read(BETWEENNESS_EXACT)}
+        sampled: dict[str, float] = {}
         for seed in range(1, SEEDS + 1):
-            for r in g.read(bq, {"seed": seed}):
-                mean[r["key"]] = mean.get(r["key"], 0.0) + r["score"] / SEEDS
+            for r in g.read(BETWEENNESS_ALGO, {"seed": seed}):
+                sampled[r["key"]] = sampled.get(r["key"], 0.0) + r["score"] / SEEDS
         q = """UNWIND $scores AS s MATCH (p:Person {key:s.key})
                MATCH (p)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
                WHERE ($c IS NULL OR c.key = $c) AND ($cat IS NULL OR w.category = $cat)
-               RETURN p.key AS key, p.name AS name, p.designation AS designation, round(s.score) AS score,
+               RETURN p.key AS key, p.name AS name, p.designation AS designation, round(10 * s.score) / 10 AS score,
                       count(DISTINCT c) AS clients, count(w) AS works, sum(w.value) AS value
-               ORDER BY score DESC LIMIT $lim"""
-        rows = g.read(q, {"scores": [{"key": k, "score": v} for k, v in mean.items()], "c": ck, "cat": cat,
+               ORDER BY score DESC, key LIMIT $lim"""
+        rows = g.read(q, {"scores": [{"key": k, "score": v} for k, v in exact.items()], "c": ck, "cat": cat,
                           "lim": int(limit)})
         sg = {"nodes": [_node("Person", r["key"], r["name"], score=r["score"]) for r in rows], "edges": []}
-        return {"result": {"algo": algo, "runs_averaged": SEEDS, "people": rows}, "subgraph": sg, "cypher": [bq, q]}
+        return {"result": {"algo": algo, "exact": True,
+                           "method": "Brandes betweenness over the person-client graph, every pair, in one Cypher query",
+                           "people": rows, "algo_betweenness_check": _agreement(exact, sampled)},
+                "subgraph": sg, "cypher": [BETWEENNESS_EXACT, q, BETWEENNESS_ALGO]}
     else:
         q = """MATCH (p:Person)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
                WHERE ($c IS NULL OR c.key = $c) AND ($cat IS NULL OR w.category = $cat)
@@ -223,8 +257,9 @@ def _wcc_text(cfg: dict) -> str:
     return q.replace("WITH node, componentId WHERE NOT node:Document OR $doc_types IS NULL OR node.doc_type IN $doc_types\n", "")
 
 
-COMMUNITY_PEOPLE = """
-CALL algo.labelPropagation({nodeLabels:['Person'], relationshipTypes:['OVERLAPS_CLIENTS'], maxIterations:50})
+LPA = "CALL algo.labelPropagation({nodeLabels:['Person'], relationshipTypes:['OVERLAPS_CLIENTS'], maxIterations:50})"
+
+COMMUNITY_PEOPLE = LPA + """
 YIELD node, communityId
 WITH communityId, collect(node) AS members
 UNWIND members AS p
@@ -239,10 +274,18 @@ RETURN communityId, size(members) AS size, [m IN members | m.name] AS people, [m
        [x IN clients WHERE x.served_by >= 2][0..5] AS shared_clients, size(clients) AS clients_total
 ORDER BY size DESC, communityId"""
 
-COMMUNITY_CLIENTS = """
-CALL algo.labelPropagation({nodeLabels:['Client'], relationshipTypes:['SHARES_LEADS'], maxIterations:50})
+# A client's circle is the people community that holds most of its project leads (ties: more works, then more
+# value), so the client view and the people view are the same circles seen from two sides and share communityIds.
+# Label propagation run directly over a client-client projection (shared leads, with or without a Jaccard filter)
+# either merges everything or shatters it: modularity <= 0.14, and the split changes with the threshold.
+COMMUNITY_CLIENTS = LPA + """
 YIELD node, communityId
-WITH communityId, collect(node) AS members
+WITH node AS p, communityId
+MATCH (p)-[r:WORKED_FOR]->(c:Client)
+WITH c, communityId, count(p) AS leads, sum(r.works) AS works, sum(r.value) AS value
+ORDER BY leads DESC, works DESC, value DESC, communityId
+WITH c, collect(communityId)[0] AS communityId
+WITH communityId, collect(c) AS members
 UNWIND members AS c
 OPTIONAL MATCH (c)<-[r:WORKED_FOR]-(p:Person)
 WITH communityId, members, p, count(DISTINCT c) AS serves, sum(r.works) AS works
@@ -254,6 +297,8 @@ WITH communityId, members,
 RETURN communityId, size(members) AS size, [m IN members | m.name] AS clients, [m IN members | m.key] AS keys,
        [x IN leads WHERE x.serves >= 2][0..6] AS shared_leads
 ORDER BY size DESC, communityId"""
+
+NO_WORK_CLIENTS = "MATCH (c:Client) WHERE NOT (c)<-[:WORKED_FOR]-() RETURN c.key AS key, c.name AS name ORDER BY c.name"
 
 CO_GRAPH = {  # the full weighted graph the partition is scored against (modularity)
     "people": """MATCH (a:Person)-[:WORKED_FOR]->(c:Client)<-[:WORKED_FOR]-(b:Person) WHERE a.key < b.key
@@ -279,35 +324,53 @@ def modularity(edges: list[dict], part: dict[str, int]) -> float:
     return round(inside / m - sum((d / (2 * m)) ** 2 for d in tot.values()), 3)
 
 
+def random_partition_modularity(edges: list[dict], part: dict[str, int], n: int = 200) -> float:
+    """Baseline: the mean modularity of `n` random partitions with the same community sizes (the labels shuffled
+    over the same nodes, fixed seed). A real community structure scores well above it."""
+    rng = random.Random(0)
+    keys = sorted(part)
+    labels = [part[k] for k in keys]
+    total = 0.0
+    for _ in range(n):
+        rng.shuffle(labels)
+        total += modularity(edges, dict(zip(keys, labels)))
+    return round(total / n, 3)
+
+
 @tool("communities",
-      """Community detection (algo.labelPropagation). of='people' (default): client circles — people
-      linked when they led work for >= 2 of the same clients AND those make up >= 25% of their combined
-      client lists (Jaccard), so a community is a group that keeps serving the same accounts; each comes
-      with the clients that define it. Use it to staff a bid team that already knows the client. of='clients':
-      accounts linked when >= 2 of the same project leads served both; a community is a set of clients
-      that draws on one pool of people (lose a lead, and every client in the set is exposed). Size-1
-      communities are people/clients with no strong overlap. `modularity` scores the split against the full
-      co-client graph (0 = no better than one block).""",
+      """Community detection (algo.labelPropagation). of='people' (default): client circles — two
+      project leads are linked when they led work for more of the same clients than chance predicts
+      (>= 1.5x the configuration-model expectation), so a community is a group that keeps serving the
+      same accounts; each comes with the clients that define it. Use it to staff a bid team that
+      already knows the client. of='clients': the same circles seen from the client side — each client
+      joins the people community that holds most of its project leads; a set of clients that draws on
+      one pool of people (lose a lead, and every client in the set is exposed). Size-1 communities are
+      people/clients with no strong overlap. `modularity` scores the split against the full co-client
+      graph, beside `random_partition_modularity` (same sizes, labels shuffled).""",
       {"of": {"type": "string", "enum": ["people", "clients"]}})
 def communities(g: Graph, of: str = "people") -> dict:
     q = COMMUNITY_PEOPLE if of == "people" else COMMUNITY_CLIENTS
     rows = g.read(q)
+    if of == "clients":   # a client with no led work is in no circle: listed as its own community
+        rows += [{"communityId": f"none-{r['key']}", "size": 1, "clients": [r["name"]], "keys": [r["key"]],
+                  "shared_leads": []} for r in g.read(NO_WORK_CLIENTS)]
     part = {k: r["communityId"] for r in rows for k in r["keys"]}
     q_full = CO_GRAPH[of]
     edges = g.read(q_full)
     score = modularity(edges, part)
+    baseline = random_partition_modularity(edges, part)
     label = "Person" if of == "people" else "Client"
     nodes, links = [], []
     for r in rows:
         if of == "people":
             names = [f"{c['client']} ({c['served_by']} of its {c['leads_total']} leads)" for c in r["shared_clients"][:3]]
             r["basis"] = (f"{r['size']} people; defined by " + ", ".join(names)) if names and r["size"] > 1 \
-                else "no strong client overlap with anyone (fewer than 2 shared clients or Jaccard < 0.25)"
+                else "no strong client overlap with anyone (no pair sharing 1.5x more clients than chance)"
         else:
             names = [f"{p['person']} ({p['serves']} of these clients)" for p in r["shared_leads"][:3]]
             r["basis"] = (f"{r['size']} clients drawing on the same leads: " + ", ".join(names)) if names and r["size"] > 1 \
-                else "no two project leads in common with any other client"
-        r["modularity"] = score
+                else "no led work on record, so in no circle" if str(r["communityId"]).startswith("none-") \
+                else "no two project leads in common with the rest of its circle"
         if r["size"] > 1:
             hub = f"Community:{of}-{r['communityId']}"
             nodes.append(_node("Community", f"{of}-{r['communityId']}", r["basis"].split(";")[0]))
@@ -315,9 +378,10 @@ def communities(g: Graph, of: str = "people") -> dict:
                 nodes.append(_node(label, k, n))
                 links.append(_edge(f"{label}:{k}", hub, "IN_COMMUNITY"))
     sizes = [r["size"] for r in rows]
-    return {"result": rows,
-            "summary": {"of": of, "sizes": sizes, "communities": sum(1 for s in sizes if s > 1),
-                        "singletons": sum(1 for s in sizes if s == 1), "modularity": score,
-                        "projection": "OVERLAPS_CLIENTS (shared >= 2, Jaccard >= 0.25)" if of == "people"
-                        else "SHARES_LEADS (shared leads >= 2)"},
+    projection = ("OVERLAPS_CLIENTS: shared clients >= 1.5x the configuration-model expectation" if of == "people"
+                  else "people communities over OVERLAPS_CLIENTS; each client joins the one holding most of its leads")
+    summary = {"of": of, "modularity": score, "random_partition_modularity": baseline,
+               "communities": sum(1 for s in sizes if s > 1), "singletons": sum(1 for s in sizes if s == 1),
+               "sizes": sizes, "projection": projection}
+    return {"result": {**summary, "groups": rows}, "summary": summary,
             "subgraph": {"nodes": nodes, "edges": links}, "cypher": [q, q_full]}

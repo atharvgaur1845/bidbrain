@@ -30,7 +30,7 @@ export default function QualifyPage() {
   const [clauses, setClauses] = useState<Clause[]>([]);
   const [graph, setGraph] = useState<GData>({ nodes: [], edges: [] });
   const [focus, setFocus] = useState<string | null>(null);
-  const [memo, setMemo] = useState<{ markdown: string; overall: string; method: string } | null>(null);
+  const [memo, setMemo] = useState<{ markdown: string; overall: string; method: string; memo_check?: { ok: boolean; problems: string[] } } | null>(null);
   const [verified, setVerified] = useState<any>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [handoffs, setHandoffs] = useState<Handoff[]>([]);
@@ -53,7 +53,7 @@ export default function QualifyPage() {
         setStatus((s) => ({ ...s, [ev.agent]: ev.skipped ? "skipped" : "done" }));
         if (ev.summary) setSummaries((s) => ({ ...s, [ev.agent]: ev.summary }));
       }
-      if (ev.type === "clause") setClauses((cs) => [...cs, { clause_id: ev.clause_id, ref: ev.ref, kind: ev.kind, text: ev.text, params: ev.params, findings: [] }]);
+      if (ev.type === "clause") setClauses((cs) => [...cs, { clause_id: ev.clause_id, ref: ev.ref, kind: ev.kind, text: ev.text, params: ev.params, corrected: ev.corrected, findings: [] }]);
       if (ev.type === "verdict") {
         setClauses((cs) => cs.map((c) => (c.clause_id === ev.clause_id ? { ...c, verdict: ev.verdict, basis: ev.basis, evidence: ev.evidence, subgraph: ev.subgraph } : c)));
         if (ev.subgraph) setGraph((g) => mergeGraph(g, ev.subgraph));
@@ -62,8 +62,8 @@ export default function QualifyPage() {
         setClauses((cs) => cs.map((c) => (c.clause_id === ev.clause_id ? { ...c, findings: [...c.findings, { kind: ev.kind, text: ev.text, severity: ev.severity, agent: ev.agent }] } : c)));
         if (ev.subgraph) setGraph((g) => mergeGraph(g, ev.subgraph));
       }
-      if (ev.type === "verified") { setVerified(ev); setStatus((s) => ({ ...s, Verifier: "done" })); setSummaries((s) => ({ ...s, Verifier: ev.ok ? `${ev.checked} verdicts re-derived, all agree` : `${ev.mismatches.length} mismatches!` })); }
-      if (ev.type === "memo") { setMemo({ markdown: ev.markdown, overall: ev.overall, method: ev.method }); setStatus((s) => ({ ...s, Assembler: "done" })); setSummaries((s) => ({ ...s, Assembler: `memo (${ev.method})` })); }
+      if (ev.type === "verified") { setVerified(ev); setStatus((s) => ({ ...s, Verifier: "done" })); setSummaries((s) => ({ ...s, Verifier: ev.ok ? `${ev.checked} verdicts checked, all agree` : `${ev.mismatches.length} mismatches: needs review` })); }
+      if (ev.type === "memo") { setMemo({ markdown: ev.markdown, overall: ev.overall, method: ev.method, memo_check: ev.memo_check }); setStatus((s) => ({ ...s, Assembler: "done" })); setSummaries((s) => ({ ...s, Assembler: `memo (${ev.method})` })); }
       if (ev.type === "done") setMs(ev.ms);
       if (ev.type === "error") setErr(ev.message);
     });
@@ -181,6 +181,12 @@ export default function QualifyPage() {
                 </> : null}>
                 <div className="flex flex-col gap-4">
                   {verified && <VerifierBanner verified={verified} />}
+                  {memo?.memo_check && !memo.memo_check.ok && (
+                    <div role="status" className="rounded-[10px] bg-warn-soft px-4 py-3 text-[13px] leading-snug text-ink-2">
+                      <span className="font-semibold text-ink">LLM memo rejected. </span>
+                      It {memo.memo_check.problems.slice(0, 3).join("; ")}. This memo is assembled from the verified record instead.
+                    </div>
+                  )}
                   {memo
                     ? <Markdown>{memo.markdown}</Markdown>
                     : running ? <Spinner label="Assembler is writing the memo" /> : null}

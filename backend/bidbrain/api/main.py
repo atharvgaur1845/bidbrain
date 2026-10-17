@@ -42,12 +42,25 @@ except Exception as _exc:  # MCP is additive; never block the API
 
 @asynccontextmanager
 async def lifespan(_app):
+    from bidbrain.conflicts import engine
+    try:   # company memory: FalkorDB persistence first; its JSON mirror only when the graph is gone
+        n = engine.import_org()
+        if n:
+            print(f"company memory: restored {n} rules from {engine.ORG_EXPORT_PATH}")
+    except Exception as exc:
+        print("company memory import failed:", exc)
     sessions.start_reaper()
-    if MCP is not None:
-        async with MCP.session_manager.run():
+    try:
+        if MCP is not None:
+            async with MCP.session_manager.run():
+                yield
+        else:
             yield
-    else:
-        yield
+    finally:
+        try:
+            engine.export_org(only_if_present=True)
+        except Exception as exc:
+            print("company memory export failed:", exc)
 
 
 class _Guard:
@@ -63,6 +76,7 @@ class _Guard:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
+            sessions.client_ip.set(_client_ip(scope))
             if scope["path"] == "/mcp":
                 scope = {**scope, "path": "/mcp/", "raw_path": b"/mcp/"}
             elif scope["path"] == "/api/ingest" and scope["method"] == "POST":
@@ -73,6 +87,20 @@ class _Guard:
                     await JSONResponse({"detail": problem[1]}, status_code=problem[0])(scope, receive, send)
                     return
         await self.app(scope, receive, send)
+
+
+FORWARDED_HOPS = int(os.getenv("FORWARDED_HOPS", "1"))    # proxies in front of us that append to X-Forwarded-For
+
+
+def _client_ip(scope) -> str:
+    """The address new-session rate limits are keyed on. Behind a proxy (HF Spaces) the peer is the
+    proxy, so take the entry the nearest FORWARDED_HOPS proxies appended to X-Forwarded-For (the
+    entries left of it are client-controlled). FORWARDED_HOPS=0 trusts only the socket peer."""
+    xff = dict(scope.get("headers") or []).get(b"x-forwarded-for", b"").decode("latin-1")
+    parts = [x.strip() for x in xff.split(",") if x.strip()]
+    if FORWARDED_HOPS > 0 and parts:
+        return parts[-min(FORWARDED_HOPS, len(parts))]
+    return (scope.get("client") or ("unknown", 0))[0]
 
 
 app = FastAPI(title="BidBrain", version="1.0", lifespan=lifespan)
@@ -94,6 +122,8 @@ def G(sid: str | None) -> Graph:
         return sessions.graph_for(sid)
     except ValueError:
         raise HTTPException(400, "missing or invalid X-Session header (POST /api/session first)")
+    except sessions.RateLimited as exc:
+        raise HTTPException(429, str(exc), headers={"Retry-After": "60"})
 
 
 async def aG(sid: str | None) -> Graph:
@@ -177,16 +207,44 @@ def stream(work, g: Graph) -> StreamingResponse:
 @app.get("/api/health")
 def health():
     from bidbrain.graph.client import db
+    from bidbrain.conflicts import engine
     return {"ok": True, "base_graph": Graph().exists(),
             "sessions": sum(1 for n in db().list_graphs() if n.startswith("session_")),
+            "company_memory": {"graph": engine.ORG_GRAPH, "present": engine.ORG_GRAPH in db().list_graphs(),
+                               "json_mirror": bool(engine.ORG_EXPORT_PATH)},
             "llm": providers.available(), "replay": providers.REPLAY, "tools": len(TOOLS)}
 
 
 @app.post("/api/session")
 def new_session():
     sid = sessions.new_session()
-    sessions.graph_for(sid)
+    G(sid)
     return JSONResponse({"session_id": sid}, headers={"X-Session": sid})
+
+
+@app.get("/api/session/settings")
+def session_settings(x_session: str | None = Header(None)):
+    from bidbrain.conflicts import engine
+    g = G(x_session)
+    return {"use_company_memory": engine.uses_company_memory(g), "session_tag": engine.session_tag(g.name),
+            "contested": sorted(engine.contested_here(g))}
+
+
+@app.post("/api/session/settings")
+async def set_session_settings(req: Request, x_session: str | None = Header(None)):
+    """Per-session switches. `use_company_memory` (default off): consult company rules in this session.
+    Turning it on re-checks this session's open cards against them (and ripples what they settle)."""
+    from bidbrain.conflicts import engine
+    body = await _body(req)
+    if not isinstance(body.get("use_company_memory"), bool):
+        raise HTTPException(400, "use_company_memory (boolean) required")
+    g = await aG(x_session)
+
+    def work():
+        out = engine.set_company_memory(g, body["use_company_memory"])
+        return {**out, **_ripple_after(g, lambda ev: None, out, "company memory turned on")}
+    with sessions.busy(g):
+        return await asyncio.to_thread(work)
 
 
 @app.get("/api/overview")
@@ -279,32 +337,76 @@ async def _body(req: Request) -> dict:
 @app.post("/api/memory/promote")
 async def memory_promote(req: Request, x_session: str | None = Header(None)):
     """Copy one learned rule from this session into company memory (`bidbrain_org`), with provenance.
-    The only way anything enters company memory: nothing a session does writes there implicitly."""
+    The only way anything enters company memory: nothing a session does writes there implicitly.
+    `promoted_by` is this session's tag; the optional `user` is stored only as a display label.
+    Afterwards this session's open cards are re-checked (a card of the rule's shape auto-resolves)."""
     from bidbrain.conflicts import engine
     body = await _body(req)
     g = await aG(x_session)
+
+    def work():
+        out = engine.promote(g, body.get("rule_id"), body.get("user"))
+        rc = out.pop("recheck", {"decisions": [], "cards": []})
+        ripple = _ripple_after(g, lambda ev: None, rc, f"company rule {out['org_rule']}")
+        return {**out, "rechecked": {"decisions": rc["decisions"], "cards": rc["cards"], **ripple}}
     try:
-        out = await asyncio.to_thread(engine.promote, g, body.get("rule_id"), body.get("user") or "bid-manager")
+        with sessions.busy(g):
+            out = await asyncio.to_thread(work)
     except engine.OrgMemoryError as exc:
         raise HTTPException(exc.status, str(exc))
-    rule = next((r for r in engine.list_org(include_retired=True) if r["id"] == out["org_rule"]), None)
+    rule = next((r for r in engine.list_org(include_retired=True, session_graph=g.name)
+                 if r["id"] == out["org_rule"]), None)
     return {**out, "rule": rule}
 
 
 @app.get("/api/memory/org")
-def memory_org(include_retired: bool = False):
+def memory_org(include_retired: bool = False, x_session: str | None = Header(None)):
+    """Company rules. With X-Session, each rule also says `mine` (this session promoted it, so it may
+    retire it) and `contested_here` (this session contested it, so it does not apply here)."""
     from bidbrain.conflicts import engine
-    rules = engine.list_org(include_retired=include_retired)
-    return {"graph": engine.ORG_GRAPH, "cap": engine.ORG_MAX_ACTIVE,
-            "active": sum(1 for r in rules if not r.get("retired")), "rules": rules}
+    g = G(x_session) if x_session else None
+    rules = engine.list_org(include_retired=include_retired, session_graph=g.name if g else None)
+    out = {"graph": engine.ORG_GRAPH, "cap": engine.ORG_MAX_ACTIVE,
+           "active": sum(1 for r in rules if not r.get("retired")), "rules": rules}
+    if g is not None:
+        mine = engine.contested_here(g)
+        for r in rules:
+            r["contested_here"] = r["id"] in mine
+        out["use_company_memory"] = engine.uses_company_memory(g)
+        out["session_tag"] = engine.session_tag(g.name)
+    return out
+
+
+def _admin(token: str | None) -> bool:
+    import hmac
+    want = os.getenv("ORG_ADMIN_TOKEN")
+    return bool(want and token and hmac.compare_digest(want, token))
 
 
 @app.post("/api/memory/org/{org_id}/retire")
-async def memory_org_retire(org_id: str, req: Request):
+async def memory_org_retire(org_id: str, req: Request, x_session: str | None = Header(None),
+                            x_admin_token: str | None = Header(None)):
+    """Retire a company rule for every session. Only the session that promoted it may (or an operator
+    holding ORG_ADMIN_TOKEN). This session's decisions made by the rule are reopened as cards."""
     from bidbrain.conflicts import engine
     body = await _body(req)
+    admin = _admin(x_admin_token)
+    g = await aG(x_session) if (x_session or not admin) else None
     try:
-        return await asyncio.to_thread(engine.retire_org, org_id, body.get("user") or "bid-manager")
+        return await asyncio.to_thread(engine.retire_org, org_id, g, body.get("user"), admin)
+    except engine.OrgMemoryError as exc:
+        raise HTTPException(exc.status, str(exc))
+
+
+@app.post("/api/memory/org/{org_id}/contest")
+async def memory_org_contest(org_id: str, req: Request, x_session: str | None = Header(None)):
+    """Contest a company rule another session promoted: it stops applying in this session, and the
+    decisions it made here reopen as resolve cards. Recorded on the rule (one contest per session)."""
+    from bidbrain.conflicts import engine
+    body = await _body(req)
+    g = await aG(x_session)
+    try:
+        return await asyncio.to_thread(engine.contest_org, g, org_id, body.get("user"), body.get("reason"))
     except engine.OrgMemoryError as exc:
         raise HTTPException(exc.status, str(exc))
 
@@ -358,11 +460,13 @@ def case(case_id: str, x_session: str | None = Header(None)):
 
 @app.get("/api/conflicts")
 def conflicts(x_session: str | None = Header(None)):
+    from bidbrain.conflicts import engine
     g = G(x_session)
+    engine.sync_org_status(g)
     cards = g.read("""MATCH (k:ConflictCard {status:'open'})-[:ABOUT_CLAIM]->(c:Claim)
                       OPTIONAL MATCH (c)-[:ABOUT]->(s)
                       RETURN k.id AS id, k.subject_label AS label, k.subject_key AS key, k.predicate AS predicate,
-                             k.suggested AS suggested, k.rationale AS rationale,
+                             k.suggested AS suggested, k.rationale AS rationale, k.reopened_from AS reopened_from,
                              coalesce(s.title, s.name, s.key) AS subject,
                              collect({id: c.id, value: c.value_str, source_doc: c.source_doc, page: c.page,
                                       source_kind: c.source_kind, authority: c.authority, issuer: c.issuer}) AS claims""")
@@ -371,14 +475,14 @@ def conflicts(x_session: str | None = Header(None)):
                           RETURN d.id AS id, d.policy AS policy, d.rationale AS rationale, d.predicate AS predicate,
                                  d.subject_key AS key, coalesce(s.title, s.name, s.key) AS subject, d.chosen_value AS chosen,
                                  d.at AS at, a.key AS actor, labels(a)[0] AS actor_kind, w.source_doc AS source_doc,
-                                 d.org_rule AS org_rule
+                                 d.org_rule AS org_rule, d.org_rule_status AS org_rule_status, d.review AS review,
+                                 coalesce(d.reopened, false) AS reopened
                           ORDER BY at DESC LIMIT 300""")
     rules = g.read("""MATCH (r:PolicyRule) OPTIONAL MATCH (r)-[:LEARNED_FROM]->(d:Decision)
                       OPTIONAL MATCH (d2:Decision)-[:APPLIED_RULE]->(r)
                       RETURN r.id AS id, r.predicate AS predicate, r.prefer_kind AS prefer, r.over_kind AS over,
                              r.rationale AS rationale, r.created_by AS by, d.id AS learned_from, count(d2) AS applied,
                              coalesce(r.retired, false) AS retired""")
-    from bidbrain.conflicts import engine
     in_org = {(o["predicate"], o["prefer_kind"], o["over_kind"]): o["id"] for o in engine.org_rules()}
     for r in rules:                     # is this shape already company memory (promoted here or elsewhere)?
         r["org_rule"] = in_org.get((r["predicate"], r["prefer"], r["over"]))
@@ -416,7 +520,9 @@ async def resolve(card_id: str, req: Request, x_session: str | None = Header(Non
             raise HTTPException(409, str(exc))
         ripple = blast_radius(g, card["l"], card["k"])
         apply_flips(g, ripple["result"]["verdict_flips"], f"decision {out['decision_id']}",
-                    ripple["result"].get("evidence_changed"))
+                    ripple["result"].get("evidence_changed"), decision_id=out["decision_id"])
+        from bidbrain.company import actions
+        out["publish_action"] = actions.for_decision(g, out["decision_id"])
         return {"decision": out, "ripple": ripple["result"], "subgraph": ripple["subgraph"]}
 
     with sessions.busy(g):
@@ -448,13 +554,27 @@ def _ripple_after(g: Graph, emit, out: dict, cause: str) -> dict:
                 for c in out.get("decisions", []) + out.get("cards", [])}
     # a first-time fact (no rival claim) is written to its subject too, so it can flip clauses as well
     subjects |= {(c["conflict"]["subject_label"], c["conflict"]["subject_key"]) for c in out.get("first_claims", [])}
-    ripples = []
+    from bidbrain.company import actions
+    dec_of = {d["conflict"]["subject_key"]: d.get("decision_id") for d in out.get("decisions", [])}
+    cause_doc = (out.get("doc") or {}).get("doc_id")
+    ripples, acts = [], []
     for label, key in subjects:
         br = blast_radius(g, label, key)
-        apply_flips(g, br["result"]["verdict_flips"], cause, br["result"].get("evidence_changed"))
+        changed = apply_flips(g, br["result"]["verdict_flips"], cause, br["result"].get("evidence_changed"),
+                              decision_id=dec_of.get(key), cause_doc=cause_doc)
+        br["result"]["cases_changed"] = changed
+        acts += [c["action"] for c in changed if c.get("action")]
         ripples.append(br["result"])
         emit({"type": "ripple", "subject": f"{label}:{key}", "result": br["result"], "subgraph": br["subgraph"]})
-    return {"ripples": ripples}
+    # every decided fact from a live document can be published to the company record (behind approval)
+    for d in out.get("decisions", []):
+        if d.get("decision_id"):
+            a = actions.for_decision(g, d["decision_id"])
+            if a:
+                acts.append(a["id"])
+    if acts:
+        emit({"type": "actions", "actions": acts, "summary": f"{len(acts)} follow-up action(s) queued for approval"})
+    return {"ripples": ripples, "actions": acts}
 
 
 @app.post("/api/events/{event_id}/fire")
@@ -469,7 +589,9 @@ async def fire(event_id: str, x_session: str | None = Header(None)):
         ev = dict(evs[event_id])
         ev["doc"] = {**ev["doc"], "doc_id": f"{ev['doc']['doc_id']}-{int(time.time()) % 100000}"}
         emit({"type": "document", "doc": ev["doc"], "narrative": ev["narrative"]})
-        out = apply_event(g, ev)
+        from bidbrain.conflicts.live_docs import event_text
+        out = apply_event(g, ev, text=event_text(ev, PDF_DIR / f"{evs[event_id]['doc']['doc_id']}.pdf"))
+        out.setdefault("doc", ev["doc"])
         for d in out["decisions"]:
             emit({"type": "decision", **d})
         for c in out["cards"]:
@@ -601,7 +723,13 @@ def neighborhood(label: str, key: str, x_session: str | None = Header(None)):
 
 @app.get("/api/decisions/{decision_id}/trace")
 def decision_trace(decision_id: str, x_session: str | None = Header(None)):
+    """A decision with what it compared and why. When a company rule decided it, `org_rule_status`
+    (also `org_rule.status`) is that rule's status now: active | retired | contested (in this session)
+    | unknown (no longer in company memory); `review` says what to do about a decision whose rule is
+    no longer active, and `reopened_card` is the resolve card it was turned back into, if any."""
+    from bidbrain.conflicts import engine
     g = G(x_session)
+    engine.sync_org_status(g)
     rows = g.read("""MATCH (d:Decision {id:$id})
                      OPTIONAL MATCH (d)-[:DECIDED_BY]->(a)
                      OPTIONAL MATCH (d)-[:SELECTS]->(w:Claim)
@@ -618,7 +746,13 @@ def decision_trace(decision_id: str, x_session: str | None = Header(None)):
                   {"id": decision_id})
     if not rows:
         raise HTTPException(404)
-    return rows[0]
+    out = rows[0]
+    d = out["decision"] or {}
+    out["org_rule_status"] = d.get("org_rule_status") or ((out.get("org_rule") or {}).get("status")
+                                                          if out.get("org_rule") else None)
+    out["review"] = d.get("review")
+    out["reopened_card"] = d.get("reopened_card")
+    return out
 
 
 @app.get("/api/algos/{name}")
@@ -647,6 +781,93 @@ def eval_results():
         except Exception:
             pass
     return out
+
+
+# ------------------------------------------------------------------ actions, change impact, company record
+
+def _actor(g: Graph, body: dict | None) -> str:
+    """Who acted: the session's hashed tag, plus any typed name as an unverified label."""
+    from bidbrain.conflicts import engine
+    lab = engine._label((body or {}).get("user"))
+    return engine.session_tag(g.name) + (f" ({lab})" if lab else "")
+
+
+@app.get("/api/actions")
+def actions_list(status: str | None = None, case_id: str | None = None, x_session: str | None = Header(None)):
+    from bidbrain.company import actions
+    g = G(x_session)
+    return {"actions": actions.list_actions(g, status, case_id), "kinds": actions.KINDS}
+
+
+@app.get("/api/actions/{action_id}")
+def action_get(action_id: str, x_session: str | None = Header(None)):
+    from bidbrain.company import actions
+    try:
+        return actions.get(G(x_session), action_id)
+    except actions.ActionError as exc:
+        raise HTTPException(exc.status, str(exc))
+
+
+@app.post("/api/actions/{action_id}/{verb}")
+async def action_do(action_id: str, verb: str, body: dict | None = None, x_session: str | None = Header(None)):
+    """approve | reject | execute. Transitions are compare-and-set; execute runs deterministic code only and
+    is idempotent (a repeat returns the stored result)."""
+    from bidbrain.company import actions
+    g = await aG(x_session)
+    by = _actor(g, body)
+
+    def work():
+        if verb == "execute":
+            return actions.execute(g, action_id, by)
+        return actions.transition(g, action_id, verb, by, (body or {}).get("note", ""))
+    try:
+        with sessions.busy(g):
+            return await asyncio.to_thread(work)
+    except actions.ActionError as exc:
+        raise HTTPException(exc.status, str(exc))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/api/decisions/{decision_id}/publish")
+async def decision_publish(decision_id: str, x_session: str | None = Header(None)):
+    """Queue (not perform) publication of a decided fact: it goes through the action approval gate."""
+    from bidbrain.company import actions
+    g = await aG(x_session)
+    a = await asyncio.to_thread(actions.for_decision, g, decision_id)
+    if a is None:
+        raise HTTPException(404, f"no decision {decision_id}")
+    return actions.get(g, a["id"])
+
+
+@app.get("/api/impact")
+def impact_timeline(x_session: str | None = Header(None)):
+    """Every document that entered this workspace, newest first, with what it changed (graph only)."""
+    from bidbrain.tools.impact import change_impact
+    g = G(x_session)
+    docs = g.read("""MATCH (d:Document) WHERE d.live = true
+                     RETURN d.doc_id AS doc_id ORDER BY coalesce(d.issued, '') DESC, d.doc_id""")
+    return {"documents": [change_impact(g, d["doc_id"])["result"] for d in docs]}
+
+
+@app.get("/api/impact/{doc_id}")
+def impact_doc(doc_id: str, x_session: str | None = Header(None)):
+    from bidbrain.tools.impact import change_impact
+    try:
+        return change_impact(G(x_session), doc_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
+
+
+@app.get("/api/company/record")
+def company_record(x_session: str | None = Header(None)):
+    """The shared company record (published facts), and which of them this workspace has applied."""
+    from bidbrain.company import record
+    applied = set()
+    if x_session:
+        g = G(x_session)
+        applied = {r["id"] for r in g.read("MATCH (r:CompanyRecordRef) RETURN r.id AS id")}
+    return {"facts": [{**f, "applied_here": f["id"] in applied} for f in record.facts(None)]}
 
 
 # ------------------------------------------------------------------ MCP (streamable HTTP) + static UI

@@ -4,11 +4,12 @@ domain knowledge lives in the tools, not in the prompt."""
 QA_TOOLS = ["resolve_entity", "find_portfolio", "aggregate", "credential_timeline", "date_span",
             "receivables", "collection_rate", "awarded_vs_billed", "prove_absence", "qualify_clause",
             "who_knows", "key_people", "explain_path", "get_entity", "vector_search", "graph_schema",
-            "fact_history", "trace_from_credential", "compliance_check", "communities", "cypher_readonly"]
+            "fact_history", "trace_from_credential", "compliance_check", "communities", "blast_radius",
+            "case_get", "depends_on", "cypher_readonly"]
 
 # One-line tool descriptions for the LLM (the full descriptions are served over MCP and in docs/CYPHER.md).
 BRIEF = {
-    "resolve_entity": "Map an informal name ('phed odisha', 'Pkg-59') to graph entities. kind: client|person|work|category|tender.",
+    "resolve_entity": "Map an informal name ('phed odisha', 'Pkg-59') to graph entities. kind: client|person|work|category|tender. not_found=true means the entity is not in the graph (nearest are NOT matches).",
     "find_portfolio": "List completed works. Scope: client | person (works they led) | via_work (the whole portfolio of that work's client). Filters: categories, exclude_categories, min_value/max_value (rupees, inclusive), completed_after/completed_before (ISO, strict), years, role ('Prime'|'JV Partner'), has_reference, govt_levels. For 'which/how many have NO reference letter' use prove_absence instead.",
     "aggregate": "Exact maths over work keys (never pass numbers). op: sum|count|average|median|mean_median_gap(signed)|max|min|rank_gap|top_two_sum|distinct_categories|distinct_clients|distinct_leads|category_difference(category_a,category_b)|year_difference(year_a,year_b)|gap_to_threshold(threshold)|referenced_share(absent)|absence_count.",
     "credential_timeline": "A person's credentials (PMP, Six Sigma) with issue/expiry dates.",
@@ -29,6 +30,9 @@ BRIEF = {
     "compliance_check": "Re-test our past compliance-matrix MET claims against the graph on each bid date. Optional tender, kind, only_disagreements.",
     "communities": "Groups of people who keep serving the same clients (of='people') or clients served by one pool of leads (of='clients'), with defining clients.",
     "fact_history": "Why we believe a fact: competing claims (doc, page, authority, status) and the decisions that settled them. Use for 'why/which document/what changed'.",
+    "blast_radius": "What breaks if a fact changes (read-only): open cases whose clauses rely on it, past bids citing it, tenders it secures, and the verdict flips a re-check would give. label: Work|Person|Bond|FinancialStatement|Credential|Certification|Contract|Company; key = the graph key (from resolve_entity / find_portfolio).",
+    "depends_on": "Read-only provenance of one document (doc_id): every fact, decision, bid and case clause that depends on it, and sole_source = what loses its evidence if the document is withdrawn.",
+    "case_get": "Read one qualification case by case_id: clauses, verdicts, evidence, findings and which agent wrote what.",
     "get_entity": "One entity's properties and direct links. kind: client|person|work|tender|bond|credential|contract|document.",
     "vector_search": "Semantic search over document pages (for prose, not for counting).",
     "graph_schema": "All labels, properties and relationships, with FalkorDB dialect notes (before cypher_readonly).",
@@ -55,6 +59,16 @@ How to work:
   bound, reference, government-level or category filter the question does not ask for: scoping by a
   client, person or work is not a reason to filter further. If a tool result ends with a NOTE about a
   filter the question does not mention, repeat the call without that filter.
+- If resolve_entity returns not_found (or a tool says "no ... named like"), the entity is not in the graph:
+  say so plainly ("<name> is not in the company graph"), never answer about a nearest candidate instead.
+- When a tool returns a `verdict` (PROVEN / UNPROVEN, PASS / FAIL / AT_RISK, ...), quote it verbatim. Never
+  call an UNPROVEN result confirmed or proven: say what is unproven and why (the failed check).
+- When the answer is that something is missing, name the missing items (the works, people or documents
+  the tool lists as absent), not only how many there are.
+- For "which document", "where does this come from", "why do we believe" or "what changed" about a fact,
+  call fact_history and cite the claim's document and page.
+- For "what breaks / what is affected if X changes", resolve X to its key and call blast_radius; it only
+  reads and reports, it changes nothing.
 - Use cypher_readonly only when no tool fits (call graph_schema first if its labels are not enough).
 - Call only the tools you are given.
 
@@ -72,6 +86,9 @@ Return ONLY a JSON object {"clauses": [...]} where each clause is
   roads maintenance..], "estimated_cost": int rupees (if the CPWD 80/60/40% rule applies) OR "min_value": int and
   "count": int, "lookback_years": int, "govt_levels": [central|state|psu|municipal|private] (optional),
   "require_reference": bool}
+  For either/or wording ("one work >= 50 Cr OR two works >= 40 Cr each") use ONE similar_works clause with
+  "options": [{"count": 1, "min_value": 500000000}, {"count": 2, "min_value": 400000000}] (met if any option is
+  met) instead of count/min_value. Never split one either/or requirement into two separate must-pass clauses.
 - turnover: {"min_average": int rupees, "years": int} or {"min_each_year": int, "years": int}
 - key_personnel: {"credential": "PMP"|"Six Sigma", "min_experience_years": int, "count": int, "categories": [...]}
 - certification: {"standard": "ISO 9001" | "ISO 14001" | "ISO 45001" | "CPWD" | "NABL"}
@@ -85,4 +102,6 @@ evidence, findings), write a concise bid qualification memo in Markdown for the 
 2. A table: clause | verdict | how it is met, citing the document id and page from the record's `evidence` list.
 3. Gaps & risks (absences, conflicts, lapsing credentials) with the concrete fix for each.
 4. Proposed team (from the data) and precedent past bids if any.
-Only use facts from the record. Cite documents as DOC-XXX p.N. Be brief."""
+Only use facts from the record. Copy every amount exactly as the record writes it ("₹X.XX Cr"): never
+convert, round or recompute it. Cite documents as DOC-XXX p.N, and only DOC ids that appear in the record's
+`evidence` list; a memo citing any other document is rejected. Be brief."""

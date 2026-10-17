@@ -78,7 +78,7 @@ clause can explain which figure it used.
 
 ## 5. Tools (`bidbrain/tools/`): why tools instead of free Cypher
 
-* The Q&A agent gets **21 named tools** (a subset of the 28 in the registry) rather than writing Cypher; a read-only
+* The Q&A agent gets **23 named tools** (a subset of the 29 in the registry) rather than writing Cypher; a read-only
   `cypher_readonly` escape hatch is among them, for questions no tool covers. Each tool is a tested multi-hop traversal with exact
   arithmetic and evidence attached. Raw NL→Cypher is our *baseline* (`text2cypher`), and the benchmark shows the
   difference.
@@ -100,19 +100,38 @@ clause can explain which figure it used.
 * **Algorithms** use FalkorDB's built-ins:
   - **Betweenness for the bus factor.** Domain edges are directed (`Work→Person`, `Work→Client`), so no shortest path
     ever passes *through* a person and everyone scored 0. We therefore build an explicit person⇄client projection
-    (`WORKED_FOR` / `ENGAGED`), which is standard practice. One `algo.betweenness` call samples source nodes, so
-    ranks past the top two depended on the seed. `key_people` averages 32 seeded runs: two disjoint seed sets give
-    the same top 6, and the top 3 match exact Brandes.
+    (`WORKED_FOR` / `ENGAGED`), which is standard practice. `algo.betweenness` samples source nodes even when
+    `samplingSize` exceeds the 68 nodes, so its ranking changes with the seed (a 32-seed mean still swaps ranks 4-6).
+    `key_people` therefore computes **exact** Brandes betweenness in one Cypher query: `allShortestPaths` over
+    `WORKED_FOR*` for every pair, each inner node credited 1/n of the pair's n shortest paths (~0.1 s; identical to
+    a Python Brandes). The sampled procedure is reported beside it as a cross-check (top 3 identical, 9/10 of the top 10).
   - **WCC as an evidence-integrity check.** `isolated_entities` runs `algo.WCC` over the evidence edges only
     (`scope:'provenance'` or `'corpus'`). Everything outside the main component is a finding: documents no fact
     cites, the client we bill but hold no completion certificate for, staff with credentials who never led a work.
+  - **Compliance audit.** `compliance_check` re-tests each of the 491 `Requirement` rows the company marked MET in
+    its past compliance matrices, on the date the matrix was signed or submitted, with the same `qualify_clause`
+    rules the bid team uses: 318 checkable, 194 agree, 119 disagree, 5 unconfirmed. Most disagreements are probably
+    the synthetic generator's, not the company's, and the tool reports them as `likely_generator_artifacts`: all
+    52 ISO disagreements are 2019-22 matrices citing certificates whose `initial_date` is 2022; all 13 PMP ones
+    predate the single issue date (2021-03-10) every PMP on file shares; all 40 plant ones state 210 "owned assets",
+    which is the whole register (154 owned + 56 leased, including plant bought after the bid). The 14 turnover
+    disagreements fit no such pattern.
   - **SPpaths with `relDirection:'both'`.** Explains how two entities connect.
-  - **LabelPropagation.** The first projection ("shared at least 2 clients") was so dense that it returned one big
-    community. The current one links two people only when they share at least 2 clients *and* those make up at
-    least 25% of their combined client lists (Jaccard). It also runs over clients that share project leads. The
-    tool reports the split's modularity against the full co-client graph, so "no better than one block" is visible.
-  - **One-query chains.** `trace_from_credential` runs the six-hop credential → person → work → client →
-    portfolio → certificate chain as a single Cypher query. Most other tools are 1-2-hop queries composed in Python.
+  - **LabelPropagation.** `algo.labelPropagation` takes no edge weights (it rejects any weight key, and parallel
+    edges do not change its result), so the weighting goes into the projection. `OVERLAPS_CLIENTS` links two project
+    leads when they share at least 1.5× the clients the configuration model (modularity's null model) expects,
+    `shared(a,b) >= 1.5 · d(a)·d(b)/2m`. Label propagation over it finds 3 client circles (15 / 12 / 10 people,
+    2 singletons) with **modularity 0.203** against the full co-client graph; random partitions with the same sizes
+    score −0.021, and a greedy local-move optimiser reaches 0.21. The split is unchanged for any factor from 1.2 to
+    1.6. The earlier projections scored 0.107 ("≥ 2 shared clients and Jaccard ≥ 0.25") and 0.036 (clients sharing
+    ≥ 2 leads); label propagation run directly on any client-client projection, with or without a Jaccard filter,
+    either merged everything or shattered it (≤ 0.14). `of:'clients'` therefore puts each client in the people
+    circle holding most of its leads: modularity 0.175 (random −0.039; greedy 0.18).
+  - **One-query chains.** `trace_from_credential` runs the five-hop credential → person → work → client →
+    portfolio → certificate chain as a single Cypher query. `depends_on` is a variable-length match,
+    `(x)-[:FROM|EVIDENCED_BY|HAS_REFERENCE|HOLDS|BASED_ON|SELECTS|CITES|...*1..4]->(:Document {doc_id:$doc})`, that
+    returns everything resting on one document and which facts it is the only source for. Most other tools are
+    1-2-hop queries composed in Python.
 * **One registry, three consumers.** The same tool functions are called by the agents, exposed over MCP, and replayed
   by the eval oracle.
 
@@ -163,13 +182,15 @@ clause can explain which figure it used.
   `bidbrain_org` graph. Nothing writes there implicitly. Each `(:OrgRule)` keeps who promoted it, when, the
   source session as a hash, and a copy of the decision it was learned from. Rules can be retired, and there is a cap
   of 50 active rules.
-* **Episodic memory:** past bids (6 tender dossiers parsed into `(:Bid)` nodes with `CITES` / `PROPOSES` /
-  `SECURED_BY` edges) and conversation turns `(:Conversation)-[:HAS_TURN]->(:Turn)-[:MENTIONS]->(entity)`. A
+* **Episodic memory:** past bids (6 tender dossiers parsed into `(:Bid)` nodes with `CITES` / `SECURED_BY` edges;
+  `CITES` covers only the Annexure D rows in the tender's own category, 10-14 per bid, because the rest of the
+  48-row table is the same padding of top-value works in every dossier; Annexure E reprints all 39 project managers,
+  so no `PROPOSES` edge is made from it) and conversation turns `(:Conversation)-[:HAS_TURN]->(:Turn)-[:MENTIONS]->(entity)`. A
   follow-up that names an entity an older turn `MENTIONS` recalls up to 3 such turns before the last-6-turn window.
 * **Semantic memory:** the company graph itself.
 * **Procedural memory:** `(:PolicyRule)` learned from human decisions, and `(:OrgRule)` once promoted.
 * **Shared state between agents:** the case subgraph.
-* **Integrity finding.** Every one of the 6 past bids cites works that were not complete at submission (56 in total).
+* **Integrity finding.** 5 of the 6 past bids cite works that were not complete at submission (14 in total).
   This is a synthetic-data artifact, but it is exactly the check (`audit_bid`) a real bid auditor runs, and it is a
   one-line traversal.
 

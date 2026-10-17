@@ -128,6 +128,8 @@ def _custom(g: Graph, kind: str, p: dict, bid_date: str) -> dict:
       similar-works track record (years since the first completed work in the category), CV'd staff
       count and the stated asset figure. outcome: agree (graph confirms) | disagree (graph says it was
       not met then) | unconfirmed (e.g. an audited year missing) | not_checkable (EMD, GST, declarations).
+      likely_generator_artifacts counts the systematic disagreements that most likely come from the synthetic corpus (certificates dated after the matrices that cite them, one PMP
+      issue date for everyone, the whole asset register as the plant figure).
       Optional tender (ref), kind (requirement kind), only_disagreements.""",
       {"tender": {"type": "string"}, "kind": {"type": "string", "enum": KINDS},
        "only_disagreements": {"type": "boolean"}})
@@ -207,4 +209,52 @@ def compliance_check(g: Graph, tender: str | None = None, kind: str | None = Non
             result["note"] = f"{len(disagreements)} disagreements; first 40 shown, pass `tender` or `kind` to narrow"
     if only_disagreements:
         result.pop("unconfirmed", None)
+    caveats = _generator_artifacts(g, [x for x in met if x["outcome"] == "disagree"])
+    if caveats:
+        result["likely_generator_artifacts"] = caveats
     return {"result": result, "evidence": ev[:60], "cypher": cypher}
+
+
+ARTIFACT_FACTS = """
+MATCH (a:Asset) WITH sum(CASE WHEN a.ownership = 'owned' THEN 1 ELSE 0 END) AS owned, count(a) AS assets
+OPTIONAL MATCH (c:Certification)
+WITH owned, assets, collect({standard: c.standard, initial: c.initial_date}) AS certs
+OPTIONAL MATCH (cr:Credential {kind:'PMP'})
+RETURN owned, assets, certs, min(cr.issued) AS first_pmp, max(cr.issued) AS last_pmp"""
+
+
+def _generator_artifacts(g: Graph, disagree: list[dict]) -> list[dict]:
+    """Three disagreement patterns are systematic and most likely come from the synthetic corpus generator, not
+    from false claims: matrices dated before the certificate they cite was first issued, matrices dated before
+    any PMP on file was issued, and a plant figure equal to the whole asset register (owned + leased, including
+    plant bought after the bid). They are counted here so nobody reads them as fraud."""
+    f = g.read(ARTIFACT_FACTS)[0]
+    owned, assets = int(f["owned"]), int(f["assets"])
+    first = {c["standard"].split(":")[0]: c["initial"] for c in f["certs"] if c["standard"]}
+    out = []
+
+    def span(xs):
+        d = sorted(x["bid_date"] for x in xs)
+        return f"{d[0]}..{d[-1]}"
+    iso = [x for x in disagree if x["kind"] == "certification" and x["bid_date"]
+           and (x.get("params") or {}).get("standard") in first and x["bid_date"] < first[x["params"]["standard"]]]
+    if iso:
+        out.append({"kind": "certification", "n": len(iso),
+                    "pattern": f"matrices dated {span(iso)} claim ISO certificates whose initial_date on file is "
+                               f"{min(first[x['params']['standard']] for x in iso)} or later",
+                    "reading": "the certificates' issue dates postdate the matrices that cite them; most likely the "
+                               "generator dated the certificates independently of the matrices"})
+    pmp = [x for x in disagree if x["kind"] == "key_personnel" and f["first_pmp"] and x["bid_date"] < f["first_pmp"]]
+    if pmp:
+        same = " (all on the same day)" if f["first_pmp"] == f["last_pmp"] else ""
+        out.append({"kind": "key_personnel", "n": len(pmp),
+                    "pattern": f"matrices dated {span(pmp)}; every PMP on file was issued from {f['first_pmp']}{same}",
+                    "reading": "a single issue date for every credential of a kind is a generator default, not evidence "
+                               "that the PMP claims were false"})
+    plant = [x for x in disagree if x["kind"] == "plant" and (x.get("params") or {}).get("stated") == assets]
+    if plant:
+        out.append({"kind": "plant", "n": len(plant),
+                    "pattern": f"every matrix states {assets}, the size of the whole asset register "
+                               f"({owned} owned + {assets - owned} leased, including plant acquired after the bid)",
+                    "reading": "the figure is the register's total at generation time, not a claim made on the bid date"})
+    return out

@@ -187,23 +187,45 @@ def _years_before(as_of: str, years: int) -> str:
         return d.replace(year=d.year - years, day=28).isoformat()
 
 
-PARAMS = {"similar_works": {"categories", "estimated_cost", "min_value", "count", "lookback_years", "govt_levels",
-                           "include_jv", "require_reference"},
+PARAMS = {"similar_works": {"categories", "estimated_cost", "min_value", "count", "options", "lookback_years",
+                           "govt_levels", "include_jv", "require_reference"},
           "turnover": {"years", "min_average", "min_each_year"},
           "key_personnel": {"credential", "count", "min_experience_years", "categories"},
           "certification": {"standard"},
           "years_in_business": {"min_years"}}
-NEEDS = {"similar_works": ({"estimated_cost", "min_value"}, "estimated_cost or min_value"),
+NEEDS = {"similar_works": ({"estimated_cost", "min_value", "options"}, "estimated_cost, min_value or options"),
          "turnover": ({"min_average", "min_each_year"}, "min_average or min_each_year")}
+
+
+def _check_options(params: dict) -> list[dict]:
+    """Either/or alternatives of a similar-works clause ("one work >= 50 Cr OR two works >= 40 Cr each"):
+    a list of {count, min_value}, any one of which is enough. They replace min_value/count/estimated_cost
+    (a clause with both would leave it unclear which reading applies, so that is an error, not a guess)."""
+    opts = params.get("options")
+    if not isinstance(opts, list) or not opts:
+        raise ValueError("options must be a non-empty list of {count, min_value}")
+    clash = sorted({"min_value", "count", "estimated_cost"} & set(params))
+    if clash:
+        raise ValueError(f"options cannot be combined with {clash}: each alternative carries its own count and min_value")
+    out = []
+    for o in opts:
+        if not isinstance(o, dict) or set(o) - {"count", "min_value"} or not o.get("min_value"):
+            raise ValueError(f"each option is {{count, min_value}}; got {o!r}")
+        cnt, mv = int(o.get("count") or 1), int(o["min_value"])
+        if cnt < 1 or mv <= 0:
+            raise ValueError(f"option needs count >= 1 and min_value > 0; got {o!r}")
+        out.append({"count": cnt, "min_value": mv})
+    return out
 
 
 @tool("qualify_clause",
       """Check one tender eligibility clause against the company's graph and return a verdict
       (PASS / FAIL / AT_RISK) with the works, people, statements or certificates that satisfy it,
       the gaps, and evidence pages. Clause kinds and params:
-      similar_works {categories, estimated_cost (CPWD rule: 1 work >= 80% OR 2 >= 60% OR 3 >= 40%)
-        | min_value + count, lookback_years (default 7), govt_levels, include_jv (default true),
-        require_reference (default false)};
+      similar_works {categories, ONE OF: estimated_cost (CPWD rule: 1 work >= 80% OR 2 >= 60% OR 3 >= 40%)
+        | min_value + count | options [{count, min_value}, ...] (either/or alternatives, e.g. "one work
+        >= 50 Cr or two works >= 40 Cr each": any one option passing is enough; the result names which),
+        lookback_years (default 7), govt_levels, include_jv (default true), require_reference (default false)};
       turnover {min_average (rupees) over last `years` FY (default 3) | min_each_year};
       key_personnel {credential (e.g. PMP), min_experience_years, count (default 1),
         categories (must have led such work)};
@@ -223,6 +245,8 @@ def qualify_clause(g: Graph, kind: str, params: dict, bid_date: str | None = Non
         raise ValueError(f"{kind} params take {sorted(PARAMS[kind])}; unknown: {unknown}")
     if kind in NEEDS and not (NEEDS[kind][0] & set(params)):
         raise ValueError(f"{kind} needs {NEEDS[kind][1]}")
+    if kind == "similar_works" and "options" in params:
+        params["options"] = _check_options(params)
     bid_date = bid_date or config.AS_OF
     fn = {"similar_works": _q_similar, "turnover": _q_turnover, "key_personnel": _q_personnel,
           "certification": _q_cert, "years_in_business": _q_years}[kind]
@@ -246,6 +270,7 @@ def _q_similar(g, p, bid_date) -> dict:
     contested = {r["key"] for r in g.read(
         """MATCH (c:Claim {predicate:'value', status:'contested'})-[:ABOUT]->(w:Work) RETURN DISTINCT w.key AS key""")}
     est = p.get("estimated_cost")
+    extra: dict = {}
     if est:
         est = int(est)
         options = [(1, 0.8), (2, 0.6), (3, 0.4)]
@@ -260,6 +285,21 @@ def _q_similar(g, p, bid_date) -> dict:
         sat = met["works"] if met else []
         basis = met["option"] if met else (
             f"no option met: need 1 >= {int(0.8 * est):,} or 2 >= {int(0.6 * est):,} or 3 >= {int(0.4 * est):,}")
+    elif p.get("options"):
+        # either/or: the first alternative (in the tender's order) that the works meet is the one relied on
+        checked, met = [], None
+        for i, o in enumerate(p["options"]):
+            qual = [w for w in works if w["value"] >= o["min_value"]]
+            label = f"({'abcdefgh'[i]}) {o['count']} work(s) >= {o['min_value']:,}"
+            checked.append({"option": label, "count": o["count"], "min_value": o["min_value"], "found": len(qual),
+                            "passed": len(qual) >= o["count"]})
+            if met is None and len(qual) >= o["count"]:
+                met = {"option": label, "index": i, "works": qual[:o["count"]]}
+        sat = met["works"] if met else []
+        near = sorted(works, key=lambda w: -w["value"])[:3]     # the closest works to any alternative
+        basis = ("either/or: " + "; ".join(f"{c['option']}: found {c['found']}" for c in checked)
+                 + (f" -> option {met['option'][:3]} met" if met else " -> no alternative met"))
+        extra = {"options_checked": checked, "option_met": met["option"] if met else None}
     else:
         mv, cnt = int(p.get("min_value", 0)), int(p.get("count", 1))
         qual = [w for w in works if w["value"] >= mv]
@@ -272,7 +312,7 @@ def _q_similar(g, p, bid_date) -> dict:
     return {"result": {"verdict": verdict, "basis": basis, "since": since,
                        "satisfied_by": sat, "near_misses": [] if passed else near,
                        "candidates": len(works), "contested_values": risky,
-                       "gaps": [] if passed else [basis]},
+                       "gaps": [] if passed else [basis], **extra},
             "evidence": [e for e in pf["evidence"] if any(w["title"] in e["what"] for w in sat)] or pf["evidence"][:6],
             "subgraph": pf["subgraph"], "cypher": pf["cypher"]}
 

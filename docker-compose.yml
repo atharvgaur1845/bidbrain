@@ -3,6 +3,8 @@
 #                          # free-text Q&A works without an LLM)
 #   docker compose up --build
 #   open http://localhost:7860          (UI + API + MCP at /mcp)
+# Company memory and session graphs persist in the `bidbrain-state` volume across restarts
+# (`docker compose down -v` wipes them); the base graph is rebuilt from facts at every boot.
 services:
   bidbrain:
     build: .
@@ -12,3 +14,11 @@ services:
       - path: .env
         required: false
     restart: unless-stopped
+    environment:
+      BIDBRAIN_STATE_DIR: /app/state
+    volumes:
+      - bidbrain-state:/app/state
+    stop_grace_period: 20s
+
+volumes:
+  bidbrain-state:
