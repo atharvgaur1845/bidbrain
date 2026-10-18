@@ -50,4 +50,4 @@ RUN mkdir -p /app/data/uploads /app/data/conflicts/pdf /app/state/falkordb
 ENV BIDBRAIN_STATE_DIR=/app/state
 EXPOSE 7860
 ENTRYPOINT []
-CMD ["/app/start.sh"]
+CMD ["bash", "/app/start.sh"]
