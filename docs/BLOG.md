@@ -113,7 +113,7 @@ coverage check turns any amount or financial term that no clause carries into it
 credited work with no client reference letter on file makes the case at best BID WITH FIXES, which is why one of
 our sample tenders (T-RBC-2026-31) moved from BID to BID WITH FIXES when we added that rule.
 
-![Qualify page: the stored case for the NEDA expressway tender, seven clauses each with a verdict and the numbers behind it; the turnover clause lists which audited-statement figures it used and why; the case is No-bid after the corrigendum](img/qualify.png)
+![Qualify page: the stored case for the NEDA expressway tender, seven clauses each with a verdict and the numbers behind it; the turnover clause lists which audited-statement figures it used and why; the case is No-bid after the corrigendum](https://raw.githubusercontent.com/atharvgaur1845/bidbrain/master/docs/img/qualify.png)
 
 Because verdicts are edges to the facts they rely on, **a change can find everything it breaks**. A corrigendum cuts
 the Pkg-113 ring road from ₹200 Cr to ₹188 Cr. `blast_radius` walks outward from that work and finds the open clauses
@@ -121,17 +121,17 @@ that rely on it, the past bids that cited it, and the tenders those reach, each 
 it (from a person or credential it also walks through the works they led). It then re-runs the affected clauses. The
 expressway bid flips **from BID to NO-BID**, and the reason is one click away.
 
-![Change impact: the event timeline and the dependency graph for the Pkg-113 corrigendum, from source documents and claims (₹188 Cr active, two ₹200 Cr superseded) through the recency decision to clause 2.1 (Fail), the T-NHX-2026-014 case and two pending actions, with clause 2.1 open in the inspector](img/impact.png)
+![Change impact: the event timeline and the dependency graph for the Pkg-113 corrigendum, from source documents and claims (₹188 Cr active, two ₹200 Cr superseded) through the recency decision to clause 2.1 (Fail), the T-NHX-2026-014 case and two pending actions, with clause 2.1 open in the inspector](https://raw.githubusercontent.com/atharvgaur1845/bidbrain/master/docs/img/impact.png)
 
 The Change impact page reads that whole chain back from the graph for any document (`change_impact`): document →
 claim → decision → ripple finding → clause → case → action. The Live documents page is where documents are sent and
 close calls are decided:
 
-![Live documents: sample documents to send, the feed of what each one changed, and the cards waiting for a person](img/live.png)
+![Live documents: sample documents to send, the feed of what each one changed, and the cards waiting for a person](https://raw.githubusercontent.com/atharvgaur1845/bidbrain/master/docs/img/live.png)
 
 The Control room lists what needs a person, each item with the document and the change that caused it:
 
-![Control room: open cases, conflicts, documents and company rules; what needs attention, each with its cause; the latest case per sample tender; and what each received document changed](img/home.png)
+![Control room: open cases, conflicts, documents and company rules; what needs attention, each with its cause; the latest case per sample tender; and what each received document changed](https://raw.githubusercontent.com/atharvgaur1845/bidbrain/master/docs/img/home.png)
 
 ## Tools, not text-to-Cypher
 
@@ -180,7 +180,7 @@ with Wilson 95% intervals, from `data/eval/qa_summary.json`: final code, two run
 * **Cost.** BidBrain spends about 18k tokens per Q333 question (4.1 LLM calls, p50 5.5 s). Text-to-Cypher spends
   about 1.4k tokens (2.7 s), roughly a twelfth.
 
-![Accuracy by hop count on Q333: BidBrain 86.0 / 78.7 / 61.9% at 2-3 / 4 / 5-6 hops; text-to-Cypher 34.0 / 2.1 / 15.9; vector RAG 0.0 / 6.4 / 9.0; GraphRAG-SDK 0.0 / 7.4 / 13.8](img/benchmark_hops.png)
+![Accuracy by hop count on Q333: BidBrain 86.0 / 78.7 / 61.9% at 2-3 / 4 / 5-6 hops; text-to-Cypher 34.0 / 2.1 / 15.9; vector RAG 0.0 / 6.4 / 9.0; GraphRAG-SDK 0.0 / 7.4 / 13.8](https://raw.githubusercontent.com/atharvgaur1845/bidbrain/master/docs/img/benchmark_hops.png)
 
 **The company loop is scored separately, without an LLM.** `eval/workflow.py` drives the real API on throwaway
 graphs with `providers.chat` raising, and takes every expectation from the fixtures, separate Cypher or a re-run of
@@ -328,9 +328,9 @@ RETURN [n IN nodes(path) | coalesce(n.name, n.title, n.key)] AS nodes,
 ORDER BY hops
 ```
 
-![Explore: the Ring Road Pkg-113 work expanded into its claims, documents, decision and finding, with each value's provenance and the recency decision in the side panel](img/graph.png)
+![Explore: the Ring Road Pkg-113 work expanded into its claims, documents, decision and finding, with each value's provenance and the recency decision in the side panel](https://raw.githubusercontent.com/atharvgaur1845/bidbrain/master/docs/img/graph.png)
 
-![Explore page: algo.SPpaths returns three shortest paths between Sunita Joshi and the National Expressway Development Authority, through the works each person led](img/explore.png)
+![Explore page: algo.SPpaths returns three shortest paths between Sunita Joshi and the National Expressway Development Authority, through the works each person led](https://raw.githubusercontent.com/atharvgaur1845/bidbrain/master/docs/img/explore.png)
 
 ### 5. `GRAPH.COPY` as a tenancy model
 
@@ -520,7 +520,7 @@ Rules learned in a visitor's session stay in that session. A bid manager can **p
 `bidbrain_org` graph. Nothing writes to that graph implicitly, each promoted rule keeps a copy of the decision it
 came from, and every session checks company rules after its own rules and before recency and authority.
 
-![Decisions page: the Pkg-113 value decision. The client corrigendum (₹188 Cr, authority 95) was selected over the client certificate and the portfolio (₹200 Cr each) by the recency_same_issuer policy, with the trace graph and source pages](img/decisions.png)
+![Decisions page: the Pkg-113 value decision. The client corrigendum (₹188 Cr, authority 95) was selected over the client certificate and the portfolio (₹200 Cr each) by the recency_same_issuer policy, with the trace graph and source pages](https://raw.githubusercontent.com/atharvgaur1845/bidbrain/master/docs/img/decisions.png)
 
 ## Steal this pattern: turn a recommendation into accountable state
 
@@ -575,7 +575,7 @@ result says that nothing was sent. Execute first claims the action (CAS `approve
 returns, and executing it again returns the stored result. Ripples re-derive findings and follow-up actions, and an
 arriving reference letter resolves its absence finding and fulfils the letter request.
 
-![Actions: the executed re-approval, with its result (6 clauses re-verified, NO-BID approved), trigger decision, cited corrigendum and audit trail](img/actions.png)
+![Actions: the executed re-approval, with its result (6 clauses re-verified, NO-BID approved), trigger decision, cited corrigendum and audit trail](https://raw.githubusercontent.com/atharvgaur1845/bidbrain/master/docs/img/actions.png)
 
 **Publish to a company record, and apply it through the engine.** Workspaces are private `GRAPH.COPY`s. When a
 `publish_to_company_record` action is approved by a second principal, exactly one decided fact is copied into the shared
@@ -621,7 +621,7 @@ leaves an `(:OrgAudit)` node. Over MCP, an action that an MCP call created canno
 anyone. This is still not SSO: principals are configuration with a shared-secret login, and sign-out revocation is
 held in memory.
 
-![Memory: the company record lists the published Pkg-113 value, its source decision, approver and source document, and whether this workspace has applied it](img/memory.png)
+![Memory: the company record lists the published Pkg-113 value, its source decision, approver and source document, and whether this workspace has applied it](https://raw.githubusercontent.com/atharvgaur1845/bidbrain/master/docs/img/memory.png)
 
 ## What didn't work
 
@@ -670,8 +670,9 @@ held in memory.
 
 ## Try it
 
-* **Live demo:** linked at the top of the README (every visitor gets their own graph, so break anything you like)
-* **Code:** github.com/atharvgaur1845/bidbrain
+* **Live demo:** https://atharvgaur18-bidbrain.hf.space (every visitor gets their own graph, so break anything you like)
+* **Demo video:** https://github.com/atharvgaur1845/bidbrain/blob/master/docs/demo/bidbrain_demo.mp4
+* **Code:** https://github.com/atharvgaur1845/bidbrain
 * **Cypher catalog:** `docs/CYPHER.md`, generated by executing every tool
 * **Run locally:** `docker compose up --build`, then open http://localhost:7860 (to publish to the company record,
   first run `python scripts/make_demo_principals.py`; see "Run it" in the README)
