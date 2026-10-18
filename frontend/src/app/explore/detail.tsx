@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { GData, GNode, LABEL_COLORS } from "@/components/GraphCanvas";
 import { Badge, Button, Card, EmptyState, SkeletonRows, StatusBadge, useOpenDoc } from "@/components/ui";
 import { api } from "@/lib/api";
+import { moneyText } from "@/components/format";
 
 // labels fact_history accepts, and the kind name it wants
 const FACT_KIND: Record<string, string> = { Work: "work", Person: "person", Bond: "bond", FinancialStatement: "financial_statement", Credential: "credential" };
@@ -24,7 +25,7 @@ export function chainGraph(subjectId: string, h: Hist): GData {
   const N = (id: string, label: string, name: string, extra: Record<string, any> = {}) => { if (!seen.has(id)) { seen.add(id); nodes.push({ id, label, name, ...extra }); } };
   for (const c of h.claims) {
     const cid = `Claim:${c.claim}`;
-    N(cid, "Claim", `${c.predicate} = ${c.value}`, { status: c.status });
+    N(cid, "Claim", `${c.predicate} = ${moneyText(c.value)}`, { status: c.status });
     edges.push({ source: cid, target: subjectId, type: "ABOUT" });
     if (c.doc) { N(`Document:${c.doc}`, "Document", c.doc); edges.push({ source: cid, target: `Document:${c.doc}`, type: "FROM" }); }
   }
@@ -109,7 +110,7 @@ export function Detail({ node, graph, onExpand, onChain, onPath }:
                   <li key={c.claim} className="px-2.5 py-1.5 text-[12px]">
                     <div className="flex items-baseline gap-2">
                       <span className="shrink-0 text-ink-3">{c.predicate.replace(/_/g, " ")}</span>
-                      <span className="num min-w-0 flex-1 truncate font-medium text-ink" title={c.value}>{c.value}</span>
+                      <span className="num min-w-0 flex-1 truncate font-medium text-ink" title={c.value}>{moneyText(c.value)}</span>
                       <StatusBadge status={c.status === "active" ? "resolved" : c.status} label={c.status} size="sm" />
                     </div>
                     <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-ink-3">

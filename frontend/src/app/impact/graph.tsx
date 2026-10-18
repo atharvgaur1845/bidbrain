@@ -10,7 +10,8 @@ import { ArrowRight, ExternalLink, FileText } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, EmptyState, ErrorState, SkeletonRows, StatusBadge, useOpenDoc } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, fmtINR } from "@/lib/api";
+import { moneyText } from "@/components/format";
 
 export type VNode = { id: string; label: string; name: string; props: Record<string, any>; focus?: boolean };
 export type VEdge = { id: string; source: string; target: string; type: string; props: Record<string, any> };
@@ -30,7 +31,7 @@ const ROLE: Record<string, { role: string; color: string }> = {
 };
 const roleOf = (l: string) => ROLE[l] || { role: l, color: "#a3a7ae" };
 
-const NODE_H = 42, VGAP = 10, TOP = 30, HGAP = 18, MIN_W = 112, MAX_W = 190;
+const NODE_H = 42, VGAP = 14, TOP = 30, MIN_H = 460, HGAP = 18, MIN_W = 112, MAX_W = 190;
 
 // ------------------------------------------------------------------ fallback composition (real reads, no invention)
 
@@ -113,8 +114,11 @@ export function useImpactGraph(docId: string, result: any) {
 
 // ------------------------------------------------------------------ helpers
 
-const fmtVal = (v: any): string => {
+const MONEY_KEYS = /^(value|value_portfolio|chosen_value|estimated_cost|min_average|min_value|amount|turnover|revenue.*)$/;
+const fmtVal = (v: any, k = ""): string => {
   if (v === null || v === undefined || v === "") return "—";
+  if (MONEY_KEYS.test(k) && !isNaN(Number(String(v).replace(/,/g, ""))) && Number(String(v).replace(/,/g, "")) >= 1e5) return fmtINR(Number(String(v).replace(/,/g, "")));
+  if (typeof v === "string") return moneyText(v);
   if (typeof v === "object") return JSON.stringify(v);
   if (typeof v === "number" && v > 1e12 && v < 4e12) return new Date(v).toISOString().replace("T", " ").slice(0, 19) + " UTC";
   return String(v);
@@ -161,7 +165,7 @@ export function ImpactGraph({ g }: { g: VGraph }) {
 
   const layout = useMemo(() => {
     const cols: VNode[][] = COLS.map(() => []);
-    for (const n of g.nodes) cols[COL[n.label] ?? 2].push(n);
+    for (const n0 of g.nodes) { const n = n0; cols[COL[n.label] ?? 2].push(n); }
     // inside a column: focus doc first, then active before superseded, then name
     for (const c of cols) c.sort((a, b) => Number(!!b.focus) - Number(!!a.focus)
       || Number(a.props.status === "superseded") - Number(b.props.status === "superseded") || a.label.localeCompare(b.label) || a.name.localeCompare(b.name));
@@ -171,12 +175,13 @@ export function ImpactGraph({ g }: { g: VGraph }) {
     const step = used.length > 1 ? (W - nw - 24) / (used.length - 1) : 0;
     const pos = new Map<string, { x: number; y: number }>();
     const rows = Math.max(1, ...cols.map((c) => c.length));
-    const H = TOP + rows * (NODE_H + VGAP) + 8;
+    const H = Math.max(MIN_H, TOP + rows * (NODE_H + VGAP) + 8);
     used.forEach((ci, k) => {
       const col = cols[ci];
-      const colH = col.length * (NODE_H + VGAP) - VGAP;
+      const slot = Math.min(NODE_H + 70, (H - TOP - 16) / rows);
+      const colH = col.length * slot - (slot - NODE_H);
       const y0 = TOP + (H - TOP - 8 - colH) / 2;
-      col.forEach((n, j) => pos.set(n.id, { x: 12 + k * step, y: y0 + j * (NODE_H + VGAP) }));
+      col.forEach((n, j) => pos.set(n.id, { x: 12 + k * step, y: y0 + j * slot }));
     });
     return { pos, used, step, H, nw, W };
   }, [g, w]);
@@ -185,7 +190,11 @@ export function ImpactGraph({ g }: { g: VGraph }) {
   const selEdge = sel?.kind === "edge" ? g.edges.find((e) => e.id === sel.id) : undefined;
   const lit = useMemo(() => {
     const focus = hover || (selNode?.id) || (selEdge ? selEdge.source : null);
-    return focus ? chainOf(focus, g.edges) : null;
+    if (!focus) return null;
+    const lit = chainOf(focus, g.edges);
+    // a bid's tender belongs to its chain too (FOR_TENDER points away from the chain direction)
+    for (const e of g.edges) if (e.type === "FOR_TENDER" && lit.has(e.source)) lit.add(e.target);
+    return lit;
   }, [hover, selNode, selEdge, g.edges]);
 
   const byId = useMemo(() => new Map(g.nodes.map((n) => [n.id, n])), [g.nodes]);
@@ -260,9 +269,9 @@ export function ImpactGraph({ g }: { g: VGraph }) {
                   {n.label}{status ? ` · ${String(status).toLowerCase().replace(/_/g, " ")}` : ""}
                 </text>
                 <text x={10} y={31} className={clsx("text-[12px] font-medium", sup ? "fill-[var(--ink-3,#6b7079)]" : "fill-[var(--ink,#1b1c1f)]")}>
-                  {(() => { const m = Math.floor((layout.nw - 16) / 6.6); return n.name.length > m ? n.name.slice(0, m - 1) + "…" : n.name; })()}
+                  {(() => { const t = moneyText(n.name); const m = Math.floor((layout.nw - 16) / 6.6); return t.length > m ? t.slice(0, m - 1) + "…" : t; })()}
                 </text>
-                <title>{`${n.label}: ${n.name}`}</title>
+                <title>{`${n.label}: ${moneyText(n.name)}`}</title>
               </g>
             );
           })}
@@ -277,12 +286,12 @@ export function ImpactGraph({ g }: { g: VGraph }) {
           <span className="ml-auto">{g.nodes.length} nodes · {g.edges.length} relationships{g.composed ? " · composed from impact, trace and case reads" : ""}</span>
         </div>
       </div>
-      <Inspector g={g} node={selNode} edge={selEdge} onSelect={setSel} />
+      <Inspector g={g} node={selNode} edge={selEdge} onSelect={setSel} maxH={layout.H + 64} />
     </div>
   );
 }
 
-function Inspector({ g, node, edge, onSelect }: { g: VGraph; node?: VNode; edge?: VEdge; onSelect: (s: Sel) => void }) {
+function Inspector({ g, node, edge, onSelect, maxH }: { g: VGraph; node?: VNode; edge?: VEdge; onSelect: (s: Sel) => void; maxH: number }) {
   const open = useOpenDoc();
   const byId = new Map(g.nodes.map((n) => [n.id, n]));
   if (!node && !edge) {
@@ -306,7 +315,7 @@ function Inspector({ g, node, edge, onSelect }: { g: VGraph; node?: VNode; edge?
             <button key={i} type="button" onClick={() => onSelect({ kind: "node", id: n.id })}
               className="flex items-center gap-2 rounded-md border border-line px-2 py-1.5 text-left hover:border-line-strong hover:bg-surface-2">
               <span className="w-10 shrink-0 text-[11px] text-ink-3">{i ? "to" : "from"}</span>
-              <span className="min-w-0 flex-1 truncate text-ink">{n.name}</span>
+              <span className="min-w-0 flex-1 truncate text-ink">{moneyText(n.name)}</span>
               <span className="text-[11px] text-ink-3">{n.label}</span>
             </button>
           ))}
@@ -324,12 +333,13 @@ function Inspector({ g, node, edge, onSelect }: { g: VGraph; node?: VNode; edge?
     : n.label === "Action" ? `/actions/?id=${encodeURIComponent(n.props.id)}`
     : n.label === "Work" || n.label === "Tender" ? `/explore/?label=${n.label}&key=${encodeURIComponent(n.props.key || n.props.ref || "")}` : null;
   return (
-    <aside aria-label="Inspector" className="scroll-thin flex max-h-[460px] flex-col gap-3 overflow-y-auto p-4">
+    <aside aria-label="Inspector" style={{ ["--ins-h" as string]: `${maxH}px` }}
+      className="scroll-thin flex max-h-[360px] flex-col gap-3 overflow-y-auto p-4 min-[1400px]:max-h-[var(--ins-h)]">
       <div>
         <div className="flex items-center gap-2 text-[11px] text-ink-3">
           <span className="h-2.5 w-[3px] rounded-sm" style={{ background: roleOf(n.label).color }} />{n.label} · {roleOf(n.label).role}
         </div>
-        <div className="mt-0.5 text-[13.5px] font-semibold leading-snug text-ink">{n.name}</div>
+        <div className="mt-0.5 text-[13.5px] font-semibold leading-snug text-ink">{moneyText(n.name)}</div>
       </div>
       <div className="flex flex-wrap gap-2">
         {doc && <Button size="sm" onClick={() => open({ doc_id: doc, page })}><FileText size={13} strokeWidth={1.75} aria-hidden /> Open {doc}{page ? ` p.${page}` : ""}</Button>}
@@ -347,7 +357,7 @@ function Inspector({ g, node, edge, onSelect }: { g: VGraph; node?: VNode; edge?
                 <button type="button" onClick={() => m && onSelect({ kind: "node", id: m.id })}
                   className="flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[12px] hover:bg-surface-2">
                   <span className="mono shrink-0 text-[10.5px] text-ink-3">{out ? "→" : "←"} {e.type}</span>
-                  <span className="min-w-0 flex-1 truncate text-ink">{m?.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-ink">{moneyText(m?.name)}</span>
                 </button>
               </li>
             );
@@ -355,6 +365,29 @@ function Inspector({ g, node, edge, onSelect }: { g: VGraph; node?: VNode; edge?
         </ul>
       </div>
     </aside>
+  );
+}
+
+const asObj = (v: any): Record<string, any> | null => {
+  if (v && typeof v === "object" && !Array.isArray(v)) return v;
+  if (typeof v === "string" && v.trim().startsWith("{")) { try { const o = JSON.parse(v); return o && typeof o === "object" && !Array.isArray(o) ? o : null; } catch { return null; } }
+  return null;
+};
+const fmtAny = (v: any, k: string): string =>
+  Array.isArray(v) ? v.map((x) => (typeof x === "object" ? JSON.stringify(x) : fmtVal(x, k))).join(", ") : fmtVal(v, k);
+
+function Nested({ o }: { o: Record<string, any> }) {
+  return (
+    <dl className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-2 gap-y-0.5 rounded border border-line bg-surface-2 px-2 py-1">
+      {Object.entries(o).map(([k, v]) => (
+        <div key={k} className="contents">
+          <dt className="text-[11px] text-ink-3">{k.replace(/_/g, " ")}</dt>
+          <dd className="min-w-0 break-words">{asObj(v) ? <Nested o={asObj(v)!} />
+            : Array.isArray(v) && v.some((x) => asObj(x)) ? <div className="flex flex-col gap-1">{v.map((x, i) => asObj(x) ? <Nested key={i} o={asObj(x)!} /> : <span key={i}>{fmtVal(x, k)}</span>)}</div>
+            : fmtAny(v, k)}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -377,7 +410,7 @@ function Props({ props, empty }: { props: Record<string, any>; empty?: string })
       {rows.map(([k, v]) => (
         <div key={k} className="contents">
           <dt className="mono truncate text-[11px] text-ink-3" title={k}>{k}</dt>
-          <dd className="min-w-0 break-words text-ink-2"><Clamp text={fmtVal(v)} /></dd>
+          <dd className="min-w-0 break-words text-ink-2">{asObj(v) ? <Nested o={asObj(v)!} /> : <Clamp text={fmtVal(v, k)} />}</dd>
         </div>
       ))}
     </dl>
@@ -416,9 +449,9 @@ export function VerdictCompare({ r, clauses }: { r: any; clauses: Record<string,
               <span className="text-[11px] font-medium text-ink-3">Before</span><span />
               <span className="text-[11px] font-medium text-ink-3">After</span>
               <span className="text-ink-3">Fact</span>
-              <span className="num text-ink-3 line-through">{claim?.replaced?.join(", ") || "—"}</span>
+              <span className="num text-ink-3 line-through">{claim?.replaced?.map((x: string) => moneyText(x)).join(", ") || "—"}</span>
               <ArrowRight size={13} className="text-ink-3" aria-hidden />
-              <span className="num font-medium text-ink">{claim?.chosen || claim?.value}</span>
+              <span className="num font-medium text-ink">{moneyText(claim?.chosen || claim?.value)}</span>
               <span className="text-ink-3">Clause</span>
               <span>{mv ? <StatusBadge status={mv[1]} size="sm" /> : "—"}</span>
               <ArrowRight size={13} className="text-ink-3" aria-hidden />
@@ -432,7 +465,7 @@ export function VerdictCompare({ r, clauses }: { r: any; clauses: Record<string,
               <dt className="text-ink-3">Business rule</dt>
               <dd className="text-ink-2">{cl?.text || <span className="text-ink-3">clause text not loaded</span>}</dd>
               <dt className="text-ink-3">Basis now</dt>
-              <dd className="num text-ink-2">{cl?.basis || "—"}</dd>
+              <dd className="num text-ink-2">{moneyText(cl?.basis) || "—"}</dd>
               <dt className="text-ink-3">Evidence</dt>
               <dd>
                 <button type="button" className="mono text-[12px] text-kb-ink hover:underline"

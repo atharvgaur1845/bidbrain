@@ -36,7 +36,7 @@ def _props(p: dict) -> dict:
     for k, v in (p or {}).items():
         if k in _SKIP:
             continue
-        if isinstance(v, str) and len(v) > 400:
+        if isinstance(v, str) and len(v) > (4000 if v.lstrip().startswith(("{", "[")) else 400):
             v = v[:400] + "…"
         if isinstance(v, list) and len(v) > 20:
             continue

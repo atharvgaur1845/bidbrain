@@ -4,9 +4,9 @@
 decisions and coordinated actions, with a construction bid desk as the proving ground.*
 
 > **TL;DR**
-> * BidBrain loads a construction company's 687 documents into one FalkorDB graph. When a new document arrives, the graph settles which fact wins (by policy, or by a person), walks from that fact to every open bid that relied on it, re-qualifies those bids without an LLM, and opens **accountable actions**: a person approves, deterministic code executes, and every step is audited. A fact the bid manager publishes, once a second person approves it, becomes part of the **company record**, and every workspace that opts in to company memory starts from it.
-> * A deterministic workflow evaluation runs that whole loop with the LLM disabled: **81/81** checks, and the bids it reports as flipped match an independent before/after recompute with precision and recall 1.0.
-> * On answer accuracy (same model, same database, four context strategies), graph tools score **.762** on independent-gold questions, **.835** on absence questions and **.931** on tender questions in the headline run (a second run: .810 / .884 / .924); the best baseline on each set scores .333, .500 and .542. Final code, two runs each.
+> * BidBrain loads a construction company's 687 documents into one FalkorDB graph. When a new document arrives, the graph settles which fact wins (by policy, or by a person), walks from that fact to every open bid that relied on it, re-qualifies those bids without an LLM, and opens **accountable actions**: a person approves, deterministic code executes, and every step is audited. A fact the bid manager publishes, once a second, server-verified principal approves it, becomes part of the **company record**, and every workspace that opts in to company memory starts from it.
+> * A deterministic workflow evaluation runs that whole loop with the LLM disabled: **84/84** checks, and the bids it reports as flipped match an independent before/after recompute with precision and recall 1.0.
+> * On answer accuracy (same model, same database, four context strategies), graph tools score **.762** on independent-gold questions, **.835** on absence questions and **.931** on tender questions in the headline run (a second run: .810 / .884 / .924); the best baseline on each set scores .333, .500 and .542. Final code at benchmark time (`80b5356`), two runs each; later Q&A changes (negative-claim gating among them) were not re-measured.
 > * The FalkorDB parts are below as copy-paste recipes: an absence proof, exact betweenness in one Cypher query, a full-text gotcha, `algo.SPpaths`, `GRAPH.COPY` tenancy, WCC as an evidence check, label propagation that beats a random split, a claim → decision → policy-rule schema, and an action layer that turns a recommendation into accountable state.
 > * Caveats sit next to the results, not at the end: real run-to-run variance (S21 moved 1 of 21 between runs), two regressions found and fixed on S21 before the final runs, one near-gold set whose gold our tools mirror, a team score tuned on its test set, and GraphRAG-SDK run without a domain ontology.
 
@@ -106,20 +106,32 @@ re-derives that clause once. The case is marked NEEDS REVIEW only if they still 
 accounts for every amount in the clause text independently of the parser ("X% of the estimated cost" resolved from
 the tender header, cumulative `min_total`), and a known clause nobody could read is NEEDS REVIEW, never a pass.
 
+The contract is strict on purpose. Each clause is PASS, FAIL or NEEDS REVIEW, and one NEEDS REVIEW blocks a BID.
+A financial term the engine has no check for (net worth, bid capacity, solvency, working capital and the like) is
+NEEDS REVIEW, never a declaration to tick. Text joined by `;` that states two requirements becomes two clauses, and a
+coverage check turns any amount or financial term that no clause carries into its own NEEDS REVIEW clause. A
+credited work with no client reference letter on file makes the case at best BID WITH FIXES, which is why one of
+our sample tenders (T-RBC-2026-31) moved from BID to BID WITH FIXES when we added that rule.
+
 ![Qualify page: the stored case for the NEDA expressway tender, seven clauses each with a verdict and the numbers behind it; the turnover clause lists which audited-statement figures it used and why; the case is No-bid after the corrigendum](img/qualify.png)
 
 Because verdicts are edges to the facts they rely on, **a change can find everything it breaks**. A corrigendum cuts
 the Pkg-113 ring road from ₹200 Cr to ₹188 Cr. `blast_radius` walks outward from that work and finds the open clauses
-that rely on it, the past bids that cited it, and the tenders it secured. It then re-runs the affected clauses. The
+that rely on it, the past bids that cited it, and the tenders those reach, each with the graph paths that explain
+it (from a person or credential it also walks through the works they led). It then re-runs the affected clauses. The
 expressway bid flips **from BID to NO-BID**, and the reason is one click away.
 
-![Change impact: the Pkg-113 corrigendum, the fact it changed (₹200 Cr to ₹188 Cr), the recency policy that settled it, clause 2.1 flipping Pass to Fail, the bid flipping Bid to No-bid, and the two actions it opened](img/impact.png)
+![Change impact: the event timeline and the dependency graph for the Pkg-113 corrigendum, from source documents and claims (₹188 Cr active, two ₹200 Cr superseded) through the recency decision to clause 2.1 (Fail), the T-NHX-2026-014 case and two pending actions, with clause 2.1 open in the inspector](img/impact.png)
 
 The Change impact page reads that whole chain back from the graph for any document (`change_impact`): document →
 claim → decision → ripple finding → clause → case → action. The Live documents page is where documents are sent and
 close calls are decided:
 
 ![Live documents: sample documents to send, the feed of what each one changed, and the cards waiting for a person](img/live.png)
+
+The Control room lists what needs a person, each item with the document and the change that caused it:
+
+![Control room: open cases, conflicts, documents and company rules; what needs attention, each with its cause; the latest case per sample tender; and what each received document changed](img/home.png)
 
 ## Tools, not text-to-Cypher
 
@@ -176,11 +188,11 @@ graphs with `providers.chat` raising, and takes every expectation from the fixtu
 
 | Dimension | Passed | What is checked |
 |---|---:|---|
-| task completion | 16/16 | corrigendum → review action → approve → execute; letter and renewal requests; rejected actions never run; idempotent execute and creation; a publish cannot be approved by the session that queued it |
+| task completion | 16/16 | corrigendum → review action → approve → execute; letter and renewal requests; rejected actions never run; idempotent execute and creation; a publish cannot be approved by the principal who queued it |
 | impact recall | 18/18 | flips reported by `/api/impact` vs an independent before/after re-run of every open clause over 9 events: P = R = 1.0 (4 flips, 198 clause re-checks) |
 | adversarial conflicts | 16/16 | rounding, unrelated corrigenda, a later but less formal letter, close authority, expired credentials, absence PROVEN vs UNPROVEN, aliases |
 | memory transfer | 10/10 | promoted rules and published facts apply only after opt-in; a published fact applies in new and existing workspaces, citing its origin |
-| isolation | 9/9 | workspace B sees nothing of A; A's ids are 404 from B |
+| isolation | 12/12 | workspace B sees nothing of A; A's ids are 404 from B; MCP cannot approve the actions it created; an anonymous tab, the initiator or a spoofed name is not a second approver; no principals configured means 503 |
 | temporal | 4/4 | `fact_as_of` just before and after the corrigendum |
 | provenance | 8/8 | every evidence row names a real document and page; every decision selects one of its sources |
 
@@ -315,6 +327,8 @@ RETURN [n IN nodes(path) | coalesce(n.name, n.title, n.key)] AS nodes,
        [r IN relationships(path) | type(r)] AS rels, pathWeight AS hops
 ORDER BY hops
 ```
+
+![Explore: the Ring Road Pkg-113 work expanded into its claims, documents, decision and finding, with each value's provenance and the recency decision in the side panel](img/graph.png)
 
 ![Explore page: algo.SPpaths returns three shortest paths between Sunita Joshi and the National Expressway Development Authority, through the works each person led](img/explore.png)
 
@@ -564,7 +578,7 @@ arriving reference letter resolves its absence finding and fulfils the letter re
 ![Actions: the executed re-approval, with its result (6 clauses re-verified, NO-BID approved), trigger decision, cited corrigendum and audit trail](img/actions.png)
 
 **Publish to a company record, and apply it through the engine.** Workspaces are private `GRAPH.COPY`s. When a
-`publish_to_company_record` action is approved by a second person (the session that queued it cannot approve it), exactly one decided fact is copied into the shared
+`publish_to_company_record` action is approved by a second principal, exactly one decided fact is copied into the shared
 `bidbrain_org` graph, with its claim, source document, source decision and the publishing workspace's hashed tag:
 
 ```cypher
@@ -589,11 +603,23 @@ WITH c MATCH (d:Document {doc_id:$doc}) MERGE (c)-[:FROM]->(d)
 
 A `(:CompanyRecordRef {id})` in the workspace marks the fact as applied, so each fact is applied once. A newer fact
 for the same subject and predicate supersedes the older one in the record rather than overwriting it; only the
-publishing workspace can retire a fact, and a retired fact stays in the record with its status. Facts apply only in
+owning principal (or an admin) can retire a fact, and a retired fact stays in the record with its status. Facts apply only in
 workspaces that turned on "Use company memory". Retiring propagates: each workspace that applied the fact withdraws
 its claim on the next request (policy `record_withdrawn`) and ripples the change. An applied fact can be beaten by
 newer or higher-authority evidence, or contested by a workspace, which reopens its decisions as cards. Claims carry
 `recorded_at` and `invalidated_at`, so `fact_as_of` can still answer "what did we believe before the corrigendum?".
+A date-only `as_of` means the end of that day in IST, so a corrigendum recorded at 4 pm counts for that date.
+
+**A second tab is not a second person.** Our first version of the four-eyes rule said "a different session must
+approve". Anyone can open a second session, so that proved nothing. Approvals now need server-verified principals
+(`api/auth.py`): accounts configured in `BIDBRAIN_PRINCIPALS` as `name:role:sha256(secret)`, roles `bid_manager`,
+`approver` and `admin`, and a login that returns an HMAC-signed token. The role is read from the configuration, not
+the token. The initiator cannot approve its own publish request; the approver approves an exact request `version`
+with compare-and-set, so a replay changes nothing; only the owning principal retires a fact; every shared decision
+leaves an `(:OrgAudit)` node. Over MCP, an action that an MCP call created cannot be approved without a
+`principal_token`. With no principals configured, the server refuses shared changes with 503 instead of trusting
+anyone. This is still not SSO: principals are configuration with a shared-secret login, and sign-out revocation is
+held in memory.
 
 ![Memory: the company record lists the published Pkg-113 value, its source decision, approver and source document, and whether this workspace has applied it](img/memory.png)
 
@@ -628,6 +654,11 @@ newer or higher-authority evidence, or contested by a workspace, which reopens i
   tender's category; the rest are the same top-value works in every dossier, so the ripple card said "6 past bids
   cited this work" for any large job. Annexure E reprints all 39 project managers. Bids now cite only their
   in-category rows (72 `CITES` edges instead of 288), and a full-roster annexure creates no `PROPOSES` edges.
+* **An empty result is not an absence.** The Q&A agent used to say "no open tenders would be affected" from one
+  empty tool result. A negative answer now needs a scoped proof (`prove_absence` PROVEN, or a count over a set whose
+  entity resolved); otherwise a deterministic "Not established" line replaces it, and every answer carries an
+  `answer_status` (`VERIFIED_ABSENCE`, `NO_MATCH_THIS_ATTEMPT`, `ENTITY_UNRESOLVED`, `INCOMPLETE_OR_CONTRADICTORY`,
+  `NEEDS_REVIEW`, `GROUNDED`). This came after the benchmark runs, so the published scores do not measure it.
 * **The demo model is not the benchmark model.** Groq no longer serves Qwen3-32B, so the live app rotates through a
   pool of free Groq models, with 3-62 s latency under rate limits. Each answer now stays on the model that served
   its first step, unless that model hits a rate limit, so an answer is no longer stitched together from several
@@ -642,6 +673,7 @@ newer or higher-authority evidence, or contested by a workspace, which reopens i
 * **Live demo:** linked at the top of the README (every visitor gets their own graph, so break anything you like)
 * **Code:** github.com/atharvgaur1845/bidbrain
 * **Cypher catalog:** `docs/CYPHER.md`, generated by executing every tool
-* **Run locally:** `docker compose up`, then open http://localhost:7860
+* **Run locally:** `docker compose up --build`, then open http://localhost:7860 (to publish to the company record,
+  first run `python scripts/make_demo_principals.py`; see "Run it" in the README)
 
 *Built for Graph Hacks (WeMakeDevs × FalkorDB), with the help of AI coding assistants, disclosed in the README.*

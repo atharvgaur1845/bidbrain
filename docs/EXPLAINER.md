@@ -51,14 +51,20 @@ cover each step.
   and each line of each financial statement.
 * The entity property (`Work.value`) is a **materialized view** of the claim that currently wins. When a corrigendum
   arrives we add a claim; we never edit history. That is what makes "why did we decide this?" answerable.
-* **Bitemporal: two axes.** *Valid time:* a claim counts as of T only if its document existed by T: the date the
-  document prints (`Document.issued_day`, parsed at ingest), else the claim's `observed_day`; undated documents (CVs,
+* **Bitemporal: two axes.** *Valid time:* a claim counts on day V only if its fact held by V: the effective date
+  the document prints for the fact (a work's completion date, a credential's issue date: `Claim.valid_from_day`, set
+  at ingest), else the date the document prints as its own (`Document.issued_day`), else the claim's `observed_day`; undated documents (CVs,
   the portfolio, ISO certificates, ledgers) count from the corpus snapshot 2026-03-31 and are flagged in
   `undated_kinds`. *Transaction time:* `recorded_at` (the corpus is the starting record at 0, since the base graph is
   rebuilt at every boot) and `invalidated_at` when a decision sets the claim aside (its value stays). Decisions count
   from their own `at` (corpus decisions: 0). `fact_as_of(key, predicate, as_of)` (`tools/impact.py`) returns the
   believed value with `valid_basis` and each claim's recorded vs valid date; the latest decision made by T picks the
-  winner. The workflow eval checks it 5 ms before and after a corrigendum, and before the certificate's own date.
+  winner. `as_of` sets both axes; `valid_at` and `known_at` set one each. A date-only input means the **end of that
+  day in IST** (23:59:59.999 Asia/Kolkata); a timestamp keeps its instant (no offset: read in IST).
+* **`Tender.status`** is `open` or `closed` as of the 2026-03-31 corpus snapshot (`ingest/load_graph.py`), with the
+  reason in `status_basis`: closed if the company submitted a bid, the bid date is before the snapshot, or a bond was
+  issued for it; open if the bid date is on or after the snapshot. Opening a case for a tender sets it `open` in that
+  session. The workflow eval checks it 5 ms before and after a corrigendum, and before the certificate's own date.
 * **Issuer is whoever issued the document.** Our own completion record quoting the client's grading is a *company*
   statement. The planted-conflict eval caught us attributing it to the client, which made the recency rule fire
   wrongly 11 times.
@@ -84,8 +90,11 @@ cover each step.
 3. **Record.** A `(:Decision)` with `SELECTS` (winner), `BASED_ON` (all claims), `DECIDED_BY` (agent or user),
    `SUPERSEDES` (earlier decisions on the same fact) and `APPLIED_RULE`; the winning claim `PREVAILS_OVER` each claim it set aside. Loser claims become `superseded` (recency)
    or `rejected` (authority). The property is re-materialized and the graph version is bumped.
-4. **Ripple** (`tools/case.py::blast_radius`). Find every open clause whose *candidate set* could include the subject,
-   re-run it, and report flips. We re-check failing clauses as well as satisfied ones, because a corrigendum can make
+4. **Ripple** (`tools/case.py::blast_radius`). First collect the dependents by graph paths: from the subject (a
+   Person also through the works it leads, a Credential through its holder and the holder's works) to the past bids
+   that `CITES`/`PROPOSES`/`SECURED_BY` it, the clauses and open cases `SATISFIED_BY` it, and those bids' and cases'
+   tenders; each dependent comes with the paths that explain it. Then find every open clause whose *candidate set*
+   could include the subject, re-run it, and report flips. We re-check failing clauses as well as satisfied ones, because a corrigendum can make
    a failing clause pass. The case's overall recommendation is recomputed. Each flip is written as
    `(:Finding {kind:'ripple'})-[:CAUSED_BY]->(:Decision)` on the clause, which is what lets `change_impact` read the
    chain back later.
@@ -182,6 +191,15 @@ clause can explain which figure it used.
     again without it. This came from a judge's question where an invented "Prime" role and years filter cut the
     answer from ₹2.10 B to ₹0.42 B.
   - **One model per answer.** Later steps prefer the provider bucket that served the first step.
+  - **Negatives need a scoped proof** (`agents/absence.py`). An empty result is not proof. A negative ("none",
+    "would not be affected", "0") stands only with `prove_absence` PROVEN, a scoped count over a defined set whose
+    entity resolved (`find_portfolio`, `aggregate`, `list_cases`, …), or a `not_found` for "X is not in the graph".
+    Otherwise the loop re-asks once, then replaces the line with a deterministic "Not established: …" (ANSWER:
+    `NOT ESTABLISHED`). Each answer gets an `answer_status`: `VERIFIED_ABSENCE`, `NO_MATCH_THIS_ATTEMPT`,
+    `ENTITY_UNRESOLVED`, `INCOMPLETE_OR_CONTRADICTORY`, `NEEDS_REVIEW` or `GROUNDED`.
+  - **Request size.** Tool results are capped at 3000 characters, the request is fitted to a budget (oldest tool
+    results shrink first), a repeated identical call returns the earlier result, and an HTTP 413 shrinks the context
+    and retries the same model. After a `fact_as_of` on a past date, a deterministic now-vs-then line is added.
 * **Tender team** (`agents/orchestrator.py`):
   - The six agents share **one case subgraph**. A handoff is a graph write the next agent reads, recorded as
     `(:AgentRun)-[:HANDED_OFF_TO]->(:AgentRun)`.
@@ -202,6 +220,15 @@ clause can explain which figure it used.
     a stated amount or a stated percentage of one ("X% of the estimated cost" is resolved from the tender header),
     and every amount in the text must be used, including cumulative `min_total`. A known clause that cannot be read
     is NEEDS REVIEW, never a pass.
+  - **Qualification contract.** A clause is PASS, FAIL or NEEDS REVIEW (AT_RISK passes with a risk; DECLARE is only
+    a genuine declaration). `overall_verdict` (`tools/case.py`): any FAIL → NO-BID; else any NEEDS REVIEW → NEEDS
+    REVIEW (it blocks BID); else AT_RISK or a live high-severity finding → BID WITH FIXES; else BID. Financial terms
+    no engine check reads (net worth, bid capacity, solvency, liquid assets, working capital, credit facilities,
+    profit, ratios, multiples of the estimate) are NEEDS REVIEW, never DECLARE. `;`-joined text with two requirements
+    becomes two clauses; header lines are context. A coverage check turns any amount, percentage or financial term
+    that no clause carries into its own NEEDS REVIEW clause. A credited work with no reference letter is a
+    high-severity absence finding, so the case is at best BID WITH FIXES; this is why T-RBC-2026-31 is BID WITH
+    FIXES, not BID (intended).
 
 ## 7. Memory and tenancy
 
@@ -252,11 +279,22 @@ clause can explain which figure it used.
 
 * **Why.** Workspaces are private copies, so a corrigendum accepted in one would otherwise never reach anyone else.
   Copying whole workspaces would leak private work.
-* **Publish.** Needs two people: the session that queued it cannot approve it; its approve files a
-  `(:PublishRequest)` that a different session approves on the Memory page (or an `ORG_ADMIN_TOKEN` operator).
+* **Identity** (`api/auth.py`). A session id is a capability, not a person, and a typed name is only a label.
+  Principals are configured in `BIDBRAIN_PRINCIPALS` (`name:role:sha256(secret)`; roles `bid_manager`, `approver`,
+  `admin`); `POST /api/auth/login` returns an HMAC-SHA256 token signed with `BIDBRAIN_AUTH_KEY` (cookie or Bearer),
+  and the role is read from the configuration, not the token. With no principals configured, shared steps
+  (publish, approve, retire and contest facts; promote, retire and contest rules) answer 503 (fail closed);
+  session-local work needs no login. `scripts/make_demo_principals.py` writes a demo `manager` and `approver`.
+  Limitation: configured principals with a shared-secret login, not SSO; sign-out revocation is in memory.
+* **Publish.** Needs two principals: the principal who approves the publish action files a `(:PublishRequest
+  {version})`; a *different* principal with the `approver` (or `admin`) role approves that request id and version
+  on the Memory page (compare-and-set: stale is 409, a replay returns the same result; the initiator gets 403), or an
+  `ORG_ADMIN_TOKEN` operator approves. Actions use the same versioned compare-and-set. Every shared decision writes an
+  `(:OrgAudit {at, principal, action, target, session})`. Over MCP, an action created by an MCP call cannot be
+  approved without `principal_token`.
   An approved and executed `publish_to_company_record` action copies exactly one decided fact into
   `bidbrain_org` as `(:OrgFact)`: subject, predicate, value, the claim and its source document (as JSON), the source
-  decision and policy, the publishing workspace's hashed tag (`published_by`), the approver (`approved_by`) and the time. Planted evaluation claims
+  decision and policy, the publishing workspace's hashed tag (`published_by`), the initiator (`owner_principal`), the approver (`approved_by`) and the time. Planted evaluation claims
   are refused.
 * **Apply.** Whenever a workspace that turned on "Use company memory" is opened (`sessions.graph_for`), `record.apply` writes each active fact it has not
   yet seen as a claim plus its source document and lets the conflict engine settle it (policy `company_record`).
@@ -265,7 +303,7 @@ clause can explain which figure it used.
   card, and a workspace can contest it (`POST /api/company/record/{id}/contest`), reopening its decisions there as
   resolve cards. Nothing is auto-rejected.
 * **History and governance.** A newer fact for the same subject and predicate marks the older one `superseded`.
-  Only the publishing workspace (or an operator with `ORG_ADMIN_TOKEN`) can retire a fact; a retired fact keeps its
+  Only the owning principal (or an `admin` principal, or an operator with `ORG_ADMIN_TOKEN`) can retire a fact; a retired fact keeps its
   row with status `retired`. Retiring propagates: each workspace that applied it notices on its next request, the
   fact's claim is withdrawn (policy `record_withdrawn`), the engine decides again and the change ripples to cases.
 * **Persistence.** `bidbrain_org` is saved in FalkorDB's RDB snapshots and mirrored to `org_memory.json` after every
@@ -276,9 +314,10 @@ clause can explain which figure it used.
 
 ## 8. Evaluation design
 
-* **Workflow evaluation first** (`eval/workflow.py`, no LLM, throwaway graphs): 81/81 cases across task completion
+* **Workflow evaluation first** (`eval/workflow.py`, no LLM, throwaway graphs): 84/84 cases across task completion
   (16), impact recall (18, P = R = 1.0 against an independent recompute), adversarial conflicts (16), memory transfer
-  (10), isolation (9), temporal (4) and provenance (8). Expectations come from fixtures, separate Cypher or a re-run
+  (10), isolation (12, including the MCP creator not self-approving, the second approver being a verified principal,
+  and failing closed without principals), temporal (4) and provenance (8). Expectations come from fixtures, separate Cypher or a re-run
   of `qualify_clause`, never from the function under test. The first run was 78/79 and found a real bug (renewal
   actions for people the clause did not rely on), now fixed.
 * **Same model, same database, different context strategy:**

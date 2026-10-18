@@ -7,12 +7,16 @@ slides. Pause about 1 s on every number that matters.
 (free-text questions), by the ClauseParser for new or edited tender text, and by the bid-memo prose (template
 fallback). None of these is in the core path.
 
-**Before recording**
-* Browser 1: a fresh workspace (press **Reset graph**, top right). Browser 2: a private window, not opened yet.
+**Before recording** (the full setup checklist is in [DEMO_RUNBOOK.md](DEMO_RUNBOOK.md))
+* Principals: run `python scripts/make_demo_principals.py` once and restart the API. It writes a `manager`
+  (bid_manager) and an `approver` (approver) to `.env`; their secrets are in `BIDBRAIN_DEMO_SECRET_MANAGER` /
+  `BIDBRAIN_DEMO_SECRET_APPROVER`. Without principals, publishing and promoting answer 503.
+* Browser 1: a fresh workspace (press **Reset graph**, top right), then **Sign in** as `manager`. Browser 2: a private
+  window, not opened yet.
 * Check that the company record is empty: **Memory** → *Company record* shows no active fact. Step 1:20 publishes a
-  fact that a workspace applies once it ticks **Use company memory**. After recording, retire it from browser 1's workspace with
-  `POST /api/company/record/<id>/retire` and header `X-Session: <browser 1's session id>` (the UI has no retire
-  button for facts yet). Only the publishing workspace can retire it.
+  fact that a workspace applies once it ticks **Use company memory**. After recording, retire it as its owner:
+  `POST /api/company/record/<id>/retire` with `Authorization: Bearer <manager's token from POST /api/auth/login>`
+  (the UI has no retire button for facts yet). Only the owning principal (or an admin) can retire it.
 
 ---
 
@@ -63,16 +67,17 @@ each with its document and page.
 **Say:** "Every settled fact keeps the policy, the decider and every source. Nothing was overwritten."
 
 ### 1:20 – 1:26 · Publish to the company record (Decisions → Actions)
-**Click:** **Publish to company record** → **Open action** → **Approve** (files a publish request; a second person
-must approve it).
+**Click:** **Publish to company record** → **Open action** → **Approve** (signed in as `manager`: this files a
+publish request; a different principal with the approver role must approve it).
 **Say:** "The bid manager proposes this as the company's truth. That is an action too, and it needs a second approver."
 
 ### 1:26 – 1:48 · A clean second workspace (browser 2)
-**Click:** open browser 2 (private window) at the app. Sidebar **Memory**: approve the pending publish request; tick
+**Click:** open browser 2 (private window) at the app and **Sign in** as `approver`. Sidebar **Memory**: approve the
+pending publish request (the server checks it is a different, verified principal); tick
 **Use company memory in this session**. Back in browser 1, **Execute** → **Confirm execute**. In browser 2, *Company
 record* lists Pkg-113 = ₹188 Cr, **Applied**, with the source decision and document. Then **Decisions** → tab **Company record** → the row: the
 decision has policy *Company record* and its rationale names the OrgFact. **Control room**: *Open cases 0*.
-**Say:** "A second person approved it, and a workspace that opts in starts from the new fact. It was applied through the same conflict engine, with a policy
+**Say:** "A second, signed-in approver approved it, not just a second tab, and a workspace that opts in starts from the new fact. It was applied through the same conflict engine, with a policy
 that cites where it came from. Nothing private crossed over: no cases, no actions, no conversation."
 
 *(Optional, +15 s, company rule beat.)* In browser 1, **Live documents** → send *JV Experience Certificate —
@@ -82,7 +87,7 @@ resolves itself, citing the promoted rule.
 
 ### 1:48 – 2:00 · Evidence (Benchmark)
 **Screen:** sidebar **Benchmark**. One beat each:
-* "The workflow evaluation runs this whole loop without an LLM: 81 of 81 checks. The bids it says flipped match an
+* "The workflow evaluation runs this whole loop without an LLM: 84 of 84 checks. The bids it says flipped match an
   independent before-and-after recompute exactly: precision and recall 1.0."
 * "Absence is proved, not guessed: 2 of Trishakti Power's 19 works have no reference letter, with the boundary
   attested three ways and all 132 letters accounted for."

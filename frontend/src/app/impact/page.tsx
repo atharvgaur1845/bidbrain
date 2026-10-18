@@ -12,6 +12,7 @@ import { Badge, Button, Card, CodeCell, EmptyState, ErrorState, Notice, Skeleton
   Th, useOpenDoc } from "@/components/ui";
 import { ActionControls, ActionFull, ActionResult, kindLabel } from "@/lib/actions";
 import { api, fmtINR, stream } from "@/lib/api";
+import { moneyText } from "@/components/format";
 import { GraphPanel, VerdictCompare, useCaseClauses } from "./graph";
 
 type Claim = { claim: string; predicate: string; value: string; page?: number; status?: string; subject_label?: string;
@@ -155,7 +156,7 @@ function Chain({ doc, onActionChange }: { doc: ImpactDoc; onActionChange: () => 
                       <Link href={`/decisions/?id=${encodeURIComponent(c.decision!)}`} className="mono text-[12px] text-kb-ink hover:underline">{c.decision}</Link>
                       <span className="text-[12px] text-ink-3">trace</span>
                     </div>
-                    <p className="mt-1 leading-relaxed text-ink-2">{c.rationale}</p>
+                    <p className="mt-1 leading-relaxed text-ink-2">{moneyText(c.rationale)}</p>
                   </li>
                 ))}
               </ul>
@@ -177,7 +178,7 @@ function Chain({ doc, onActionChange }: { doc: ImpactDoc; onActionChange: () => 
                         <Td><span className="num">{a.clause}</span> <span className="block text-[11.5px] text-ink-3">{words(a.kind)}</span></Td>
                         <Td><StatusBadge status={a.verdict_now} size="sm" /></Td>
                         <Td><Badge tone={sevTone(a.severity)}>{sentence(a.severity)}</Badge></Td>
-                        <Td muted className="min-w-[200px] text-[12.5px]">{a.what}</Td>
+                        <Td muted className="min-w-[200px] text-[12.5px]">{moneyText(a.what)}</Td>
                       </tr>
                     ))}
                   </tbody>
@@ -218,7 +219,7 @@ function Chain({ doc, onActionChange }: { doc: ImpactDoc; onActionChange: () => 
                         <span className="text-[12px] text-ink-3">{kindLabel(a.kind)}</span>
                         <Link href={`/actions/?id=${encodeURIComponent(a.id)}`} className="mono ml-auto text-[11.5px] text-ink-3 hover:text-kb-ink hover:underline">{a.id}</Link>
                       </div>
-                      <div className="text-[13px] font-medium text-ink">{a.title}</div>
+                      <div className="text-[13px] font-medium text-ink">{moneyText(a.title)}</div>
                       <ActionControls action={a} onChange={(n) => { setFull((f) => ({ ...f, [n.id]: n })); onActionChange(); }} />
                       {a.status === "executed" && <ActionResult result={a.result} />}
                       {a.status === "rejected" && <p className="text-[12.5px] text-ink-3">Rejected; nothing was executed.</p>}

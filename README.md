@@ -16,8 +16,8 @@ people, valid bank guarantees, turnover. The proof is spread over hundreds of ce
 statements, and those documents **contradict each other over time**. BidBrain puts one company's 687 documents into a
 FalkorDB graph. When a new document arrives, the graph decides which fact wins and why, finds every open bid that
 relied on that fact, re-qualifies those bids without an LLM, and turns the result into actions that a person
-approves and deterministic code executes. A fact that the bid manager publishes, once a second person approves it,
-becomes part of the company record, and every workspace that opts in to company memory starts from it.
+approves and deterministic code executes. A fact that the bid manager publishes, once a second, server-verified
+principal with the approver role approves it, becomes part of the company record, and every workspace that opts in to company memory starts from it.
 
 > **TEAM TO FILL IN (the only placeholder in this README):** Live demo: `<!-- DEPLOYMENT-URL -->` not deployed yet ·
 > Video: not recorded yet. Until then, run it locally with one `docker compose up` (below).
@@ -25,7 +25,7 @@ becomes part of the company record, and every workspace that opts in to company 
 **Tracks:** Company Brain (lead) · Agents That Act on
 Connected Data · Agent Memory & Coordination
 
-![Change impact: a corrigendum cuts Ring Road UP Pkg-113 from ₹200 Cr to ₹188 Cr; the recency policy settles it; clause 2.1 of the NEDA expressway tender flips Pass to Fail; the bid flips Bid to No-bid; two actions wait for approval](docs/img/impact.png)
+![Change impact: the event timeline and the dependency graph for the Pkg-113 corrigendum, from source documents and claims (₹188 Cr active, two ₹200 Cr superseded) through the recency decision to clause 2.1 (Fail), the T-NHX-2026-014 case and two pending actions, with clause 2.1 open in the inspector](docs/img/impact.png)
 
 ## What to look at in 2 minutes
 
@@ -40,8 +40,9 @@ No LLM key is needed for any of this.
 3. On the *Re-approve bid* action: **Approve**, **Execute**, **Confirm execute**. The executor re-checks every clause
    against the graph and records the approved recommendation. **Actions** shows the audit trail.
 4. **Decisions** → *Recency* → the Pkg-113 decision: the trace graph, both sources and their pages.
-5. Optional, and it changes the shared company record: approve and execute the *Publish to company record* action,
-   then open the app in a private window (a new workspace). **Memory** lists the fact as *Applied*, and **Decisions**
+5. Optional, and it changes the shared company record (it needs principals configured, see [Run it](#run-it)): sign
+   in as the bid manager and approve the *Publish to company record* action; sign in as the approver in a private
+   window and approve the publish request on **Memory**; execute the action; then open a new workspace. **Memory** lists the fact as *Applied*, and **Decisions**
    → *Company record* shows the decision that cites its origin.
 
 | What you see | Where |
@@ -57,7 +58,9 @@ No LLM key is needed for any of this.
 | Bus factor, isolated entities, client circles, paths between two entities, audit of past bids | **Explore** |
 | Graph tools vs. text-to-Cypher vs. GraphRAG-SDK vs. vector RAG, same model | **Benchmark** |
 
-![Control room: KPIs, the actions waiting for approval, the no-bid case, the verdict that changed, and the documents received in this workspace](docs/img/home.png)
+![Control room: open cases, conflicts, documents and company rules; what needs attention, each with its cause (two publish actions, a re-approval, the no-bid case, the verdict that changed); the latest case per sample tender; and what each received document changed](docs/img/home.png)
+
+![Explore: the Ring Road Pkg-113 work expanded into its claims, documents, decision and finding, with its provenance (each value, its status, document and page) and the recency decision in the side panel](docs/img/graph.png)
 
 ---
 
@@ -67,7 +70,7 @@ No LLM key is needed for any of this.
 |---|---|---|
 | **T3 Company Brain** (lead) | One graph of works, clients, people, credentials, documents, claims, decisions and actions. Values are claims with source and page; a decision selects one and keeps the others. A **company record** (`OrgFact` in `bidbrain_org`) is applied, in workspaces that opt in, through the conflict engine; any workspace can contest it. Bitemporal claims (valid time = the document's own date, transaction time = when the graph recorded it) answer "what did we believe on date T" (`fact_as_of`). | `change_impact`, `fact_history`, `fact_as_of`, `depends_on`; Decisions trace; workflow eval *provenance* 8/8 and *temporal* 4/4; `tests/test_loop_e2e.py` |
 | **T1 Agents That Act on Connected Data** | A corrigendum flips a bid, and the system **acts**: a `review_bid` action with an approval gate and a deterministic executor that re-verifies every clause; reference-letter and credential-renewal requests become internal `DocumentRequest` nodes. A planner and six agents qualify tenders over one case graph. 32 graph tools in one registry (31 read, 1 write: `case_open`), served over MCP as 34 tools (32 read-only: the 31 read tools plus `list_actions`; and two acting tools: `qualify_tender`, which acts on a session copy, and `transition_action`). | `company/actions.py`; workflow eval *task_completion* 16/16 and *impact_recall* 18/18 (P = R = 1.0 against an independent recompute); team TND 144/144 (see caveats) |
-| **T2 Agent Memory & Coordination** | Agents coordinate through the case subgraph (`AgentRun -[:HANDED_OFF_TO]->`, hand-backs through `Finding`s). Per-visitor `GRAPH.COPY` workspaces. Procedural memory: rules learned from human decisions, optionally promoted to company memory (opt-in, contestable, retireable). Published facts transfer to new workspaces without any private data. Conversation recall through `Turn-[:MENTIONS]->entity`. | workflow eval *memory_transfer* 9/9 and *isolation* 9/9; `tests/test_memory.py`; persistence via RDB + JSON mirror |
+| **T2 Agent Memory & Coordination** | Agents coordinate through the case subgraph (`AgentRun -[:HANDED_OFF_TO]->`, hand-backs through `Finding`s). Per-visitor `GRAPH.COPY` workspaces. Procedural memory: rules learned from human decisions, optionally promoted to company memory (opt-in, contestable, retireable). Published facts transfer to new workspaces without any private data. Conversation recall through `Turn-[:MENTIONS]->entity`. | workflow eval *memory_transfer* 10/10 and *isolation* 12/12; `tests/test_memory.py`; persistence via RDB + JSON mirror |
 
 ## Requirement matrix
 
@@ -91,8 +94,12 @@ vetted clauses) and writes the memo prose; it never chooses a winner or a verdic
 works: there is no other store.
 
 **How is the affected set found?** By traversal, not text search. `blast_radius` (`tools/case.py`) walks from the
-changed subject to `(:Clause)-[:SATISFIED_BY]->(subject)` on open cases, to past bids that `CITES` it or are `SECURED_BY` its bond, and
-to tenders a bond `SECURES`, then re-runs the affected clauses. `change_impact` (`tools/impact.py`) reads the whole
+changed subject to `(:Clause)-[:SATISFIED_BY]->(subject)` on open cases, to past bids that `CITES`, `PROPOSES` or
+are `SECURED_BY` it, and to the tenders of those bids and cases (a bond also reaches the tender it `SECURES`). A
+Person also reaches through the works it leads (`<-[:LED_BY]-(:Work)`), and a Credential through its holder and the
+holder's works, so a lapsed credential finds the bids, clauses, cases and tenders that rest on that person. Every
+item in `dependents` comes with the paths that explain it (node ids and edge types). It then re-runs every open
+clause whose candidate set could include the subject. `change_impact` (`tools/impact.py`) reads the whole
 chain back: `(Document)<-[:FROM]-(Claim)<-[:BASED_ON]-(Decision)<-[:CAUSED_BY]-(Finding)<-[:HAS_FINDING]-(Clause)
 <-[:HAS_CLAUSE]-(Case)` and `(Decision)<-[:TRIGGERED_BY]-(Action)`. The workflow eval compares the flips it reports
 with a separate before/after re-run of every open clause: precision 1.00, recall 1.00 (4/4 flips, 0 false, 198
@@ -102,7 +109,7 @@ clause re-checks over 9 events).
 the corrigendum value; a new workspace B starts with Pkg-113 = ₹188 Cr, decided by policy `company_record` and
 citing the `OrgFact` (`test_corrigendum_to_action_to_company_record`). (2) A promoted rule: a rule learned from a
 human decision in A resolves the same shape of conflict automatically in B once B opts in (`tests/test_memory.py`;
-workflow eval *memory_transfer* 9/9).
+workflow eval *memory_transfer* 10/10).
 
 **Can a decision be traced end to end?** Yes: document and page → claim → decision (policy, decider, rationale) →
 flipped clause → case verdict → action → `ActionEvent` audit trail → `OrgFact` → the decision in another workspace
@@ -114,7 +121,8 @@ becomes a card for a human; nothing is decided silently. Rounding within the coa
 conflict. A later but less formal letter does not win by recency. Missing evidence is handled by `prove_absence`,
 which returns PROVEN only when the boundary is attested by three views, every letter in the corpus is linked
 (corpus closure) and an orphan full-text search is empty; otherwise UNPROVEN. An unknown entity returns
-`not_found` with near matches. A Verifier mismatch that survives one retry makes the case **NEEDS REVIEW**. The
+`not_found` with near matches. In Ask, a negative answer ("none", "not affected", "0") stands only with a scoped
+proof; otherwise it becomes "Not established" (see the Q&A agent below). A Verifier mismatch that survives one retry makes the case **NEEDS REVIEW**. The
 adversarial cases are in the workflow eval (*conflict* 16/16).
 
 **What if the LLM fails?** Qualification of sample tenders, live documents, conflict resolution, impact, actions and
@@ -123,9 +131,12 @@ In Ask, the providers rotate over a pool on rate limits, and if every model fail
 deterministic answer built from the last successful tool result, marked as such.
 
 **Isolation?** Each visitor gets `GRAPH.COPY bidbrain_base session_<id>`. Only two things cross workspaces, both
-explicit: a rule someone promotes, and a fact published through an approved action. The workflow eval checks that
-workspace B sees none of A's cases, actions, turns, cards or uploads, and that A's ids return 404 from B
-(*isolation* 9/9). MCP read tools run on the base graph as `GRAPH.RO_QUERY`; `qualify_tender` refuses non-session
+explicit: a rule someone promotes, and a fact published through an approved action. Both need a signed-in principal
+(a session id is a capability, not an identity), and with no principals configured they are disabled (HTTP 503).
+The workflow eval checks that workspace B sees none of A's cases, actions, turns, cards or uploads, that A's ids
+return 404 from B, that an anonymous tab, the initiating principal and a spoofed name cannot be the second approver,
+that MCP cannot approve the actions it created, and that the server fails closed without principals
+(*isolation* 12/12). MCP read tools run on the base graph as `GRAPH.RO_QUERY`; `qualify_tender` refuses non-session
 graphs.
 
 **Deterministic demo without an LLM?** Yes. With no key: the *Run the demo steps* button on /impact (it calls
@@ -218,14 +229,29 @@ absence finding). A ripple re-derives findings and their follow-up actions.
 
 **Company record** (`backend/bidbrain/company/record.py`). Publishing copies exactly one decided fact into
 `bidbrain_org` as an `(:OrgFact)` with its claim, its source document, the source decision and policy, the
-publishing workspace's hashed tag and the approver. Nothing else crosses: no turns, cases or other claims. Publishing needs **two people**:
-the session that queued the publish cannot approve it; its approve files a `PublishRequest` that a *different*
-session approves on the **Memory** page (or an operator approves with `ORG_ADMIN_TOKEN`), and the `OrgFact` records
-both `published_by` and `approved_by`. When a workspace that turned on **Use company memory** (off by default, the
+publishing workspace's hashed tag and the approver. Nothing else crosses: no turns, cases or other claims.
+
+**Approvals use server-verified principals** (`backend/bidbrain/api/auth.py`). A session id only opens a private
+workspace copy, and anyone can mint one, so it never stands for a person; a typed name is a display label only.
+Principals are configured on the server in `BIDBRAIN_PRINCIPALS` (`name:role:sha256(secret)`, comma-separated, or a
+JSON file), with roles `bid_manager`, `approver` and `admin`. `POST /api/auth/login` checks the secret and returns a
+token signed with HMAC-SHA256 under `BIDBRAIN_AUTH_KEY` (HttpOnly cookie or `Authorization: Bearer`; 8 h by
+default). The role is looked up in the current configuration, not read from the token. Publishing needs **two
+principals**: the principal who approves the publish action files a `PublishRequest`; a *different* principal with
+the `approver` (or `admin`) role approves exactly that request id and `version` on the **Memory** page
+(compare-and-set: a stale version is 409, a replay returns the same result). The initiator cannot approve or reject
+its own request (403), and an operator can still approve with `ORG_ADMIN_TOKEN`. Actions also carry a `version`
+for the same compare-and-set. The `OrgFact` records `owner_principal` (the initiator), `published_by` and
+`approved_by`, and every shared decision writes an `(:OrgAudit {at, principal, action, target, session})` node.
+Promoting, retiring and contesting company rules need a principal too. With no principals (or no key) configured,
+these shared steps are disabled and answer **503**; session-local work needs no login. Over MCP, an action that an
+MCP call created (the follow-ups of `qualify_tender`) cannot be approved without a `principal_token`, so the agent
+that raised it cannot sign it off. **Limitation:** principals come from configuration with a shared-secret login,
+not SSO, and sign-out revocation is held in memory (it is lost on a restart; the token then lives until it expires). When a workspace that turned on **Use company memory** (off by default, the
 same switch as company rules) is opened, `record.apply` writes each active fact it has not yet seen (tracked by `(:CompanyRecordRef)`)
 as a claim plus its source document, and the **conflict engine** settles it with policy `company_record`, citing the
 `OrgFact`. A newer fact for the same subject and predicate supersedes the older one (kept, status `superseded`).
-Only the publishing workspace (or an operator with `ORG_ADMIN_TOKEN`) can retire a fact; a retired fact stays in the
+Only the owning principal (or an `admin` principal, or an operator with `ORG_ADMIN_TOKEN`) can retire a fact; a retired fact stays in the
 record with status `retired`. Retiring propagates: every workspace that applied the fact notices on its next
 request, the fact's claim is withdrawn (policy `record_withdrawn`), the engine decides the fact again and the change
 ripples to cases. An applied fact is not a trump card: newer or higher-authority evidence can beat it or open a card,
@@ -234,16 +260,23 @@ as resolve cards; nothing is auto-rejected. Planted evaluation claims can never 
 
 ![Memory: the company record lists the published Pkg-113 value (₹188 Cr) with its source decision, approver and source document, marked Applied in this workspace; company rules below are opt-in](docs/img/memory.png)
 
-**Bitemporal claims, two axes.** *Valid time:* a claim counts as of T only if the document stating it existed by
-T, using the date the document prints (parsed at ingest into `Document.issued_day`; certificates, letters, bonds,
+**Bitemporal claims, two axes.** *Valid time:* a claim counts on day V only if its fact held by V: the effective
+date the document prints for the fact (a work's completion date, a credential's issue date; `Claim.valid_from_day`,
+set at ingest), else the date the document prints as its own (`Document.issued_day`; certificates, letters, bonds,
 statements, bills and dossiers carry one), else the claim's `observed_day`. CVs, the portfolio, ISO certificates and
 ledgers print no date: their claims count from the corpus snapshot (2026-03-31), and `fact_as_of` says so in
 `undated_kinds`. *Transaction time:* the graph must have recorded the claim by T (`recorded_at`; the corpus is the
 starting record at 0, because the base graph is rebuilt at every boot and a rebuild must never change history), and
 it stops counting once a decision sets it aside (`invalidated_at`). Decisions count from their own `at` (the corpus's
-own decisions: 0). `fact_as_of(key, predicate, as_of)` returns the value believed then, with each claim's recorded
+own decisions: 0). `fact_as_of(key, predicate, as_of)` returns the value believed then (`as_of` sets both axes;
+`valid_at` and `known_at` set one each: "valid on V, as known on K"). A date-only input means the **end of that
+day in IST** (23:59:59.999 Asia/Kolkata), so a change recorded at any time that day counts; a timestamp keeps its
+instant, and one without an offset is read in IST. It returns with each claim's recorded
 and valid dates, what was learned later, what was not yet issued, and what has been set aside since. Asked for
-FY2024-25 revenue as of 2021-01-01, it returns nothing: those accounts are dated 2026-03-31.
+FY2024-25 revenue as of 2021-01-01, it returns nothing: those accounts are dated 2026-03-31. `Tender.status` is
+`open` or `closed` as of the 2026-03-31 corpus snapshot, with the reason in `status_basis` (closed if the company
+submitted a bid, the bid date is before the snapshot, or a bond was issued for it; open if the bid date is on or after
+the snapshot); a session that opens a case for a tender sets it `open` there.
 
 ![Decisions: the Pkg-113 value decision traced as a graph; the ₹188 Cr client corrigendum is selected by the recency policy, the ₹200 Cr certificate and portfolio claims are superseded, each with its document and page](docs/img/decisions.png)
 
@@ -316,8 +349,8 @@ The core ones:
 | Tool | What the graph does |
 |---|---|
 | `change_impact` | `(Document)<-[:FROM]-(Claim)-[:ABOUT]->(subject)`, `(Decision)-[:BASED_ON]->(claim)`, `-[:SELECTS]->(winner)`; then `(Decision)<-[:CAUSED_BY]-(:Finding {kind:'ripple'})<-[:HAS_FINDING]-(:Clause)<-[:HAS_CLAUSE]-(:Case)` and `(Action)-[:TRIGGERED_BY]->(Decision)`: one document's whole effect, read from the graph |
-| `blast_radius` | `(subject)<-[:SATISFIED_BY]-(:Clause)<-[:HAS_CLAUSE]-(:Case)`, `<-[:CITES\|SECURED_BY]-(:Bid)` (a past bid cites only its Annexure D works in the tender's category), `-[:SECURES]->(:Tender)`, then re-runs the affected clauses and reports verdict flips |
-| `fact_as_of` | the claims about one fact whose document is dated on or before T (valid time), with `recorded_at ≤ T` and not set aside by T (transaction time); the latest decision with `at ≤ T` picks the winner, else the highest authority |
+| `blast_radius` | from the subject (and, for a Person, `<-[:LED_BY]-(:Work)`; for a Credential, `<-[:HOLDS]-(:Person)` and that person's works): `<-[:SATISFIED_BY]-(:Clause)<-[:HAS_CLAUSE]-(:Case {status:'open'})`, `<-[:CITES\|PROPOSES\|SECURED_BY]-(:Bid)` (a past bid cites only its Annexure D works in the tender's category), `-[:FOR_TENDER]->(:Tender)`, a bond's `-[:SECURES]->(:Tender)`; returns each dependent with its paths, then re-runs the affected clauses and reports verdict flips |
+| `fact_as_of` | the claims about one fact whose fact holds by day V (printed effective date, else document date; valid time), with `recorded_at ≤ K` and not set aside by K (transaction time); the latest decision with `at ≤ K` picks the winner, else the highest authority. A date-only V or K is the end of that day in IST |
 | `depends_on` | provenance as a variable-length match, `MATCH p = (x)-[:FROM\|EVIDENCED_BY\|HAS_REFERENCE\|HOLDS\|BASED_ON\|SELECTS\|CITES\|...*1..4]->(:Document {doc_id:$doc})`: everything that rests on one document, and which facts it is the *only* source for |
 | `fact_history` | every competing `Claim` about a fact with document and page, and the `Decision`s (policy, decider, learned rule) that settled it |
 | `find_portfolio` | `MATCH (w:Work)-[:FOR_CLIENT]->(c:Client), (w)-[:LED_BY]->(p:Person), (w)-[e:EVIDENCED_BY {kind:'completion_certificate'}]->(d)` with client / person / **via-work hop** / category / value / date / govt-level filters |
@@ -355,10 +388,29 @@ have no reference letter, it leaves a request on the `Finding`, and the Evidence
 `AgentRun` with `pass_no`) and re-selects referenced works, keeping them only if the clause still passes. After a
 run, the open absence and expiry findings become `request_reference_letter` and `renew_credential` actions.
 
+**Qualification contract.** Each clause ends PASS, FAIL or NEEDS REVIEW (AT_RISK for a clause that passes with a
+risk; DECLARE only for a genuine declaration such as an affidavit or a bid security to enclose). The case
+recommendation (`overall_verdict`, `tools/case.py`) is NO-BID if any clause fails, else **NEEDS REVIEW if any clause
+needs review (it blocks BID)**, else BID WITH FIXES if any clause is AT_RISK or carries a live high-severity
+finding, else BID. Financial terms the engine has no check for (net worth, bid capacity, solvency, liquid assets,
+working capital, credit facilities, profit, ratios, "twice the estimated cost") give NEEDS REVIEW, never DECLARE
+and never another kind. Text joined by `;` that states two requirements (similar works; turnover) is split into two
+clauses, and tender header lines ("Estimated Cost: …", "Name of Work: …") are context, not clauses. A **coverage
+check** compares the tender text with the emitted clauses: an amount, percentage or financial term that no clause
+carries becomes its own NEEDS REVIEW clause. A credited work with no client reference letter on file is a
+high-severity absence finding, so the case is at best **BID WITH FIXES**. That is why the sample tender
+T-RBC-2026-31 now gives BID WITH FIXES and not BID: the change is intended.
+
 **Q&A agent.** A thin OpenAI-compatible tool loop over 26 of the 31 read tools (23 during the benchmark runs), with no agent framework. The prompt
 teaches how to *use the graph* and leaves domain knowledge to the tools. An **unasked-filter guard** checks every
 narrowing filter the model sets against what the user asked. **One model per answer**: later steps prefer the
-provider that served the first step. Follow-ups recall up to 3 older turns that `MENTIONS` an entity the question
+provider that served the first step. **Negative answers need a scoped proof** (`agents/absence.py`): "none", "no
+open tenders", "would not be affected" or "0" stand only with `prove_absence` verdict PROVEN, a scoped count over a
+defined set whose entity resolved (`find_portfolio`, `aggregate`, `list_cases`, …), or a `not_found` for "X is not in
+the graph". An empty result is not proof. Otherwise the loop re-asks once, and if the negative survives, a
+deterministic line replaces it ("Not established: …"; the ANSWER becomes `NOT ESTABLISHED`). Every answer gets an
+`answer_status`: `VERIFIED_ABSENCE`, `NO_MATCH_THIS_ATTEMPT`, `ENTITY_UNRESOLVED`, `INCOMPLETE_OR_CONTRADICTORY`,
+`NEEDS_REVIEW` (for example, answered without a tool) or `GROUNDED`. Follow-ups recall up to 3 older turns that `MENTIONS` an entity the question
 names, before the last-6-turn window.
 
 ## Evaluation
@@ -369,23 +421,23 @@ names, before the last-6-turn window.
 graphs only: FastAPI TestClient against the real API, session copies and a private company graph, all deleted
 afterwards; the run checks that `bidbrain_base` and `bidbrain_org` are unchanged. Each expectation comes from the
 fixtures (`demo_events.json`, `demo_tenders.json`), from separate Cypher, or from re-running `qualify_clause` on a
-graph copy, never from the function being tested. Last run: 81 cases, 25.5 s, 0 LLM calls
+graph copy, never from the function being tested. Last run: 84 cases, 28.6 s, 0 LLM calls
 (`data/eval/workflow_summary.json`, per-case rows in `data/eval/results/workflow.jsonl`).
 
 | Dimension | Cases | Passed | What is checked |
 |---|---:|---:|---|
-| task_completion | 16 | 16 | corrigendum → review_bid → approve → execute sets `approved_recommendation`; renewal and letter actions create a `DocumentRequest`; renewal actions only for credited people whose credential lapses; rejected actions never run; execute is idempotent; a duplicate ripple adds no action; the session that queued a publish cannot approve it (`tc.publish_not_self_approved`) |
+| task_completion | 16 | 16 | corrigendum → review_bid → approve → execute sets `approved_recommendation`; renewal and letter actions create a `DocumentRequest`; renewal actions only for credited people whose credential lapses; rejected actions never run; execute is idempotent; a duplicate ripple adds no action; the principal who queued a publish cannot approve it (`tc.publish_not_self_approved`) |
 | impact_recall | 18 | 18 | 9 events (DEMO-0..4, plus corrigenda aimed at T-RBC-2026-31 and T-JN-LB-2026-09). The flips `/api/impact` reports match a separate before/after re-run of every open clause: (case, clause) precision 1.00 and recall 1.00 (4/4 flips, 0 false), 198 clause re-checks |
 | conflict (adversarial) | 16 | 16 | rounding vs just-past-precision; unrelated corrigenda (different subject or predicate) flip nothing; same-issuer recency; a later but less formal letter does not win by recency; close authority goes to a human; credentials expired at the bid date; absence PROVEN vs UNPROVEN (broken closure, unlinked letter text); aliases (`ISRO` not found, `phed odisha` resolves) |
 | memory_transfer | 10 | 10 | a promoted rule applies in another session only after opt-in; contest/retire reopens; a published fact applies in new and existing workspaces with policy `company_record`, citing its OrgFact, and only where the workspace opted in (`mt.company_fact_needs_opt_in`) |
-| isolation | 9 | 9 | session B sees none of A's cases, actions, turns, cards or uploads; A's ids return 404 from B; MCP `qualify_tender` refuses non-session graphs |
+| isolation | 12 | 12 | session B sees none of A's cases, actions, turns, cards or uploads; A's ids return 404 from B; MCP `qualify_tender` refuses non-session graphs; MCP cannot approve an action its own call created without a principal token (`is.mcp_creator_cannot_self_approve`); an anonymous tab (401), the initiating principal (403) and a spoofed name (401) cannot be the second approver, a different approver principal succeeds once (`is.second_approver_is_a_verified_principal`); with no principals configured, promote is 503 while session reads work (`is.fail_closed_without_principals`) |
 | temporal | 4 | 4 | `fact_as_of` before the certificate's own date, and 5 ms before and after the corrigendum; superseded claims keep their value and `invalidated_at` |
 | provenance | 8 | 8 | every evidence row names an existing Document and a valid page; every Decision SELECTS one of its BASED_ON claims, and each of those comes FROM a document |
-| **total** | **81** | **81** | conflict detection P/R is not repeated here (see below: 275 events, P = R = 1.0) |
+| **total** | **84** | **84** | conflict detection P/R is not repeated here (see below: 275 events, P = R = 1.0) |
 
 An earlier run scored 78/79. The failure was a real product finding: `renew_credential` actions were created for
 every PMP holder whose credential lapsed within 90 days, including people not proposed on the clause. Renewal
-actions are now created only for the people the expiry finding names; the current 81/81 run is on that code.
+actions are now created only for the people the expiry finding names; the current 84/84 run is on that code.
 
 The same team wrote the fixtures, the checks and the code, so this evaluation shows the loop is consistent and
 complete on the scenarios we designed, not that it generalises.
@@ -395,7 +447,7 @@ complete on the scenarios we designed, not that it generalises.
 | **Tool sufficiency**: graph tools, given the deterministic engine's parsed parameters, reproduce its answers | **354 / 354**, and **21 / 21** on true gold |
 | Conflict engine, JSON stream: 275 events, 200 conflicts + 75 hard negatives (rounding, unchanged restatements, unrelated fields) | P = R = F1 = **1.00**, routing 1.00, winner 1.00 |
 | Conflict engine, **PDF path**: 50 rendered PDFs → extraction → entity resolution → detection | F1 **1.00** (first run: F1 0.976 and extraction 86.7%, which exposed 2 real bugs, both fixed) |
-| End-to-end loop through the API, no LLM (`backend/tests/test_loop_e2e.py`, 4 tests; 118 tests in `backend/tests` overall) | 4/4 pass (re-run 17 Oct) |
+| End-to-end loop through the API, no LLM (`backend/tests/test_loop_e2e.py`, 4 tests; 295 tests in `backend/tests` overall) | 4/4 pass; 295/295 on the final code |
 
 ### Answer-accuracy benchmark (LLM)
 
@@ -408,8 +460,17 @@ complete on the scenarios we designed, not that it generalises.
 > **Changed since the benchmark ran.** After `80b5356` the Q&A agent gained: a re-ask when it answers without
 > calling a tool; a lexical grounding check (names, ids and amounts must appear in a tool result); a post-check that
 > adds names `prove_absence` found missing; `list_cases`, `fact_as_of` and `change_impact` in its toolset (26 tools,
-> 23 during the runs); model-pin and wait changes; and a deterministic fallback answer. The benchmark numbers predate
-> all of these and have not been re-measured.
+> 23 during the runs); model-pin and wait changes; and a deterministic fallback answer. Later still (commit
+> `4ae77a8`) it gained: negative-claim gating (a negative needs a scoped proof, otherwise a deterministic
+> "Not established" line and the ANSWER `NOT ESTABLISHED`, with an `answer_status` on every answer); tool outputs
+> capped at 3000 characters; requests fitted to a size budget (oldest tool results shrink first); repeated identical
+> tool calls answered from the first result (dedupe); an HTTP 413 shrinks the context and retries the same model;
+> a deterministic now-vs-then line after `fact_as_of`; and edits to the QA prompt and the tool descriptions
+> (`BRIEF`: `blast_radius`, `list_cases`, `fact_as_of`). **The published scores were not re-measured on this code.**
+> Every BidBrain-agent row below is a Q&A agent run, so any of it may move; answers that involve absences, counts or
+> negatives are the most likely to differ (ABS above all, and the count and "none" items of S21 and Q333). The
+> six-agent team's TND number comes from the deterministic team, not the Q&A agent: the team scores 144/144 on the
+> final code. No published score or gold was changed.
 
 All systems use **the same model (Qwen3-32B on vLLM)** and **the same FalkorDB instance**; only the context strategy
 differs. **The benchmark model is not the demo model**: the demo app runs on a pool of free Groq models
@@ -467,12 +528,31 @@ Caveats:
 
 ## Run it
 
+Release status: the hosted URL and the video are the **TEAM TO FILL IN** placeholder at the top; until then, this is
+the verified local launch. The scripted demo, step by step, is in [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
+
 **Docker (recommended).** One container: FalkorDB, the FastAPI API, MCP and the static UI.
 
 ```bash
-cp .env.example .env          # optional: GROQ_API_KEY / CEREBRAS_API_KEY for Ask and the LLM memo
-docker compose up --build     # http://localhost:7860  (UI + API + MCP at /mcp/)
+cp .env.example .env                     # optional: GROQ_API_KEY / CEREBRAS_API_KEY for Ask and the LLM memo
+python scripts/make_demo_principals.py   # optional: two demo principals for publishing (see below)
+docker compose up --build                # http://localhost:7860  (UI + API + MCP at /mcp/)
 ```
+
+**Principals (needed only to publish or promote to shared company memory).** These `.env` keys configure them:
+
+| Key | Meaning |
+|---|---|
+| `BIDBRAIN_PRINCIPALS` | `name:role:sha256hex(secret)`, comma-separated, or a path to a JSON file of `{name, role, sha256}`; roles `bid_manager`, `approver`, `admin` |
+| `BIDBRAIN_AUTH_KEY` | HMAC key that signs sign-in tokens (at least 16 characters) |
+| `BIDBRAIN_AUTH_TTL` | optional token lifetime in seconds (default 28800) |
+| `BIDBRAIN_AUTH_COOKIE_SAMESITE` | optional: `lax` (default), `strict`, or `none` (adds Secure) for a UI on another site |
+| `ORG_ADMIN_TOKEN` | optional operator override (`X-Admin-Token` header) |
+
+`python scripts/make_demo_principals.py` appends `manager` (bid_manager) and `approver` (approver) with a random key
+to `.env`, and writes their plaintext demo secrets to `BIDBRAIN_DEMO_SECRET_MANAGER` / `BIDBRAIN_DEMO_SECRET_APPROVER`
+(local use only; it never prints them; `--force` regenerates). Restart the API afterwards, then use **Sign in** in
+the UI. With these keys empty, everything except publishing and promoting works, and those answer 503.
 
 The image builds the UI, installs the Python dependencies, bakes in the embedding model and fetches the pinned
 synthetic corpus. At boot, `infra/start.sh` starts FalkorDB, rebuilds `bidbrain_base` from `data/facts.json`
@@ -489,13 +569,14 @@ synthetic corpus. At boot, `infra/start.sh` starts FalkorDB, rebuilds `bidbrain_
 
 All of these work without keys. Only **Ask** (free-text questions) needs an LLM.
 
-> **What persists.** The base graph (`bidbrain_base`) is rebuilt from facts at every boot. Company memory (`bidbrain_org`) and session graphs are saved by FalkorDB as RDB snapshots in `$BIDBRAIN_STATE_DIR/falkordb` (default `/app/state`): at most every 5 minutes if anything changed, and on a clean stop. Company memory is also mirrored to `$BIDBRAIN_STATE_DIR/org_memory.json` after every promote, retire or contest, and restored from it at boot if the graph is missing. With `docker compose`, all of this lives in the `bidbrain-state` volume (`docker compose down -v` wipes it). On Hugging Face Spaces the disk is ephemeral unless persistent storage is enabled (then set `BIDBRAIN_STATE_DIR=/data`). Governance: company rules apply only in sessions that turn on "Use company memory" (off by default); provenance is the promoting session's hashed tag; only the promoting session can retire a rule; any other session can contest it; new sessions are rate-limited to 10 per minute per IP.
+> **What persists.** The base graph (`bidbrain_base`) is rebuilt from facts at every boot. Company memory (`bidbrain_org`) and session graphs are saved by FalkorDB as RDB snapshots in `$BIDBRAIN_STATE_DIR/falkordb` (default `/app/state`): at most every 5 minutes if anything changed, and on a clean stop. Company memory is also mirrored to `$BIDBRAIN_STATE_DIR/org_memory.json` after every promote, retire or contest, and restored from it at boot if the graph is missing. With `docker compose`, all of this lives in the `bidbrain-state` volume (`docker compose down -v` wipes it). On Hugging Face Spaces the disk is ephemeral unless persistent storage is enabled (then set `BIDBRAIN_STATE_DIR=/data`). Governance: company rules apply only in sessions that turn on "Use company memory" (off by default); promoting needs a signed-in principal; provenance is the promoting session's hashed tag and the principal; only the promoting principal (or an operator) can retire a rule; any other session can contest it; new sessions are rate-limited to 10 per minute per IP.
 
 The JSON mirror also carries the company record: published `OrgFact`s are written to it after every publish and
 retire of a fact, and restored with the rules. Like company rules, published facts apply only in workspaces that turn on
-"Use company memory"; publishing needs a second approver, and only the publishing workspace can retire one.
+"Use company memory"; publishing needs a second approver who is a different principal, and only the owning
+principal (or an admin) can retire one.
 
-**Development**
+**Development (dev stack: FalkorDB container + uvicorn + the built UI)**
 
 ```bash
 docker run -d -p 6379:6379 falkordb/falkordb:latest
@@ -508,8 +589,12 @@ uvicorn bidbrain.api.main:app --port 7860     # keep running; open a second term
 ```
 
 ```bash
-cd frontend && npm ci && NEXT_PUBLIC_API_BASE=http://localhost:7860 npm run dev
+cd frontend && npm ci && npm run build        # static export to frontend/out; the API serves it at :7860
+# or, for live reload on :3000: NEXT_PUBLIC_API_BASE=http://localhost:7860 npm run dev
 ```
+
+The API mounts `frontend/out` at `/` only if it exists when uvicorn starts, so restart uvicorn after the first
+build. Put the principal keys in the repo's `.env` (as above) before starting uvicorn.
 
 **Connect an MCP client** (Claude Desktop, etc.): point it at `/mcp/` (streamable HTTP) on your running instance, or
 run `python -m bidbrain.mcp.server` for stdio. The 32 read-only MCP tools (the registry's 31 read tools plus `list_actions`) run against the pristine base graph,
@@ -519,7 +604,7 @@ or against an existing session's graph when given its `session_id`; `qualify_ten
 **Reproduce the evaluation** (from `backend/`)
 
 ```bash
-python -m eval.workflow                     # company-loop evaluation, no LLM (~25 s; 81/81)
+python -m eval.workflow                     # company-loop evaluation, no LLM (~29 s; 84/84)
 python -m eval.workflow --report            # table of the last run
 python -m pytest tests                      # includes tests/test_loop_e2e.py
 python -m eval.oracle                       # tool sufficiency gate (354/354)
@@ -538,14 +623,15 @@ backend/bidbrain/tools      the 32 graph tools: 31 read + `case_open` (one regis
 backend/bidbrain/conflicts  conflict engine, company memory (rules), planted events, PDF rendering + live ingestion
 backend/bidbrain/company    actions.py (accountable actions), record.py (company record)
 backend/bidbrain/agents     provider failover + cache, tool loop, Q&A agent, tender team, baselines
-backend/bidbrain/api        FastAPI + SSE, per-session graphs, conversation memory
+backend/bidbrain/api        FastAPI + SSE, per-session graphs, conversation memory; auth.py: principals
 backend/bidbrain/mcp        MCP server (stdio + streamable HTTP)
 backend/eval                workflow eval, oracle, conflict P/R (JSON + PDF), synthesized sets, benchmark runner
-backend/tests               118 tests, including the end-to-end loop
+backend/tests               295 tests, including the end-to-end loop
 backend/vendor_bidintel     reused extraction layer (credited below); not FalkorDB code
 frontend/                   Next.js (static export) console + react-force-graph
 infra/                      container entrypoint, Sharanga vLLM job
-docs/                       CYPHER.md · EXPLAINER.md · DEMO_SCRIPT.md · BLOG.md
+docs/                       CYPHER.md · EXPLAINER.md · DEMO_SCRIPT.md · DEMO_RUNBOOK.md · BLOG.md
+scripts/                    make_demo_principals.py
 ```
 
 ## Reuse, credits and AI disclosure

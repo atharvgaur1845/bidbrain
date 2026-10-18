@@ -13,6 +13,7 @@ import { ButtonLink, Card, EmptyState, ErrorState, Skeleton, SkeletonRows, Statu
   statusInfo, useOpenDoc } from "@/components/ui";
 import { api, fmtINR } from "@/lib/api";
 import { Overview, fmt } from "./parts";
+import { moneyText } from "@/components/format";
 
 // ======================================================================= data
 
@@ -129,7 +130,7 @@ type Item = { key: string; rank: number; status: string; badge?: string; kind: s
 /** "Publish <key> <predicate> = <raw> to the company record" -> readable, with the subject's name from the impact read */
 function actionTitle(t: string, names: Map<string, string>) {
   const m = t.match(/^Publish (\S+) (\w+) = (.+) to the company record$/);
-  if (!m) return t;
+  if (!m) return moneyText(t);
   return `Publish ${predicate(m[2]).toLowerCase()} ${claimValue(m[3])} for ${names.get(m[1]) || m[1]} to the company record`;
 }
 
@@ -174,7 +175,7 @@ function buildQueue(cards: ConflictCard[], cases: CaseRow[], details: Record<str
     const risk = clauses.filter((x) => x.verdict === "AT_RISK");
     const review = clauses.filter((x) => x.verdict === "NEEDS REVIEW" || x.verdict === "NEEDS_REVIEW");
     const v = c.verdict || d?.case.verdict;
-    const list = (xs: Clause[]) => xs.slice(0, 2).map((x) => `${x.ref} ${words(x.kind)}: ${x.basis || x.verdict}`).join(" · ")
+    const list = (xs: Clause[]) => xs.slice(0, 2).map((x) => `${x.ref} ${words(x.kind)}: ${moneyText(x.basis) || x.verdict}`).join(" · ")
       + (xs.length > 2 ? ` · ${xs.length - 2} more` : "");
     if (v === "NO-BID" || fail.length) {
       items.push({ key: `case:${c.id}`, rank: 1, status: v === "NO-BID" ? "NO-BID" : "FAIL", kind: "Case", title: c.title,
