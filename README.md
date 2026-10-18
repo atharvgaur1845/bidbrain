@@ -19,8 +19,8 @@ relied on that fact, re-qualifies those bids without an LLM, and turns the resul
 approves and deterministic code executes. A fact that the bid manager publishes, once a second, server-verified
 principal with the approver role approves it, becomes part of the company record, and every workspace that opts in to company memory starts from it.
 
-> **TEAM TO FILL IN (the only placeholder in this README):** Live demo: `<!-- DEPLOYMENT-URL -->` not deployed yet ·
-> Video: not recorded yet. Until then, run it locally with one `docker compose up` (below).
+> **Live demo:** https://atharvgaur18-bidbrain.hf.space (Hugging Face Space, free CPU; the graph rebuilds at every
+> restart, so a cold start takes about a minute). **Video:** TEAM TO FILL IN, not recorded yet.
 
 **Tracks:** Company Brain (lead) · Agents That Act on
 Connected Data · Agent Memory & Coordination
@@ -528,8 +528,8 @@ Caveats:
 
 ## Run it
 
-Release status: the hosted URL and the video are the **TEAM TO FILL IN** placeholder at the top; until then, this is
-the verified local launch. The scripted demo, step by step, is in [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
+Release status: hosted at https://atharvgaur18-bidbrain.hf.space (same Docker image as below); the video is the
+**TEAM TO FILL IN** placeholder at the top. This is the verified local launch. The scripted demo, step by step, is in [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
 
 **Docker (recommended).** One container: FalkorDB, the FastAPI API, MCP and the static UI.
 
