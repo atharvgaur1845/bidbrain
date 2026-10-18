@@ -27,11 +27,56 @@ export async function resetSession(): Promise<string> {
   return getSession();
 }
 
+// ---- sign-in (server-verified principals; see backend/bidbrain/api/auth.py)
+// The server sets an HttpOnly cookie (works when the UI is served by the API). The token is also kept in
+// memory only, and sent as a Bearer header, so a UI on another origin works too. A session id is a workspace,
+// never an identity: promoting, publishing, approving and retiring shared facts need a principal.
+export type Principal = { name: string; role: "bid_manager" | "approver" | "admin" | string };
+export type AuthState = { principal: Principal | null; enabled: boolean; message?: string | null };
+let authToken: string | null = null;
+let authState: AuthState | null = null;
+const authListeners = new Set<(s: AuthState) => void>();
+
+function authHeaders(): Record<string, string> {
+  return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+}
+function setAuth(s: AuthState) {
+  authState = s;
+  authListeners.forEach((f) => f(s));
+}
+export function onAuth(f: (s: AuthState) => void): () => void {
+  authListeners.add(f);
+  if (authState) f(authState);
+  return () => { authListeners.delete(f); };
+}
+export async function authMe(): Promise<AuthState> {
+  const r = await fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders() });
+  const j = await r.json();
+  const s = { principal: j.principal || null, enabled: !!j.enabled, message: j.message };
+  setAuth(s);
+  return s;
+}
+export async function authLogin(name: string, secret: string): Promise<Principal> {
+  const r = await fetch(`${API_BASE}/api/auth/login`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, secret }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || `${r.status}`);
+  authToken = j.token || null;
+  setAuth({ principal: j.principal, enabled: true });
+  return j.principal;
+}
+export async function authLogout(): Promise<void> {
+  try { await fetch(`${API_BASE}/api/auth/logout`, { method: "POST", headers: authHeaders() }); } catch {}
+  authToken = null;
+  setAuth({ principal: null, enabled: authState?.enabled ?? true, message: authState?.message });
+}
+
 export async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   const sid = await getSession();
   const r = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "content-type": "application/json", "X-Session": sid, ...(init.headers || {}) },
+    headers: { "content-type": "application/json", "X-Session": sid, ...authHeaders(), ...(init.headers || {}) },
   });
   if (!r.ok) {
     let msg = `${r.status}`;
@@ -48,7 +93,8 @@ export async function stream(path: string, body: any, onEvent: (e: StreamEvent) 
   const sid = await getSession();
   const r = await fetch(`${API_BASE}${path}`, {
     method: "POST",
-    headers: opts.form ? { "X-Session": sid } : { "content-type": "application/json", "X-Session": sid },
+    headers: opts.form ? { "X-Session": sid, ...authHeaders() }
+      : { "content-type": "application/json", "X-Session": sid, ...authHeaders() },
     body: opts.form ?? JSON.stringify(body),
     signal: opts.signal,
   });

@@ -30,8 +30,28 @@ def org(monkeypatch, tmp_path):
     def no_llm(*a, **k):
         raise AssertionError("no LLM calls in these tests")
     monkeypatch.setattr(providers, "chat", no_llm)
+    set_test_principals(monkeypatch)
     yield name
     Graph(name).delete()
+
+
+# test principals (throwaway secrets, generated per process; never the real .env ones)
+TEST_SECRETS = {n: secrets.token_urlsafe(12) for n in ("manager", "manager2", "approver", "approver2", "boss")}
+TEST_ROLES = {"manager": "bid_manager", "manager2": "bid_manager", "approver": "approver",
+              "approver2": "approver", "boss": "admin"}
+
+
+def set_test_principals(monkeypatch) -> None:
+    from bidbrain.api import auth
+    monkeypatch.setenv("BIDBRAIN_PRINCIPALS", ",".join(f"{n}:{TEST_ROLES[n]}:{auth.hash_secret(s)}"
+                                                       for n, s in TEST_SECRETS.items()))
+    monkeypatch.setenv("BIDBRAIN_AUTH_KEY", "pytest-auth-key-" + "k" * 16)
+
+
+def bearer(name: str) -> dict:
+    """An Authorization header for a test principal (a real signed token)."""
+    from bidbrain.api import auth
+    return {"Authorization": f"Bearer {auth.issue(name)[0]}"}
 
 
 @pytest.fixture()
@@ -41,10 +61,11 @@ def client(org, monkeypatch):
     made: list[str] = []
     c = TestClient(main.app)
 
-    def new_session() -> dict:
+    def new_session(principal: str | None = "manager") -> dict:
+        """A new workspace; by default signed in as the test bid manager (principal=None: anonymous)."""
         sid = c.post("/api/session").json()["session_id"]
         made.append(sid)
-        return {"X-Session": sid}
+        return {"X-Session": sid, **(bearer(principal) if principal else {})}
     c.new_session = new_session
     c.made = made
     yield c
@@ -162,13 +183,13 @@ def test_demo_chain_promote_then_opted_in_session_auto_resolves_with_org_rule(cl
     assert client.get("/api/conflicts", headers=h1).json()["rules"][0]["org_rule"] == oid
 
     # another visitor who did not opt in: their scripted DEMO-3 still opens its card
-    h3 = client.new_session()
+    h3 = client.new_session("manager2")
     assert client.get("/api/session/settings", headers=h3).json()["use_company_memory"] is False
     out = _result(client.post("/api/events/DEMO-3/fire", headers=h3))
     assert out["cards"] and not out["decisions"]
 
     # a second browser turns company memory on: DEMO-4 resolves by the company rule
-    h2 = client.new_session()
+    h2 = client.new_session("manager2")
     assert client.get("/api/conflicts", headers=h2).json()["rules"] == []
     assert _opt_in(client, h2)["use_company_memory"] is True
     out = _result(client.post("/api/events/DEMO-4/fire", headers=h2))
@@ -189,7 +210,7 @@ def test_demo_chain_promote_then_opted_in_session_auto_resolves_with_org_rule(cl
     assert r.status_code == 200 and r.json()["retired"] is True, r.text
     assert client.get("/api/memory/org").json()["rules"] == []
     gone = client.get("/api/memory/org?include_retired=true").json()["rules"][0]
-    assert gone["retired_by"] == _tag(h1) and gone["retired_by_label"] == "judge-1" and gone["status"] == "retired"
+    assert gone["retired_by"] == "manager" and gone["retired_by_label"] == "judge-1" and gone["status"] == "retired"
     # the other session's decision now says its rule is retired, and asks for a review
     trace = client.get(f"/api/decisions/{d['decision_id']}/trace", headers=h2).json()
     assert trace["org_rule_status"] == "retired" and trace["org_rule"]["status"] == "retired"
@@ -197,7 +218,7 @@ def test_demo_chain_promote_then_opted_in_session_auto_resolves_with_org_rule(cl
     assert client.get("/api/conflicts", headers=h2).json()["decisions"][0]["org_rule_status"] == "retired"
 
     # the demo is resettable: the next opted-in session gets a card again
-    h4 = client.new_session()
+    h4 = client.new_session("manager2")
     _opt_in(client, h4)
     out = _result(client.post("/api/events/DEMO-4/fire", headers=h4))
     assert out["cards"] and not out["decisions"]
@@ -218,7 +239,7 @@ def _seed_org_rule(client, h) -> str:
 def test_contest_reopens_this_sessions_decisions_and_stops_the_rule_here(client, org):
     h1 = client.new_session()
     oid = _seed_org_rule(client, h1)
-    h2 = client.new_session()
+    h2 = client.new_session("manager2")
     _opt_in(client, h2)
     d = _result(client.post("/api/events/DEMO-4/fire", headers=h2))["decisions"][0]
     assert d["policy"] == "org_rule"
@@ -248,7 +269,7 @@ def test_contest_reopens_this_sessions_decisions_and_stops_the_rule_here(client,
     assert d["decision_id"] in trace["supersedes"]
     # and the contested rule no longer applies in this session (it still does in other opted-in ones)
     assert engine.session_org_rules(sessions.graph_for(h2["X-Session"])) == []
-    h3 = client.new_session()
+    h3 = client.new_session("manager2")
     _opt_in(client, h3)
     assert [r["id"] for r in engine.session_org_rules(sessions.graph_for(h3["X-Session"]))] == [oid]
 
@@ -265,7 +286,7 @@ def test_promote_and_opt_in_recheck_open_cards(client, org):
     assert len(rc["decisions"]) == 1 and rc["decisions"][0]["policy"] == "learned_rule"
     assert client.get("/api/conflicts", headers=h1).json()["cards"] == []
     # opting in: an open card a company rule settles is settled at once, citing the rule
-    h2 = client.new_session()
+    h2 = client.new_session("manager2")
     assert _result(client.post("/api/events/DEMO-4/fire", headers=h2))["cards"]
     on = _opt_in(client, h2)
     assert len(on["decisions"]) == 1 and on["decisions"][0]["policy"] == "org_rule"
@@ -277,7 +298,7 @@ def test_promote_and_opt_in_recheck_open_cards(client, org):
 def test_admin_retire_reopens_the_acting_sessions_decisions(client, org, monkeypatch):
     h1 = client.new_session()
     oid = _seed_org_rule(client, h1)
-    h2 = client.new_session()
+    h2 = client.new_session("manager2")
     _opt_in(client, h2)
     d = _result(client.post("/api/events/DEMO-4/fire", headers=h2))["decisions"][0]
     monkeypatch.setenv("ORG_ADMIN_TOKEN", "t0ken-for-tests")
@@ -294,7 +315,7 @@ def test_admin_retire_reopens_the_acting_sessions_decisions(client, org, monkeyp
 def test_org_memory_json_mirror_round_trip(client, org, tmp_path):
     h1 = client.new_session()
     oid = _seed_org_rule(client, h1)
-    h2 = client.new_session()
+    h2 = client.new_session("manager2")
     assert client.post(f"/api/memory/org/{oid}/contest", json={"user": "bob"}, headers=h2).status_code == 200
     before = engine.list_org(include_retired=True)
     path = engine.export_org(str(tmp_path / "mirror.json"))

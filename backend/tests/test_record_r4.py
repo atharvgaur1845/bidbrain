@@ -49,10 +49,10 @@ def _publish(client, h, approver=None) -> str:
     aid = _publish_action(client, h)["id"]
     r = client.post(f"/api/actions/{aid}/approve", json={}, headers=h)
     assert r.status_code == 403 and "PR-" in r.json()["detail"], r.text
-    approver = approver or client.new_session()
+    approver = approver or client.new_session("approver")
     req = next(x for x in client.get("/api/company/record", headers=approver).json()["requests"] if not x["mine"])
-    assert client.post(f"/api/company/record/requests/{req['id']}/approve", json={"user": "reviewer"},
-                       headers=approver).status_code == 200
+    assert client.post(f"/api/company/record/requests/{req['id']}/approve",
+                       json={"user": "reviewer", "version": req["version"]}, headers=approver).status_code == 200
     assert client.post(f"/api/actions/{aid}/approve", json={}, headers=h).json()["status"] == "approved"
     done = client.post(f"/api/actions/{aid}/execute", json={}, headers=h).json()
     assert done["status"] == "executed", done
@@ -114,21 +114,21 @@ def test_publish_cannot_be_self_approved(client, org, monkeypatch):
     assert len(mine) == 1 and mine[0]["mine"] is True and mine[0]["status"] == "pending"
     rid = mine[0]["id"]
     # the requesting workspace cannot approve its own request; a retry does not file a second one
-    assert client.post(f"/api/company/record/requests/{rid}/approve", json={}, headers=h1).status_code == 403
+    assert client.post(f"/api/company/record/requests/{rid}/approve", json={"version": 1}, headers=h1).status_code == 403
     assert client.post(f"/api/actions/{aid}/approve", json={}, headers=h1).status_code == 403
     assert len(client.get("/api/company/record", headers=h1).json()["requests"]) == 1
-    assert client.post(f"/api/company/record/requests/{rid}/approve", json={}).status_code == 400   # no session
+    assert client.post(f"/api/company/record/requests/{rid}/approve", json={"version": 1}).status_code == 401   # anonymous
     assert client.post("/api/company/record/requests/PR-nope/approve", json={}, headers=h1).status_code == 400
-    h2 = client.new_session()
+    h2 = client.new_session("approver")
     other = client.get("/api/company/record", headers=h2).json()["requests"][0]
     assert other["id"] == rid and other["mine"] is False and h1["X-Session"] not in json.dumps(other)
-    assert client.post(f"/api/company/record/requests/{rid}/approve", json={"user": "bob"},
+    assert client.post(f"/api/company/record/requests/{rid}/approve", json={"user": "bob", "version": other["version"]},
                        headers=h2).json()["status"] == "approved"
     assert client.post(f"/api/actions/{aid}/approve", json={}, headers=h1).json()["status"] == "approved"
     res = client.post(f"/api/actions/{aid}/execute", json={}, headers=h1).json()["result"]
     fact = next(f for f in client.get("/api/company/record", headers=h1).json()["facts"] if f["id"] == res["org_fact"])
-    assert fact["approved_by"] == _tag(h2) and fact["published_by"].startswith(_tag(h1))
-    assert fact["approved_by"] != fact["published_by"].split()[0] and fact["here"] == "own"
+    assert fact["approved_by"] == "approver" and fact["owner_principal"] == "manager"
+    assert fact["published_by"].startswith("principal:manager") and fact["here"] == "own"
 
     # an operator with the admin token approves directly; a wrong token is refused
     monkeypatch.setenv("ORG_ADMIN_TOKEN", "t0ken-for-tests")
@@ -139,7 +139,7 @@ def test_publish_cannot_be_self_approved(client, org, monkeypatch):
     ok = client.post(f"/api/actions/{a3}/approve", json={}, headers={**h3, "X-Admin-Token": "t0ken-for-tests"})
     assert ok.status_code == 200 and ok.json()["status"] == "approved"
     res = client.post(f"/api/actions/{a3}/execute", json={}, headers=h3).json()["result"]
-    assert res["approved_by"] == "admin"
+    assert res["approved_by"] == "admin"   # executed by the signed-in manager; approved by the operator
     # the admin flag does not leak into the next request
     h4 = client.new_session()
     _result(client.post("/api/events/DEMO-1/fire", headers=h4))
@@ -277,7 +277,7 @@ def test_contest_reopens_the_record_decision_and_fact_as_of_survives(client, org
 def test_retire_withdraws_the_fact_everywhere_and_ripples(client, org):
     h1 = client.new_session()
     of = _publish(client, h1)
-    h2 = client.new_session()
+    h2 = client.new_session("manager2")      # another principal: may contest, not retire
     g2 = _g(h2)
     case = _result(client.post("/api/qualify", json={"tender_id": NHX, "use_llm": False}, headers=h2))["case"]
     _result(client.post("/api/events/DEMO-0/fire", headers=h2))

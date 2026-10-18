@@ -11,7 +11,7 @@ predicates instead), `shortestPath` only in WITH/RETURN, dates compared as `*_da
 
 Exact arithmetic over a set of works, by key (values are re-read from the graph — never pass numbers). ops: sum, count, average (truncated to int), median, mean_median_gap (mean − median; signed=true keeps the sign), max, min, rank_gap (largest − second largest), top_two_sum, distinct_categories, distinct_clients, distinct_leads, category_difference (needs category_a, category_b; absolute difference of their sums), year_difference (needs year_a, year_b; |sum(year_b) − sum(year_a)|), gap_to_threshold (needs threshold; max(threshold − sum, 0)), referenced_share (% of works with a reference letter, 2dp; absent=true gives the % without), absence_count (works with no reference letter).
 
-Example call: `{"work_keys": ["ringroaduttarpradeshpkg113"], "op": "sum"}` — 0.9 ms
+Example call: `{"work_keys": ["ringroaduttarpradeshpkg113"], "op": "sum"}` — 1.4 ms
 
 ```cypher
 MATCH (w:Work)-[:FOR_CLIENT]->(c:Client), (w)-[:LED_BY]->(p:Person) WHERE w.key IN $keys
@@ -23,7 +23,7 @@ RETURN w.key AS key, w.value AS value, w.category AS category, w.completed_year 
 
 Integrity check of a past bid (or all bids): works cited as past performance that were not yet complete on the submission date, people proposed whose credential had lapsed, bid security expiring before the bid validity. Returns concrete violations with evidence.
 
-Example call: `{}` — 1.9 ms
+Example call: `{}` — 2.2 ms
 
 ```cypher
 MATCH (b:Bid) WHERE $bid IS NULL OR b.key = $bid
@@ -40,7 +40,7 @@ RETURN b.key AS bid, b.submitted AS submitted, b.doc_id AS doc,
 
 Gap between what a client awarded us (sum of completed work values from certificates) and what we invoiced them (receivables ledger). Accepts `client` or `work` (hops to client).
 
-Example call: `{"client": "Jal Nigam, Jharkhand"}` — 1.8 ms
+Example call: `{"client": "Jal Nigam, Jharkhand"}` — 3.2 ms
 
 ```cypher
 MATCH (c:Client {key:$c})
@@ -51,31 +51,63 @@ RETURN c.name AS client, awarded, nw, sum(i.invoiced) AS billed, count(i) AS ni
 
 ## `blast_radius`
 
-What depends on a fact: given a subject (work / person / bond / financial statement / credential) find open cases whose clauses rely on it, past bids that cited it, tenders it secures — then re-run every affected clause and report verdict flips (PASS -> FAIL etc.).
+What depends on a fact: given a subject (work / person / bond / financial statement / credential) find every open case and clause that relies on it, past bids that cited it (for a person: bids that proposed them or cited a work they led; for a credential: through its holder), tenders those bids or cases are for, and tenders it secures; each with the explaining path. Then re-run every affected clause and report verdict flips (PASS -> FAIL etc.).
 
-Example call: `{"label": "Work", "key": "ringroaduttarpradeshpkg113", "rerun": false}` — 2.5 ms
+Example call: `{"label": "Person", "key": "rahulmenon", "rerun": false}` — 16.3 ms
 
 ```cypher
-MATCH (s:Work {key:$k})<-[:SATISFIED_BY]-(k:Clause)<-[:HAS_CLAUSE]-(c:Case) RETURN DISTINCT c.id, c.title, k.id
+MATCH p = (s:Person {key:$k})<-[:CITES|PROPOSES|SECURED_BY]-(x:Bid) RETURN coalesce(x.id, x.key) AS id, coalesce(x.title, x.name, x.key, x.id) AS name, [n IN nodes(p) | labels(n)[0] + ':' + coalesce(n.key, n.id)] AS nodes, [r IN relationships(p) | type(r)] AS rels, [r IN relationships(p) | labels(startNode(r))[0] + ':' + coalesce(startNode(r).key, startNode(r).id)] AS starts, x.submitted AS submitted, [(x)<-[:HAS_CLAUSE]-(c1:Case) | c1.id][0] AS case_id, [(x)<-[:HAS_CLAUSE]-(c2:Case) | c2.title][0] AS case_title, x.status AS status
 ```
 
 ```cypher
-MATCH (s:Work {key:$k})<-[:CITES|PROPOSES|SECURED_BY]-(b:Bid) RETURN b.key, b.submitted
+MATCH p = (s:Person {key:$k})<-[:SATISFIED_BY]-(x:Clause)<-[:HAS_CLAUSE]-(:Case {status:'open'}) RETURN coalesce(x.id, x.key) AS id, coalesce(x.title, x.name, x.key, x.id) AS name, [n IN nodes(p) | labels(n)[0] + ':' + coalesce(n.key, n.id)] AS nodes, [r IN relationships(p) | type(r)] AS rels, [r IN relationships(p) | labels(startNode(r))[0] + ':' + coalesce(startNode(r).key, startNode(r).id)] AS starts, x.submitted AS submitted, [(x)<-[:HAS_CLAUSE]-(c1:Case) | c1.id][0] AS case_id, [(x)<-[:HAS_CLAUSE]-(c2:Case) | c2.title][0] AS case_title, x.status AS status
 ```
 
 ```cypher
-MATCH (s:Work {key:$k})-[:SECURES]->(t:Tender) RETURN t.key
+MATCH p = (s:Person {key:$k})<-[:SATISFIED_BY]-(:Clause)<-[:HAS_CLAUSE]-(x:Case {status:'open'}) RETURN coalesce(x.id, x.key) AS id, coalesce(x.title, x.name, x.key, x.id) AS name, [n IN nodes(p) | labels(n)[0] + ':' + coalesce(n.key, n.id)] AS nodes, [r IN relationships(p) | type(r)] AS rels, [r IN relationships(p) | labels(startNode(r))[0] + ':' + coalesce(startNode(r).key, startNode(r).id)] AS starts, x.submitted AS submitted, [(x)<-[:HAS_CLAUSE]-(c1:Case) | c1.id][0] AS case_id, [(x)<-[:HAS_CLAUSE]-(c2:Case) | c2.title][0] AS case_title, x.status AS status
 ```
 
 ```cypher
-MATCH (c:Case {status:'open'})-[:HAS_CLAUSE]->(k:Clause) WHERE k.kind IN $kinds RETURN c.id, c.bid_date, k.id, k.kind, k.params, k.verdict   // each is re-run with qualify_clause
+MATCH p = (s:Person {key:$k})<-[:CITES|PROPOSES|SECURED_BY]-(:Bid)-[:FOR_TENDER]->(x:Tender) RETURN coalesce(x.id, x.key) AS id, coalesce(x.title, x.name, x.key, x.id) AS name, [n IN nodes(p) | labels(n)[0] + ':' + coalesce(n.key, n.id)] AS nodes, [r IN relationships(p) | type(r)] AS rels, [r IN relationships(p) | labels(startNode(r))[0] + ':' + coalesce(startNode(r).key, startNode(r).id)] AS starts, x.submitted AS submitted, [(x)<-[:HAS_CLAUSE]-(c1:Case) | c1.id][0] AS case_id, [(x)<-[:HAS_CLAUSE]-(c2:Case) | c2.title][0] AS case_title, x.status AS status
+```
+
+```cypher
+MATCH p = (s:Person {key:$k})<-[:SATISFIED_BY]-(:Clause)<-[:HAS_CLAUSE]-(:Case {status:'open'})-[:FOR_TENDER]->(x:Tender) RETURN coalesce(x.id, x.key) AS id, coalesce(x.title, x.name, x.key, x.id) AS name, [n IN nodes(p) | labels(n)[0] + ':' + coalesce(n.key, n.id)] AS nodes, [r IN relationships(p) | type(r)] AS rels, [r IN relationships(p) | labels(startNode(r))[0] + ':' + coalesce(startNode(r).key, startNode(r).id)] AS starts, x.submitted AS submitted, [(x)<-[:HAS_CLAUSE]-(c1:Case) | c1.id][0] AS case_id, [(x)<-[:HAS_CLAUSE]-(c2:Case) | c2.title][0] AS case_title, x.status AS status
+```
+
+```cypher
+MATCH p = (s:Person {key:$k})<-[:LED_BY]-(:Work)<-[:CITES|PROPOSES|SECURED_BY]-(x:Bid) RETURN coalesce(x.id, x.key) AS id, coalesce(x.title, x.name, x.key, x.id) AS name, [n IN nodes(p) | labels(n)[0] + ':' + coalesce(n.key, n.id)] AS nodes, [r IN relationships(p) | type(r)] AS rels, [r IN relationships(p) | labels(startNode(r))[0] + ':' + coalesce(startNode(r).key, startNode(r).id)] AS starts, x.submitted AS submitted, [(x)<-[:HAS_CLAUSE]-(c1:Case) | c1.id][0] AS case_id, [(x)<-[:HAS_CLAUSE]-(c2:Case) | c2.title][0] AS case_title, x.status AS status
+```
+
+```cypher
+MATCH p = (s:Person {key:$k})<-[:LED_BY]-(:Work)<-[:SATISFIED_BY]-(x:Clause)<-[:HAS_CLAUSE]-(:Case {status:'open'}) RETURN coalesce(x.id, x.key) AS id, coalesce(x.title, x.name, x.key, x.id) AS name, [n IN nodes(p) | labels(n)[0] + ':' + coalesce(n.key, n.id)] AS nodes, [r IN relationships(p) | type(r)] AS rels, [r IN relationships(p) | labels(startNode(r))[0] + ':' + coalesce(startNode(r).key, startNode(r).id)] AS starts, x.submitted AS submitted, [(x)<-[:HAS_CLAUSE]-(c1:Case) | c1.id][0] AS case_id, [(x)<-[:HAS_CLAUSE]-(c2:Case) | c2.title][0] AS case_title, x.status AS status
+```
+
+```cypher
+MATCH p = (s:Person {key:$k})<-[:LED_BY]-(:Work)<-[:SATISFIED_BY]-(:Clause)<-[:HAS_CLAUSE]-(x:Case {status:'open'}) RETURN coalesce(x.id, x.key) AS id, coalesce(x.title, x.name, x.key, x.id) AS name, [n IN nodes(p) | labels(n)[0] + ':' + coalesce(n.key, n.id)] AS nodes, [r IN relationships(p) | type(r)] AS rels, [r IN relationships(p) | labels(startNode(r))[0] + ':' + coalesce(startNode(r).key, startNode(r).id)] AS starts, x.submitted AS submitted, [(x)<-[:HAS_CLAUSE]-(c1:Case) | c1.id][0] AS case_id, [(x)<-[:HAS_CLAUSE]-(c2:Case) | c2.title][0] AS case_title, x.status AS status
+```
+
+```cypher
+MATCH p = (s:Person {key:$k})<-[:LED_BY]-(:Work)<-[:CITES|PROPOSES|SECURED_BY]-(:Bid)-[:FOR_TENDER]->(x:Tender) RETURN coalesce(x.id, x.key) AS id, coalesce(x.title, x.name, x.key, x.id) AS name, [n IN nodes(p) | labels(n)[0] + ':' + coalesce(n.key, n.id)] AS nodes, [r IN relationships(p) | type(r)] AS rels, [r IN relationships(p) | labels(startNode(r))[0] + ':' + coalesce(startNode(r).key, startNode(r).id)] AS starts, x.submitted AS submitted, [(x)<-[:HAS_CLAUSE]-(c1:Case) | c1.id][0] AS case_id, [(x)<-[:HAS_CLAUSE]-(c2:Case) | c2.title][0] AS case_title, x.status AS status
+```
+
+```cypher
+MATCH p = (s:Person {key:$k})<-[:LED_BY]-(:Work)<-[:SATISFIED_BY]-(:Clause)<-[:HAS_CLAUSE]-(:Case {status:'open'})-[:FOR_TENDER]->(x:Tender) RETURN coalesce(x.id, x.key) AS id, coalesce(x.title, x.name, x.key, x.id) AS name, [n IN nodes(p) | labels(n)[0] + ':' + coalesce(n.key, n.id)] AS nodes, [r IN relationships(p) | type(r)] AS rels, [r IN relationships(p) | labels(startNode(r))[0] + ':' + coalesce(startNode(r).key, startNode(r).id)] AS starts, x.submitted AS submitted, [(x)<-[:HAS_CLAUSE]-(c1:Case) | c1.id][0] AS case_id, [(x)<-[:HAS_CLAUSE]-(c2:Case) | c2.title][0] AS case_title, x.status AS status
+```
+
+```cypher
+MATCH p = (s:Person {key:$k})-[:HOLDS]->(x:Credential) RETURN coalesce(x.id, x.key) AS id, coalesce(x.title, x.name, x.key, x.id) AS name, [n IN nodes(p) | labels(n)[0] + ':' + coalesce(n.key, n.id)] AS nodes, [r IN relationships(p) | type(r)] AS rels, [r IN relationships(p) | labels(startNode(r))[0] + ':' + coalesce(startNode(r).key, startNode(r).id)] AS starts, x.submitted AS submitted, [(x)<-[:HAS_CLAUSE]-(c1:Case) | c1.id][0] AS case_id, [(x)<-[:HAS_CLAUSE]-(c2:Case) | c2.title][0] AS case_title, x.status AS status
+```
+
+```cypher
+MATCH (c:Case {status:'open'})-[:HAS_CLAUSE]->(k:Clause) WHERE k.kind IN $kinds OR k.id IN $relying RETURN c.id, c.bid_date, k.id, k.kind, k.params, k.verdict   // each is re-run with the selection policy
 ```
 
 ## `change_impact`
 
 Everything one document changed, from the graph: the claims it carried, the decisions they triggered (policy, before -> after), the open bids whose clauses flipped because of each decision, and the follow-up actions created. Param doc_id (e.g. 'DOC-DEMO-1-20827').
 
-Example call: `{"doc_id": "DOC-CC-151"}` — 2.7 ms
+Example call: `{"doc_id": "DOC-CC-151"}` — 2.5 ms
 
 ```cypher
 MATCH (d:Document {doc_id:$d})<-[:FROM]-(c:Claim)-[:ABOUT]->(s)
@@ -88,14 +120,15 @@ RETURN c.id AS claim, c.predicate AS predicate, c.value_str AS value, c.page AS 
        win.value_str AS chosen, collect(DISTINCT other.value_str) AS replaced,
        coalesce(c.recorded_at, 0) AS recorded_at, c.invalidated_at AS invalidated_at,
        c.observed_day AS observed_day, d.issued_day AS doc_issued_day, d.issued AS doc_issued,
-       d.issued_basis AS doc_issued_basis
+       d.issued_basis AS doc_issued_basis, c.valid_from_day AS claim_valid_from_day,
+       c.valid_basis AS claim_valid_basis
 ```
 
 ## `collection_rate`
 
 % of invoiced amount actually received from a client (2dp). Accepts `client`, or `work` (hops work → its client first, since invoices carry no work).
 
-Example call: `{"work": "Ring Road — West Bengal Pkg-128"}` — 2.4 ms
+Example call: `{"work": "Ring Road — West Bengal Pkg-128"}` — 2.3 ms
 
 ```cypher
 MATCH (c:Client {key:$c}) OPTIONAL MATCH (i:Invoice)-[:BILLED_TO]->(c)
@@ -106,7 +139,7 @@ RETURN c.name AS client, count(i) AS n, sum(i.invoiced) AS invoiced, sum(i.recei
 
 Community detection (algo.labelPropagation). of='people' (default): client circles — two project leads are linked when they led work for more of the same clients than chance predicts (>= 1.5x the configuration-model expectation), so a community is a group that keeps serving the same accounts; each comes with the clients that define it. Use it to staff a bid team that already knows the client. of='clients': the same circles seen from the client side — each client joins the people community that holds most of its project leads; a set of clients that draws on one pool of people (lose a lead, and every client in the set is exposed). Size-1 communities are people/clients with no strong overlap. `modularity` scores the split against the full co-client graph, beside `random_partition_modularity` (same sizes, labels shuffled).
 
-Example call: `{}` — 26.2 ms
+Example call: `{}` — 32.8 ms
 
 ```cypher
 CALL algo.labelPropagation({nodeLabels:['Person'], relationshipTypes:['OVERLAPS_CLIENTS'], maxIterations:50})
@@ -134,7 +167,7 @@ RETURN a.key AS a, b.key AS b, count(c) AS w
 
 Audit the company's own past compliance claims. Every tender compliance matrix in the corpus marks its requirements MET; this re-tests each MET row against the graph ON THE DATE THE CLAIM WAS MADE (the bid submission date printed on the matrix, else the matrix's signature date), using the same qualify_clause rules as bid qualification: turnover (average / each year), similar works (CPWD rule against the bid value), PMP key personnel, ISO certificates, years in business, plus similar-works track record (years since the first completed work in the category), CV'd staff count and the stated asset figure. outcome: agree (graph confirms) | disagree (graph says it was not met then) | unconfirmed (e.g. an audited year missing) | not_checkable (EMD, GST, declarations). likely_generator_artifacts counts the systematic disagreements that most likely come from the synthetic corpus (certificates dated after the matrices that cite them, one PMP issue date for everyone, the whole asset register as the plant figure). Optional tender (ref), kind (requirement kind), only_disagreements.
 
-Example call: `{"tender": "RFP-132000970"}` — 9.4 ms
+Example call: `{"tender": "RFP-132000970"}` — 12.8 ms
 
 ```cypher
 MATCH (t:Tender)-[:REQUIRES]->(q:Requirement)-[e:EVIDENCED_BY {kind:'compliance_matrix'}]->(d:Document)
@@ -213,7 +246,7 @@ RETURN with_cv, sum(b.headcount) AS headcount
 
 A person's credentials (PMP, Six Sigma Black Belt): id, issued and valid-through dates, with the certificate page. Use it to anchor 'after X got certified' questions and to check a user's recollection of a date against the record.
 
-Example call: `{"person": "Sunita Joshi"}` — 1.4 ms
+Example call: `{"person": "Sunita Joshi"}` — 1.0 ms
 
 ```cypher
 MATCH (p:Person {key:$p})-[:HOLDS]->(c:Credential)-[e:EVIDENCED_BY]->(d:Document)
@@ -237,7 +270,7 @@ MATCH (w:Work) RETURN count(w) AS works
 
 Days between two dates, read from the graph: from a credential's issue date (`credential_id`, or `person` + optional `credential_kind`) or an explicit `from_date`, to a work's completion date (`work`) or an explicit `to_date`. Returns days (to − from).
 
-Example call: `{"work": "ROB — Jharkhand Pkg-29", "credential_kind": "pmp"}` — 0.8 ms
+Example call: `{"work": "ROB — Jharkhand Pkg-29", "credential_kind": "pmp"}` — 1.1 ms
 
 ## `depends_on`
 
@@ -265,7 +298,7 @@ ORDER BY depth, label, key
 
 How two entities are connected: up to 3 shortest paths (algo.SPpaths, both directions, max 6 hops) over work/client/person/credential/tender edges. Use it to show a judge *why* two things are related.
 
-Example call: `{"a": "Sunita Joshi", "a_kind": "person", "b": "Rahul Menon", "b_kind": "person"}` — 1.2 ms
+Example call: `{"a": "Sunita Joshi", "a_kind": "person", "b": "Rahul Menon", "b_kind": "person"}` — 2.3 ms
 
 ```cypher
 MATCH (a:Person {key:$a}), (b:Person {key:$b})
@@ -279,9 +312,9 @@ ORDER BY hops
 
 ## `fact_as_of`
 
-What the company believed about one fact at a point in time, on both time axes: a claim counts only if its document existed by then (valid time) and the graph had recorded it and not set it aside by then (transaction time); the latest decision made by then picks among those. Also returns the claims recorded later, the claims whose document is dated after T, and the ones set aside since. Params key (entity key), predicate (e.g. 'value'), as_of (ISO date or datetime).
+What was true about one fact on a day, as the company knew it at a time, on both time axes: a claim counts only if its fact held by valid_at's day (valid time: the effective date its document prints) and the graph had recorded it and not set it aside by known_at (transaction time); the latest decision made by known_at picks among those. as_of sets both; valid_at and known_at override one each ("valid on X as known on Y"). A date-only input means the end of that day in Asia/Kolkata; a timestamp is exact. Also returns the claims recorded later, the claims whose fact starts after valid_at, and the ones set aside since. Params key (entity key), predicate (e.g. 'value'), as_of / valid_at / known_at (ISO date or datetime).
 
-Example call: `{"key": "anganwadicentregujaratpkg151", "predicate": "value", "as_of": "2026-10-17"}` — 1.3 ms
+Example call: `{"key": "anganwadicentregujaratpkg151", "predicate": "value", "as_of": "2026-10-17"}` — 1.7 ms
 
 ```cypher
 MATCH (c:Claim {subject_key:$k, predicate:$p})
@@ -290,7 +323,8 @@ RETURN c.id AS claim, c.value_str AS value, c.source_kind AS source_kind, c.auth
        d.doc_id AS doc, c.page AS page, coalesce(c.recorded_at, 0) AS recorded_at,
        c.invalidated_at AS invalidated_at, c.invalidated_by AS invalidated_by, c.status AS status_now,
        c.status_history AS status_history, c.observed_day AS observed_day, d.issued_day AS doc_issued_day, d.issued AS doc_issued,
-       d.issued_basis AS doc_issued_basis
+       d.issued_basis AS doc_issued_basis, c.valid_from_day AS claim_valid_from_day,
+       c.valid_basis AS claim_valid_basis
 ORDER BY recorded_at, claim
 ```
 
@@ -306,7 +340,7 @@ ORDER BY at, decision
 
 Why we believe a fact: every competing claim about it (value, source document + page, issuer, authority, status) and the decisions that settled it (policy, rationale, who decided, any learned rule). Use for 'why is X's value Y', 'what changed', 'which document do we trust'. kind: work|person|bond| credential|financial_statement; predicate optional (value, completed, grading, role, valid_through, ...).
 
-Example call: `{"key": "Pkg-113", "kind": "work"}` — 2.9 ms
+Example call: `{"key": "Pkg-113", "kind": "work"}` — 3.1 ms
 
 ```cypher
 MATCH (c:Claim)-[:ABOUT]->(s {key:$k}) WHERE ($p IS NULL OR c.predicate = $p)
@@ -330,7 +364,7 @@ ORDER BY at DESC
 
 Find completed works. Scope by `client`, by `person` (works they led), or by `via_work` (= the whole portfolio of the client who commissioned that work — the usual multi-hop 'starting from X's project, what about that client' pattern). Optional filters: categories, exclude_categories, min_value/max_value (rupees, inclusive), completed_after/completed_before (ISO date, strict), years, role ('Prime'|'JV Partner'), has_reference, govt_levels (central|state|psu|municipal|private). Returns works with value, date, category and the completion-certificate page that proves each one.
 
-Example call: `{"via_work": "Pkg-107", "exclude_categories": ["irrigation"]}` — 1.6 ms
+Example call: `{"via_work": "Pkg-107", "exclude_categories": ["irrigation"]}` — 1.5 ms
 
 ```cypher
 MATCH (anchor:Work {key:$via})-[:FOR_CLIENT]->(c:Client)
@@ -358,7 +392,7 @@ ORDER BY w.value DESC
 
 Keyword search over document page text (FalkorDB fulltext index; prefix with * e.g. 'Anganwadi*', fuzzy with %term%). Optional doc_type filter.
 
-Example call: `{"text": "Anganwadi"}` — 0.9 ms
+Example call: `{"text": "Anganwadi"}` — 0.7 ms
 
 ```cypher
 CALL db.idx.fulltext.queryNodes('Chunk', $q) YIELD node, score
@@ -372,7 +406,7 @@ ORDER BY score DESC LIMIT $lim
 
 Fetch one entity's properties and its direct relationships (1 hop), e.g. a work's client, lead, documents; a person's credentials and led works; a client's works.
 
-Example call: `{"key": "Ring Road — Uttar Pradesh Pkg-113", "kind": "work"}` — 2.5 ms
+Example call: `{"key": "Ring Road — Uttar Pradesh Pkg-113", "kind": "work"}` — 2.1 ms
 
 ```cypher
 MATCH (n:Work {key:$k}) OPTIONAL MATCH (n)-[r]-(m) WHERE NOT m:Claim AND NOT m:Chunk RETURN n AS node, collect({rel:type(r), out: startNode(r) = n, label: labels(m)[0], key: m.key, name: coalesce(m.name, m.title, m.doc_id, m.key)})[0..60] AS links
@@ -388,7 +422,7 @@ Example call: `{}` — 0.0 ms
 
 Evidence-integrity check with weakly connected components (algo.WCC). scope='provenance' (default) runs over Document-Work-Client-Person-Credential, the evidence a similar-works or key-personnel clause stands on; scope='corpus' runs over every document and every entity that should be traceable to one. The main component is the connected evidence base; everything outside it is a finding: documents no fact cites, entities with no source document, credentialed staff who never led a work, clients with no completed work. Returns component sizes and the orphans, grouped, with what each group means.
 
-Example call: `{"scope": "corpus"}` — 18.8 ms
+Example call: `{"scope": "corpus"}` — 18.4 ms
 
 ```cypher
 CALL algo.WCC({nodeLabels:['Document', 'Company', 'Work', 'Client', 'Person', 'Credential', 'Certification', 'Tender', 'Requirement', 'Bond', 'Bank', 'Contract', 'BOQItem', 'Measurement', 'Invoice', 'FinancialStatement', 'AnnualReport', 'TBLine', 'LedgerAccount', 'Asset', 'Bid', 'Claim', 'Case', 'Clause'], relationshipTypes:['EVIDENCED_BY', 'HAS_REFERENCE', 'FOR_CLIENT', 'LED_BY', 'HOLDS', 'SECURES', 'ISSUED_BY', 'REQUIRES', 'CITES_CERT', 'BILLED_TO', 'HAS_ITEM', 'MEASURES', 'FOR_TENDER', 'CITES', 'PROPOSES', 'TO_CLIENT', 'SECURED_BY', 'FROM', 'ABOUT', 'HAS_CLAUSE', 'SATISFIED_BY']}) YIELD node, componentId
@@ -405,7 +439,7 @@ ORDER BY size DESC
 
 Who the company depends on. algo='betweenness' (default) ranks people by how many shortest person<->client paths run through them — the knowledge brokers whose loss would disconnect client relationships ('bus factor'). The score is exact (Brandes, computed in one Cypher query over allShortestPaths); FalkorDB's sampled algo.betweenness is reported beside it as a cross-check. algo='reach' ranks by distinct clients and works led. Optional client / category to restrict to people who worked there.
 
-Example call: `{}` — 463.6 ms
+Example call: `{}` — 503.5 ms
 
 ```cypher
 MATCH (a) WHERE (a:Person OR a:Client) AND (a)-[:WORKED_FOR]-()
@@ -457,7 +491,7 @@ ORDER BY score DESC, b.submitted DESC LIMIT $lim
 
 Prove which items in a scope LACK a required piece of evidence, with a proof object (universe, present, absent, and checks that the absence is real rather than an extraction miss). evidence='reference_letter' over works (scope by client / person / via_work / category); evidence='valid_credential' over people who led works in scope (credential_kind, valid_on date); evidence='performance_bond' over tenders (category).
 
-Example call: `{"evidence": "reference_letter", "client": "Trishakti Power Generation Corporation"}` — 4.6 ms
+Example call: `{"evidence": "reference_letter", "client": "Trishakti Power Generation Corporation"}` — 4.3 ms
 
 ```cypher
 MATCH (w:Work)-[:FOR_CLIENT]->(c:Client), (w)-[:LED_BY]->(p:Person),
@@ -503,7 +537,7 @@ RETURN collect(DISTINCT node.doc_id) AS hits
 
 Check one tender eligibility clause against the company's graph and return a verdict (PASS / FAIL / AT_RISK) with the works, people, statements or certificates that satisfy it, the gaps, and evidence pages. Clause kinds and params: similar_works {categories, ONE OF: estimated_cost (CPWD rule: 1 work >= 80% OR 2 >= 60% OR 3 >= 40%) | min_value + count | options [{count, min_value}, ...] (either/or alternatives, e.g. "one work >= 50 Cr or two works >= 40 Cr each": any one option passing is enough; the result names which), min_total (aggregate value: the works in scope must ALSO sum to at least this, e.g. "one work >= 30 Cr and a cumulative value of INR 500 Cr"; alone it is the whole requirement), lookback_years (default 7), govt_levels, include_jv (default true), require_reference (default false)}; turnover {min_average (rupees) over last `years` FY (default 3) | min_each_year}; key_personnel {credential (e.g. PMP), min_experience_years, count (default 1), categories (must have led such work)}; certification {standard (e.g. 'ISO 9001')}; years_in_business {min_years}. `bid_date` (ISO, default the corpus date) is when validity is judged.
 
-Example call: `{"kind": "similar_works", "params": {"categories": ["expressways"], "estimated_cost": 2500000000}}` — 1.1 ms
+Example call: `{"kind": "similar_works", "params": {"categories": ["expressways"], "estimated_cost": 2500000000}}` — 0.9 ms
 
 ```cypher
 MATCH (w:Work)-[:FOR_CLIENT]->(c:Client), (w)-[:LED_BY]->(p:Person),
@@ -530,7 +564,7 @@ ORDER BY w.value DESC
 
 Invoice (receivables ageing) totals for a client: measure = outstanding | invoiced | received; optional status (paid | part_paid | due) and year. Invoices are keyed by client, not by work — to ask about a project, resolve its client first.
 
-Example call: `{"client": "Arunodaya Infrastructure", "measure": "outstanding"}` — 1.3 ms
+Example call: `{"client": "Arunodaya Infrastructure", "measure": "outstanding"}` — 1.5 ms
 
 ```cypher
 MATCH (i:Invoice)-[:BILLED_TO]->(c:Client)
@@ -542,13 +576,13 @@ RETURN count(i) AS n, sum(i.outstanding) AS total, c.name AS client
 
 Resolve a free-text mention to graph entities (client, person, work, category, tender). Handles informal forms like 'phed odisha', 'gujarat pw', 'Pkg-59'. Returns ranked candidates; if `ambiguous` is true, narrow with more context instead of guessing. When nothing scores at least 70 the entity is not in the graph: `result` is empty, `not_found` is true and `nearest` lists the closest names (which are NOT matches).
 
-Example call: `{"text": "phed odisha", "kind": "client"}` — 0.8 ms
+Example call: `{"text": "phed odisha", "kind": "client"}` — 0.9 ms
 
 ## `trace_from_credential`
 
 The 5-hop chain in ONE Cypher query: credential <-HOLDS- person <-LED_BY- work -FOR_CLIENT-> client <-FOR_CLIENT- every work for that client -EVIDENCED_BY-> its completion certificate. For questions like "starting from Sunita Joshi's Six Sigma certificate on the Pkg-107 job, what is the combined value of every work for that client?". Give `person` and/or `credential` (an id like PMI-200039, or a kind like 'PMP' / 'Six Sigma'), and optionally the anchor `work`. Returns, per credential and anchor work: the chain, the client, its works with value, lead and certificate page, and the exact total. `held_when_anchor_completed` says whether the credential had been issued by the time the anchor work was completed.
 
-Example call: `{"person": "Sunita Joshi", "credential": "Six Sigma", "work": "Pkg-107"}` — 2.0 ms
+Example call: `{"person": "Sunita Joshi", "credential": "Six Sigma", "work": "Pkg-107"}` — 2.2 ms
 
 ```cypher
 MATCH head = (cr:Credential)<-[:HOLDS]-(p:Person)<-[:LED_BY]-(anchor:Work)-[:FOR_CLIENT]->(c:Client)
@@ -574,7 +608,7 @@ ORDER BY total_value DESC
 
 Semantic search over document page chunks (FalkorDB HNSW vector index). Use for prose ('which letter praised safety?') or when an entity can't be resolved; NOT for counting or summing — use find_portfolio/aggregate for that. Optional doc_type filter.
 
-Example call: `{"text": "client praised the safety record", "k": 3}` — 341.3 ms
+Example call: `{"text": "client praised the safety record", "k": 3}` — 386.4 ms
 
 ```cypher
 CALL db.idx.vector.queryNodes('Chunk', 'embedding', $k, vecf32($v)) YIELD node, score
@@ -587,7 +621,7 @@ RETURN node.doc_id AS doc_id, node.page AS page, d.doc_type AS doc_type,
 
 Who on the team has worked with a client, in a category, or in a state before — ranked by works led, with total value and most recent completion. The first question to ask when staffing a bid or picking a reference contact.
 
-Example call: `{"client": "National Expressway Development Authority"}` — 1.4 ms
+Example call: `{"client": "National Expressway Development Authority"}` — 5.1 ms
 
 ```cypher
 MATCH (p:Person)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
@@ -757,6 +791,31 @@ WHERE shared >= 1.5 * expected
 WITH a, b, shared, round(100 * expected) / 100 AS expected, round(100 * shared / expected) / 100 AS lift
 CREATE (a)-[:OVERLAPS_CLIENTS {shared:shared, expected:expected, lift:lift}]->(b),
 (b)-[:OVERLAPS_CLIENTS {shared:shared, expected:expected, lift:lift}]->(a)
+```
+
+**Projection freshness: OVERLAPS_CLIENTS / WORKED_FOR are rebuilt in a session whenever their inputs change (ensure_projections, called by key_people, who_knows, explain_path and communities; the base graph stores the signature at load, so a current projection is never rewritten)**
+
+```cypher
+MATCH (p:Person)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
+                    WITH p.key + '|' + w.key + '|' + c.key + '|' + toString(coalesce(w.value, 0)) AS t ORDER BY t
+                    RETURN collect(t) AS ts
+-- sha1 of the list != Meta.projection_sig  ->  project(g): delete and rebuild the projections
+```
+
+**Tender status as of the corpus snapshot (tender_status; case_open sets 'open' in a session with a live case)**
+
+```cypher
+MATCH (t:Tender)
+OPTIONAL MATCH (b:Bid)-[:FOR_TENDER]->(t)
+OPTIONAL MATCH (bd:Bond)-[:SECURES]->(t)
+WITH t, min(b.submitted) AS sub, min(bd.issued) AS bond
+WITH t, sub, bond, CASE
+WHEN sub IS NOT NULL THEN ['closed', 'bid submitted ' + sub]
+WHEN t.bid_date IS NOT NULL AND t.bid_date < $s THEN ['closed', 'bid date ' + t.bid_date + ' before snapshot ' + $s]
+WHEN t.bid_date IS NOT NULL THEN ['open', 'bid date ' + t.bid_date + ' on or after snapshot ' + $s]
+WHEN bond IS NOT NULL THEN ['closed', 'performance bond issued ' + bond]
+ELSE ['closed', 'no bid date, bid or bond in the corpus'] END AS st
+SET t.status = st[0], t.corpus_status = st[0], t.status_basis = st[1], t.status_as_of = $s
 ```
 
 **Workbook provenance (found by isolated_entities scope='corpus')**

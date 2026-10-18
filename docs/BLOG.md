@@ -346,20 +346,38 @@ graph and copy only the part people can change.
 
 Three more uses of the graph, each one call:
 
-**WCC as an evidence check.** `algo.WCC` over evidence edges only (`EVIDENCED_BY`, `HAS_REFERENCE`, `FOR_CLIENT`,
-`LED_BY`, `HOLDS`) should return one component: every fact connected to a document. Everything outside it is a
-finding. On our corpus scope it found 404 workbook rows (210 assets, 194 trial-balance lines) with no path to any
-document, which we then linked to their spreadsheets at load, plus 8 bank statements and 6 RA bills nothing cites, and
-two credentialed staff who never led a work. Leave the hub edges out (`Company-OWNS`, `IN_STATE`, `FOR_FY`): they join
-everything and hide the orphans.
+**WCC as an evidence check.** `algo.WCC` over evidence edges only should put every fact in one component with the
+documents that state it; everything outside it is a finding. This is the tool's `scope='corpus'` query
+(`isolated_entities`, from `WCC_SCOPES` in `tools/algos.py`), with its parameters inlined. Claims, cases and
+clauses are in the projection because they connect evidence to what it evidences (a live corrigendum is cited only by
+its claims), but they are not counted as entities. Leave the hub edges out (`Company-OWNS/EMPLOYS`, `IN_STATE`,
+`IN_CATEGORY`, `FOR_FY`): they join everything and hide the orphans.
 
 ```cypher
-CALL algo.WCC({nodeLabels:['Document','Work','Client','Person','Credential'],
-               relationshipTypes:['EVIDENCED_BY','HAS_REFERENCE','FOR_CLIENT','LED_BY','HOLDS']})
+CALL algo.WCC({nodeLabels:['Document', 'Company', 'Work', 'Client', 'Person', 'Credential', 'Certification', 'Tender',
+               'Requirement', 'Bond', 'Bank', 'Contract', 'BOQItem', 'Measurement', 'Invoice', 'FinancialStatement',
+               'AnnualReport', 'TBLine', 'LedgerAccount', 'Asset', 'Bid', 'Claim', 'Case', 'Clause'],
+               relationshipTypes:['EVIDENCED_BY', 'HAS_REFERENCE', 'FOR_CLIENT', 'LED_BY', 'HOLDS', 'SECURES',
+               'ISSUED_BY', 'REQUIRES', 'CITES_CERT', 'BILLED_TO', 'HAS_ITEM', 'MEASURES', 'FOR_TENDER', 'CITES',
+               'PROPOSES', 'TO_CLIENT', 'SECURED_BY', 'FROM', 'ABOUT', 'HAS_CLAUSE', 'SATISFIED_BY']})
 YIELD node, componentId
-WITH componentId, labels(node)[0] AS label, count(*) AS n
-RETURN componentId, collect({label: label, n: n}) AS parts ORDER BY componentId
+WITH node, componentId WHERE NOT labels(node)[0] IN ['Claim', 'Case', 'Clause']
+WITH componentId, labels(node)[0] AS label, node.doc_type AS doc_type, collect(node) AS ns
+WITH componentId, sum(size(ns)) AS size,
+     collect({label: label, doc_type: doc_type, n: size(ns),
+              sample: [x IN ns[0..40] | {key: x.key, name: coalesce(x.name, x.title, x.doc_id, x.key)}]}) AS parts
+RETURN componentId, size, parts
+ORDER BY size DESC
 ```
+
+On the base graph it returns 32 components. The main one holds 2,516 nodes; 661 are outside it. Of those, two kinds
+are findings: 14 documents no fact cites (8 bank statements and 6 RA bills), and two credentialed staff, with their
+CVs and certificates, who never led a work (they can be named as key personnel but bring no similar-works evidence).
+The rest are islands that are documented but not joined to the main graph by an evidence edge: the asset-register
+workbook with its 210 assets, the trial-balance workbook with its 194 lines, 8 general-ledger books with their
+accounts, the financial statements, two ISO certificates and two annual reports. An early run found the 404 workbook
+rows with no path to any document at all; we linked them to their spreadsheets at load, which is why they are now
+islands and not orphans.
 
 **Auditing our own past claims.** The corpus has 40 compliance matrices with 491 `Requirement` rows, every one
 marked MET. `compliance_check` re-tests each row the engine can evaluate *on the date the matrix was submitted*, with

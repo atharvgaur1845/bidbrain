@@ -310,7 +310,10 @@ def test_sample_tender_shows_reselection_a_kept_handback_and_a_planner_skip(scra
     ev = []
     case = qualify_tender(scratch, t, emit=ev.append, prefer_llm=False)
     cid = case["case"]["id"]
-    assert case["case"]["verdict"] == "BID"
+    # clause 2 still credits works with no reference letter (the hand-back kept them): a conditional BID with
+    # the letter requests as open actions, never a plain BID (closeout P0-2)
+    assert case["case"]["verdict"] == "BID WITH FIXES"
+    assert any(a["kind"] == "request_reference_letter" for a in case["actions"])
     assert _chain(scratch, cid) == ["ClauseParser", "Planner", "EvidenceHunter", "AbsenceAuditor", "EvidenceHunter",
                                     "Verifier", "Assembler"]
     assert [e["agent"] for e in ev if e["type"] == "agent_done" and e.get("skipped")] == ["ConflictSentinel"]

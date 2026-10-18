@@ -25,7 +25,7 @@ const SUGGESTED = [
 
 type Turn = { q: string; answer?: any; explanation?: string; steps: TraceStep[]; evidence: any[]; graph: GData;
   highlight: Set<string>; running: boolean; error?: string; usage?: any; ms?: number; providers?: string[];
-  switches?: Switch[]; note?: string; warnings?: string[]; baseline?: any; baselineLoading?: boolean };
+  switches?: Switch[]; note?: string; warnings?: string[]; baseline?: any; baselineLoading?: boolean; checks?: any };
 type Switch = { step?: number; from: string; to: string; why: string };
 
 /** Every model that served this answer, in order of first use ("groq:openai/gpt-oss-120b (cached)" counts as gpt-oss-120b). */
@@ -99,7 +99,7 @@ export default function AskPage() {
         const d = ev.data;
         update(i, (t) => ({ ...t, running: false, answer: d.answer_text, explanation: d.explanation, usage: d.usage,
                             ms: d.ms, providers: d.providers, switches: d.switches ?? t.switches, note: d.note ?? undefined,
-                            error: d.error,
+                            error: d.error, checks: d.checks,
                             graph: mergeGraph(t.graph, d.subgraph), evidence: d.evidence?.length ? d.evidence : t.evidence }));
       } else if (ev.type === "error") {
         update(i, (t) => ({ ...t, running: false, error: ev.message }));
@@ -202,6 +202,7 @@ export default function AskPage() {
                         {/^\d{6,}$/.test(plain) && (
                           <div className="num mt-1 text-[13px] text-ink-2">{fmtINR(Number(plain))}</div>
                         )}
+                        {t.checks?.answer_status && <StatusBadge status={t.checks.answer_status} />}
                         <div className="mt-2 text-[12.5px] tabular-nums text-ink-3">{meta.join(" · ")}</div>
                         {(t.switches || []).map((sw, k) => (
                           <div key={k} className="mt-1 text-[12.5px] text-warn">
@@ -213,7 +214,7 @@ export default function AskPage() {
                           const parts = (t.note || "").split("; ").filter((p) => p && !p.startsWith("model switch"));
                           return parts.length ? (
                             <div className={clsx("mt-1 text-[12.5px]",
-                              parts.some((p) => /^(UNGROUNDED|UNVERIFIED)/.test(p)) ? "text-warn" : "text-ink-3")}>
+                              parts.some((p) => /^(UNGROUNDED|UNVERIFIED|UNPROVEN NEGATIVE)/.test(p)) ? "text-warn" : "text-ink-3")}>
                               {parts.join("; ")}
                             </div>
                           ) : null;
@@ -296,6 +297,31 @@ export default function AskPage() {
           <div className="border-t border-line px-5 py-3 text-[12.5px] text-ink-3">{TAB_HINT[tab]}</div>
         </Card>
       </div>
+    </div>
+  );
+}
+
+/** How far the answer is established: a negative is VERIFIED_ABSENCE only when a closure-checked proof backs it. */
+const STATUS: Record<string, { label: string; tone: string; hint: string }> = {
+  GROUNDED: { label: "Grounded", tone: "bg-ok-soft text-ok", hint: "every name and amount comes from a tool result" },
+  VERIFIED_ABSENCE: { label: "Verified absence", tone: "bg-ok-soft text-ok",
+    hint: "the absence was proven in a stated scope (prove_absence PROVEN or a count over a resolved set)" },
+  NO_MATCH_THIS_ATTEMPT: { label: "No match this attempt", tone: "bg-warn-soft text-warn",
+    hint: "the tools returned nothing, which is not proof that nothing exists" },
+  ENTITY_UNRESOLVED: { label: "Entity unresolved", tone: "bg-warn-soft text-warn",
+    hint: "a name was not found or matched several entities" },
+  INCOMPLETE_OR_CONTRADICTORY: { label: "Incomplete or contradictory", tone: "bg-bad-soft text-bad",
+    hint: "a proof check failed, the answer disagreed with the proof, or the run did not finish normally" },
+  NEEDS_REVIEW: { label: "Needs review", tone: "bg-warn-soft text-warn",
+    hint: "names or amounts not found in any tool result, or no tool was used" },
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const s = STATUS[status] ?? { label: status, tone: "bg-warn-soft text-warn", hint: "" };
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-[12.5px]">
+      <span className={clsx("rounded px-1.5 py-0.5 font-medium", s.tone)} title={s.hint}>{s.label}</span>
+      <span className="text-ink-3">{s.hint}</span>
     </div>
   );
 }

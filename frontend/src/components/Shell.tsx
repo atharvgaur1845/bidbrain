@@ -8,6 +8,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api, getSession, resetSession } from "@/lib/api";
 import { Button, DocProvider, type TileTone } from "./ui";
+import SignIn from "./SignIn";
 
 type NavItem = { href: string; label: string; icon: typeof LayoutDashboard };
 const NAV: { label: string | null; items: NavItem[] }[] = [
@@ -190,6 +191,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 <span className={clsx("h-1.5 w-1.5 rounded-full", health?.ok ? "bg-ok" : health ? "bg-bad" : "bg-[var(--text-3)]")} />
                 FalkorDB
               </span>
+              <SignIn />
               <Button variant="secondary" size="sm" loading={resetting} onClick={reset}
                 title="Discard your changes and start from a fresh copy of the company graph" aria-label="Reset your graph">
                 {!resetting && <RotateCcw size={13} strokeWidth={1.75} aria-hidden />}

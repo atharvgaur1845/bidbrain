@@ -36,6 +36,7 @@ from typing import Callable
 from bidbrain.agents import providers
 from bidbrain.graph.client import Graph
 from bidbrain.tools import TOOLS, call, compact, schemas
+from bidbrain.agents import absence as A
 from bidbrain.agents.prompts import BRIEF
 
 Emit = Callable[[dict], None]
@@ -394,6 +395,91 @@ def name_absent(text: str, out: dict) -> tuple[str, int]:
     return _insert_before_answer(text, f"Missing (listed by prove_absence): {shown}"), len(left)
 
 
+_LIST_LINE = re.compile(r"^\s*(?:[-*•]|\d+[.)]|\|)\s*")
+_ABSENT_WORDS = re.compile(r"missing|absent|\black|without|no (?:reference|letter|valid|bond|credential)|not on file", re.I)
+
+
+def rewrite_absent(text: str, out: dict) -> tuple[str, int, bool]:
+    """The answer's absence list rebuilt from prove_absence's own `absent` result.
+
+    Every list or table block in the answer that is about the missing items (it names one of them, or says
+    missing / absent / no letter) is replaced by ONE line built from the proof, so the answer can no longer
+    show a table that contradicts the proof's list. With no such block, the line goes above the ANSWER line
+    when the answer leaves any item unnamed. Returns (text, items listed, whether a block disagreed)."""
+    items = _absent_names(out)
+    r = out.get("result") if isinstance(out, dict) else {}
+    r = r if isinstance(r, dict) else {}
+    lines = (text or "").split("\n")
+    blocks, cur = [], []
+    for i, ln in enumerate(lines):
+        if _LIST_LINE.match(ln) and not re.search(r"ANSWER:", ln, re.I):
+            cur.append(i)
+        else:
+            if cur:
+                blocks.append(cur)
+            cur = []
+    if cur:
+        blocks.append(cur)
+
+    def names_in(chunk: str) -> set[int]:
+        norm, low = _gnorm(chunk), chunk.lower()
+        hit = set()
+        for j, (name, key) in enumerate(items):
+            pkg = re.search(r"pkg-?\s*\d+", name, re.I)
+            if _gnorm(name) in norm or (key and str(key).lower() in low) or \
+                    (pkg and re.search(rf"\b{re.escape(pkg.group(0).lower())}\b", low)):
+                hit.add(j)
+        return hit
+
+    about = [b for b in blocks if names_in("\n".join(lines[i] for i in b)) or
+             _ABSENT_WORDS.search("\n".join(lines[i] for i in b))]
+    shown = "; ".join(f"{n}" + (f" ({k})" if k and k != n else "") for n, k in items[:30]) + \
+        (f"; and {len(items) - 30} more" if len(items) > 30 else "")
+    line = (f"Missing (listed by prove_absence): {shown or 'nothing in scope'} "
+            f"[verdict {r.get('verdict', '?')}, {r.get('absent_count', len(items))} of {r.get('universe', '?')} in scope]")
+    if about:
+        rows = [ln for b in about for ln in (lines[i] for i in b)
+                if not re.match(r"^\s*\|?\s*:?-{3,}", ln)]                  # table separator rows
+        header = [ln for ln in rows if ln.lstrip().startswith("|") and not names_in(ln)]
+        data = [ln for ln in rows if ln not in header]
+        named = names_in("\n".join(data))
+        disagree = len(named) != len(items) or len(data) != len(items)
+        drop = {i for b in about for i in b}
+        first = about[0][0]
+        new = [line if i == first else ln for i, ln in enumerate(lines) if i == first or i not in drop]
+        return "\n".join(new), len(items), disagree
+    if not items or len(names_in(text)) == len(items):
+        return text, 0, False
+    return _insert_before_answer(text, line), len(items) - len(names_in(text)), False
+
+
+# ── request size: Groq's free tier counts the whole request against ~6k tokens per minute ──
+TOOL_CAP = int(__import__("os").getenv("LLM_TOOL_CAP", "3000"))           # chars of one tool result
+REQUEST_CHARS = int(__import__("os").getenv("LLM_REQUEST_CHARS", "22000"))  # whole request, schemas included
+
+
+def fit_context(messages: list[dict], limit: int) -> list[dict]:
+    """`messages` cut to about `limit` characters: tool results shrink oldest first (to 1500, 600, then 200
+    chars, each marked as truncated); system and user turns are never cut."""
+    def size(ms):
+        return sum(len(str(m.get("content") or "")) + (len(json.dumps(m["tool_calls"])) if m.get("tool_calls") else 0)
+                   for m in ms)
+    if size(messages) <= limit:
+        return messages
+    out = [dict(m) for m in messages]
+    idx = [i for i, m in enumerate(out) if m.get("role") == "tool"]
+    for cap in (1500, 600, 200):
+        for i in idx:
+            c = str(out[i].get("content") or "")
+            body, sep, tail = c.rpartition("\nNOTE:")        # a trailing NOTE to the model is never cut
+            body, tail = (body, sep + tail) if sep else (c, "")
+            if len(body) > cap + 60:
+                out[i]["content"] = body[:cap] + f" ...[truncated {len(body) - cap} chars to fit the request size]" + tail
+                if size(out) <= limit:
+                    return out
+    return out
+
+
 def _add_note(res: "RunResult", text: str) -> None:
     res.note = f"{res.note}; {text}" if res.note else text
 
@@ -431,13 +517,37 @@ def non_answer(text: str) -> bool:
     return bool(_NON_ANSWER.search(m.group(1).strip(" *_`") if m else text))
 
 
+def _chat(messages: list[dict], tools: list[dict] | None, prefer: str | None, ctx: dict | None,
+          res: "RunResult | None" = None, emit: Emit | None = None, agent: str = ""):
+    """providers.chat with the request cut to fit (`fit_context`). An HTTP 413 (request too large) shrinks the
+    context and retries the SAME model (twice at most) instead of handing the answer to another model."""
+    ctx = ctx if ctx is not None else {"limit": REQUEST_CHARS, "shrinks": 0}
+    tool_chars = len(json.dumps(tools)) if tools else 0
+    while True:
+        limit = max(3000, ctx["limit"] - tool_chars)
+        try:
+            return providers.chat(fit_context(messages, limit), tools=tools, prefer=prefer)
+        except providers.LLMUnavailable as exc:
+            if getattr(exc, "kind", "") != "too_large" or ctx["shrinks"] >= 2:
+                raise
+            ctx["shrinks"] += 1
+            ctx["limit"] = max(4000, ctx["limit"] // 2)
+            if res is not None:
+                res.checks["shrunk_413"] = ctx["shrinks"]
+                _add_note(res, f"request too large (HTTP 413): context shrunk to ~{ctx['limit']} chars and retried "
+                               f"on the same model")
+            if emit:
+                emit({"type": "warning", "agent": agent,
+                      "message": "request too large (413): shrinking the context and retrying the same model"})
+
+
 def _finalize(messages: list[dict], res: RunResult, agent: str, emit: Emit, why: str,
               prefer: str | None = None, step: int | None = None, can_fallback: bool = False,
-              post: Callable[[str], str] | None = None) -> bool:
+              post: Callable[[str], str] | None = None, ctx: dict | None = None) -> bool:
     """One tool-free call asking for the answer from what the tools already returned. With `can_fallback`
     (a deterministic answer exists), a reply that answers nothing counts as a failure."""
     try:
-        rep = providers.chat([*messages, {"role": "user", "content": FINALIZE}], prefer=prefer)
+        rep = _chat([*messages, {"role": "user", "content": FINALIZE}], None, prefer, ctx, res, emit, agent)
     except providers.LLMUnavailable as exc:
         emit({"type": "warning", "agent": agent,
               "message": providers.redact(f"{why}; the final answer call failed too: {exc}")})
@@ -476,7 +586,7 @@ def _track(res: RunResult, rep, sticky: str | None, step: int | None, emit: Emit
 
 
 # what the model reads of a tool result, beyond registry.compact: an unresolved name must be visible to it
-_FOR_MODEL = ("not_found", "nearest", "note", "warnings")
+_FOR_MODEL = ("not_found", "ambiguous", "nearest", "note", "warnings")
 
 
 def _label_past_bids(x):
@@ -500,7 +610,11 @@ def blast_summary(r: dict) -> str:
             f"{f.get('clause')} {f.get('from')} -> {f.get('to')}")
     relying = sorted({d.get("case") or d.get("case_id") for d in r.get("cases_relying") or [] if isinstance(d, dict)})
     bids = [b.get("bid") for b in r.get("past_bids_citing") or [] if isinstance(b, dict)]
-    parts = [f"{len(cases)} open case(s) affected (verdict would flip)"
+    deps = [d for d in r.get("dependents") or [] if isinstance(d, dict)]
+    kinds = r.get("dependents_by_kind") or {}
+    parts = [f"{len(deps)} dependent(s) reached by graph paths"
+             + (": " + ", ".join(f"{v} {k}" for k, v in kinds.items()) if kinds else "")] if "dependents" in r else []
+    parts += [f"{len(cases)} open case(s) affected (verdict would flip)"
              + (": " + "; ".join(f"{c} ({', '.join(v)})" for c, v in cases.items()) if cases else "")]
     parts.append(f"{len(relying)} case(s) currently rely on it" + (": " + "; ".join(map(str, relying)) if relying else ""))
     parts.append(f"{len(bids)} past bid(s) cited it (past submissions, not open bids)")
@@ -539,10 +653,10 @@ def fallback_answer(last: dict | None, why: str) -> str | None:
         keys = _ANSWER_KEYS.get(last["tool"], _SCALAR_KEYS)
         value = next((r[k] for k in keys if k in r and isinstance(r[k], (int, float, str))), None)
     lines = [f"The language model became unavailable ({why}) before it could write the answer, so this is the "
-             f"last tool result exactly as the graph returned it, not interpreted by a model. Check it fits the question.",
-             "", f"Last step: {last['tool']}({json.dumps(last['args'], default=str)[:300]}) -> {_summary(out)}"]
+             f"last tool result, not interpreted by a model. Check it fits the question.",
+             "", f"Last step: {last['tool']}{_args_short(last['args'])} returned {sentence(last['tool'], out)}."]
     if isinstance(r, dict):
-        if r.get("claim"):
+        if r.get("claim") and last["tool"] != "prove_absence":
             lines.append(f"Claim: {r['claim']}" + (f" (verdict {r['verdict']})" if r.get("verdict") else ""))
         if r.get("basis"):
             lines.append(f"Basis: {r['basis']}")
@@ -560,6 +674,56 @@ def fallback_answer(last: dict | None, why: str) -> str | None:
         shown = str(value) if value is not None else "UNAVAILABLE (no model to compute it; see the last tool result)"
     lines += ["", f"ANSWER: {shown}"]
     return "\n".join(lines)
+
+
+def _args_short(args: dict) -> str:
+    parts = []
+    for k, v in (args or {}).items():
+        if isinstance(v, list):
+            parts.append(f"{k}={len(v)} item(s)")
+        elif isinstance(v, dict):
+            parts.append(f"{k}={{...}}")
+        elif v not in (None, ""):
+            parts.append(f"{k}={str(v)[:40]}")
+    return f" ({', '.join(parts[:5])})" if parts else ""
+
+
+def _rupees(v) -> str:
+    return f"₹{v:,}" if isinstance(v, int) and not isinstance(v, bool) else str(v)
+
+
+def sentence(tool: str, out: dict) -> str:
+    """One short, deterministic sentence for a tool result (never the raw JSON)."""
+    if "error" in out:
+        return f"an error ({str(out['error'])[:160]})"
+    if out.get("not_found"):
+        return _summary(out)
+    r = out.get("result")
+    if tool == "blast_radius" and isinstance(r, dict) and "verdict_flips" in r:
+        return blast_summary(r)
+    if isinstance(r, dict):
+        if tool == "prove_absence" and r.get("claim"):
+            return f"{r['claim']} (verdict {r.get('verdict')})"
+        if "n" in r and "total_value" in r:
+            return f"{r['n']} work(s), total {_rupees(r['total_value'])}"
+        if "value" in r and "op" in r:
+            return f"{r['op']} = {_rupees(r['value'])}"
+        if tool == "fact_as_of":
+            return f"value {r.get('value')!r} as of {r.get('as_of')}"
+        for k in ("claim", "basis", "verdict"):
+            if k in r:
+                return str(r[k])[:200]
+        bits = []
+        for k, v in r.items():
+            if isinstance(v, (int, float, str)) and not isinstance(v, bool) and len(bits) < 4:
+                bits.append(f"{k} {_rupees(v) if isinstance(v, int) else str(v)[:60]}")
+            elif isinstance(v, list) and len(bits) < 4:
+                bits.append(f"{len(v)} {k.replace('_', ' ')}")
+        return ", ".join(bits) or "an empty result"
+    if isinstance(r, list):
+        names = [str(x.get("name") or x.get("title") or x.get("key")) for x in r[:3] if isinstance(x, dict)]
+        return f"{len(r)} row(s)" + (f" (first: {'; '.join(names)})" if names else "")
+    return str(r)[:200] if r is not None else "an empty result"
 
 
 def _calls_from_text(text: str) -> list[dict]:
@@ -582,6 +746,7 @@ def _deterministic(res: RunResult, last_ok: dict | None, why: str, note: str, em
     if not text:
         return False
     res.final = text
+    res.checks["answer_status"] = A.INCOMPLETE
     _add_note(res, f"{note}; deterministic answer from the last tool result ({last_ok['tool']}), no model involved")
     emit({"type": "final", "agent": agent, "text": text, "provider": "deterministic", "note": res.note,
           "deterministic": True})
@@ -589,14 +754,14 @@ def _deterministic(res: RunResult, last_ok: dict | None, why: str, note: str, em
 
 
 def _salvage(g: Graph, messages: list[dict], res: RunResult, agent: str, emit: Emit, exc, sticky, step,
-             last_ok: dict | None, post: Callable[[str], str] | None = None) -> None:
+             last_ok: dict | None, post: Callable[[str], str] | None = None, ctx: dict | None = None) -> None:
     """The LLM failed mid-run: answer anyway. A tool-free finalize call first; if that fails as well (or gives
     no answer), the deterministic answer from the last successful tool result. `res.error` stays set for the
     latter, so a caller that needs a model-written text (the Assembler) still falls back to its own template."""
     kind = getattr(exc, "kind", "unavailable")
     why = f"LLM {kind.replace('_', ' ')} mid-run"
     emit({"type": "warning", "agent": agent, "message": f"{why}: {res.error}; answering from the results so far"})
-    if _finalize(messages, res, agent, emit, why, sticky, step, can_fallback=last_ok is not None, post=post):
+    if _finalize(messages, res, agent, emit, why, sticky, step, can_fallback=last_ok is not None, post=post, ctx=ctx):
         res.error = None
         return
     if not _deterministic(res, last_ok, kind.replace("_", " "), why, emit, agent):
@@ -611,12 +776,37 @@ def _check_args(g: Graph, name: str, args: dict) -> str | None:
     return None
 
 
+_DUP_NOTE = ("\nNOTE: this exact call (same tool, same arguments) already ran in this run; this is the earlier result, "
+             "not a new query. Do not repeat it: use the result, call a different tool, or answer.")
+
+
+def _now_iso() -> str:
+    import datetime as dt
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+
+def now_vs_then(pairs: list[dict]) -> list[str]:
+    """One deterministic line per fact_as_of call on a past date: what we believed then, what we believe now."""
+    lines = []
+    for p in pairs:
+        then, now = p["then"], p["now"]
+        tv = then.get("value") if isinstance(then, dict) else None
+        nv = now.get("value") if isinstance(now, dict) else None
+        same = "unchanged" if tv == nv else "changed"
+        lines.append(f"Now vs then: {p['key']}.{p['predicate']} was {tv!r} as of {p['as_of']} and is {nv!r} now "
+                     f"({p['now_at']}): {same}.")
+    return lines
+
+
 def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str],
               max_steps: int = 8, emit: Emit | None = None, history: list[dict] | None = None,
               ground: bool = False) -> RunResult:
     """Run one agent to an answer. `ground=True` (the Q&A agent) adds the answer checks: a tool-free answer to
     an entity / number question is re-asked once, names and amounts absent from every tool result are listed
-    back once, and prove_absence's missing items are named. Each re-ask is free (it does not use a step)."""
+    back once, an unproven negative ("none", "not affected") is re-asked once and then replaced by a
+    deterministic uncertainty statement, prove_absence's list replaces the answer's own, and every answer gets
+    `checks.answer_status`. Each re-ask is free (it does not use a step); so is a repeated identical tool call,
+    which returns the earlier result instead of running again."""
     emit = emit or (lambda e: None)
     t0 = time.perf_counter()
     res = RunResult(agent=agent, final="")
@@ -632,25 +822,66 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
     absence = None      # the last successful prove_absence result: its missing items must be named
     reasked: set[str] = set()
     pending: str | None = None      # an answer that was re-asked about, kept if the re-ask fails
+    trail: list[dict] = []          # every tool call that ran: {tool, args, out}
+    ran: dict[str, tuple[dict, str]] = {}   # call signature -> (out, what the model saw), for repeated calls
+    free_dups = 2                   # repeated-call replies that do not use a step
+    then_now: list[dict] = []       # fact_as_of on a past date, with the same fact now
+    ctx = {"limit": REQUEST_CHARS, "shrinks": 0}
 
     def post(text: str) -> str:
-        """The answer checks that change no model output: notes, and the missing items named."""
-        if not ground:
-            return text
+        """The answer checks that change no model output: notes, the missing items, negatives, the status."""
+        if not ground or (res.usage["tool_calls"] == 0 and not needs_tools(user)):
+            return text         # small talk: nothing about the company was asked or answered
+        review = False
         if res.usage["tool_calls"] == 0:
             if needs_tools(user):
                 res.checks["ungrounded"] = True
+                review = True
                 _add_note(res, "UNGROUNDED: answered without calling any tool, so nothing in this answer was "
                                "checked against the company graph")
         elif missing := ungrounded(text, "\n".join(corpus)):
             res.checks["unverified"] = missing
+            review = True
             _add_note(res, "UNVERIFIED: these names or amounts do not appear in any tool result: "
                       + "; ".join(missing[:12]))
+        state = A.evidence_state(trail)
+        negs = A.negatives(text)
+        bad = A.unsupported(text, state)
+        if bad:
+            text, k = A.rewrite_unsupported(text, state, trail)
+            res.checks["negatives_replaced"] = list(dict.fromkeys(bad))[:8]
+            _add_note(res, "UNPROVEN NEGATIVE: no tool proved the absence this answer stated ("
+                      + "; ".join(list(dict.fromkeys(bad))[:4]) + "); replaced with an uncertainty statement")
+        elif negs and (state["proven"] or state["scoped"]) and not state["unresolved"] \
+                and A.VERIFIED_PREFIX not in text:
+            text = _insert_before_answer(text, A.verified_line(state, A.backing_sets(text, state)))
+        contradiction = False
         if absence is not None:
-            text, n = name_absent(text, absence)
+            text, n, contradiction = rewrite_absent(text, absence)
             if n:
                 res.checks["absent_named"] = n
-                _add_note(res, f"named the {n} item(s) prove_absence lists as missing, which the answer left out")
+                _add_note(res, f"named the {n} item(s) prove_absence lists as missing, from the proof itself")
+            if contradiction:
+                res.checks["absence_list_rewritten"] = True
+                _add_note(res, "the answer's own list of missing items disagreed with prove_absence; replaced by "
+                               "the proof's list")
+        if then_now:
+            for ln in now_vs_then(then_now):
+                text = _insert_before_answer(text, ln)
+            res.checks["now_vs_then"] = len(then_now)
+        if state["unresolved"] and A.UNRESOLVED_PREFIX not in text:
+            text = _insert_before_answer(text, A.unresolved_line(state))
+        incomplete = bool(res.note and re.search(r"budget exhausted|mid-run|malformed|re-ask failed", res.note))
+        status = A.classify(has_negative=bool(negs), negative_ok=bool(negs) and not bad, state=state,
+                            contradiction=contradiction, incomplete=incomplete, review=review,
+                            tool_free=res.usage["tool_calls"] == 0)
+        res.checks["answer_status"] = status
+        res.checks["answer_status_detail"] = {
+            "proven_absence": [t["out"]["result"].get("claim") for t in state["proven"]],
+            "unproven_absence": [t["out"]["result"].get("claim") for t in state["unproven"]],
+            "scoped_sets": [t["tool"] for t in state["scoped"]],
+            "unresolved": state["unresolved"], "empty_results": [t["tool"] for t in state["empty"]],
+            "negatives": list(dict.fromkeys(negs))[:8]}
         return text
 
     def accept(text: str, provider: str | None) -> None:
@@ -671,7 +902,7 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
     budget, step, done = max_steps, 0, False
     while step < budget:
         try:
-            rep = providers.chat(messages, tools=tools, prefer=sticky)
+            rep = _chat(messages, tools, sticky, ctx, res, emit, agent)
         except providers.LLMUnavailable as exc:
             res.error = providers.redact(str(exc))
             if pending is not None:     # a re-ask failed: the answer we have stands, with its checks
@@ -679,7 +910,7 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
                 _add_note(res, f"the re-ask failed (LLM {getattr(exc, 'kind', 'unavailable').replace('_', ' ')})")
                 accept(pending, None)
             elif res.steps:             # evidence was gathered: it deserves an answer
-                _salvage(g, messages, res, agent, emit, exc, sticky, step, last_ok, post)
+                _salvage(g, messages, res, agent, emit, exc, sticky, step, last_ok, post, ctx)
             else:
                 emit({"type": "error", "agent": agent, "message": res.error})
             done = True
@@ -705,7 +936,7 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
                 if pending is not None:
                     accept(pending, rep.provider)
                 elif not (res.steps and _finalize(messages, res, agent, emit, "malformed tool calls", sticky, step,
-                                                  can_fallback=last_ok is not None, post=post)) \
+                                                  can_fallback=last_ok is not None, post=post, ctx=ctx)) \
                         and not _deterministic(res, last_ok, "malformed tool calls", "malformed tool calls", emit, agent):
                     res.error = "the model wrote only malformed tool calls"
                     emit({"type": "error", "agent": agent, "message": res.error})
@@ -724,6 +955,12 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
                 budget += 1
                 step += 1
                 continue
+            if ground and res.usage["tool_calls"] and "absence" not in reasked and \
+                    (bad := A.unsupported(text, A.evidence_state(trail))):
+                reask("absence", text, A.absence_hint(bad), "unproven negative: " + "; ".join(bad[:4]))
+                budget += 1
+                step += 1
+                continue
             accept(text, rep.provider)
             done = True
             break
@@ -733,6 +970,7 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
                          "tool_calls": [{"id": tc["id"], "type": "function",
                                          "function": {"name": tc["name"], "arguments": tc["arguments"]}}
                                         for tc in rep.tool_calls]})
+        dups = 0
         for tc in rep.tool_calls:
             try:
                 args = json.loads(tc["arguments"] or "{}")
@@ -740,6 +978,14 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
                 args = {}
             if not isinstance(args, dict):
                 args = {}
+            sig = f"{tc['name']}:{json.dumps(args, sort_keys=True, default=str)}"
+            if sig in ran:              # the same call again: the earlier result, no query, no step
+                dups += 1
+                res.checks.setdefault("repeated_calls", []).append(tc["name"])
+                emit({"type": "warning", "agent": agent,
+                      "message": f"repeated identical call to {tc['name']}: returned the earlier result"})
+                messages.append({"role": "tool", "tool_call_id": tc["id"], "content": ran[sig][1] + _DUP_NOTE})
+                continue
             emit({"type": "tool_call", "agent": agent, "tool": tc["name"], "args": args, "step": step})
             if tc["name"] not in offered:   # registered or not, a tool this agent was not given must not run
                 out = {"error": f"tool {tc['name']!r} is not available here", "available": offered}
@@ -748,6 +994,7 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
             else:
                 out = call(g, tc["name"], args)
             res.usage["tool_calls"] += 1
+            trail.append({"tool": tc["name"], "args": args, "out": out})
             res.evidence += [e for e in out.get("evidence", []) if e not in res.evidence]
             _merge_subgraph(res.subgraph, out.get("subgraph", {}))
             step_rec = {"tool": tc["name"], "args": args, "ms": out.get("ms"), "error": out.get("error"),
@@ -760,6 +1007,13 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
                 last_ok = {"tool": tc["name"], "args": args, "out": out}
                 if tc["name"] == "prove_absence":
                     absence = out
+                if ground and tc["name"] == "fact_as_of" and _is_past(args.get("as_of")):
+                    now_at = _now_iso()
+                    now = call(g, "fact_as_of", {**args, "as_of": now_at})
+                    if "error" not in now:
+                        then_now.append({"key": args.get("key"), "predicate": args.get("predicate"),
+                                         "as_of": args.get("as_of"), "then": out.get("result"),
+                                         "now": now.get("result"), "now_at": now_at})
             res.steps.append(step_rec)
             emit({"type": "tool_result", "agent": agent, "tool": tc["name"], "ms": out.get("ms"),
                   "error": out.get("error"), "summary": _summary(out), "subgraph": out.get("subgraph"),
@@ -768,11 +1022,19 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
                   **({"note": note.strip(), "unasked_filters": flags} if flags else {})})
             seen = _for_model(out, tc["name"])
             corpus.append(seen)
-            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": seen[:9000 - len(note)] + note})
+            if then_now and then_now[-1]["then"] is out.get("result"):
+                corpus.append(json.dumps(then_now[-1]["now"], default=str))
+            content = _cap(seen, TOOL_CAP - len(note)) + note
+            ran[sig] = (out, content)
+            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": content})
+        if dups and dups == len(rep.tool_calls) and free_dups > 0:
+            free_dups -= 1
+            budget += 1             # a reply of only repeated calls does not use a step
         step += 1
     if not done:
         why = "step budget exhausted"
-        if not _finalize(messages, res, agent, emit, why, sticky, budget, can_fallback=last_ok is not None, post=post):
+        if not _finalize(messages, res, agent, emit, why, sticky, budget, can_fallback=last_ok is not None, post=post,
+                         ctx=ctx):
             if pending is not None:
                 _add_note(res, f"{why}; kept the answer given before the last re-ask")
                 accept(pending, None)
@@ -781,8 +1043,26 @@ def run_agent(g: Graph, agent: str, system: str, user: str, tool_names: list[str
                 if not _deterministic(res, last_ok, "step budget exhausted and the final answer call failed", why,
                                       emit, agent):
                     emit({"type": "error", "agent": agent, "message": res.error})
+    if ground and "answer_status" not in res.checks and (res.error or not res.final):
+        res.checks["answer_status"] = A.INCOMPLETE
     res.ms = round((time.perf_counter() - t0) * 1000, 1)
     return res
+
+
+def _cap(text: str, n: int) -> str:
+    n = max(400, n)
+    return text if len(text) <= n else text[:n] + f" ...[truncated {len(text) - n} chars; narrow the call for the rest]"
+
+
+def _is_past(as_of) -> bool:
+    import datetime as dt
+    try:
+        d = dt.datetime.fromisoformat(str(as_of).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=dt.timezone.utc)
+    return d.date() < dt.datetime.now(dt.timezone.utc).date()
 
 
 def _summary(out: dict) -> str:
@@ -800,7 +1080,7 @@ def _summary(out: dict) -> str:
             return f"{r['n']} works, total {r['total_value']:,}"
         if "value" in r and "op" in r:
             return f"{r['op']} = {r['value']}"
-        return json.dumps(r, default=str)[:200]
+        return sentence("", out)[:200]
     if isinstance(r, list):
         return f"{len(r)} rows"
     return str(r)[:200]

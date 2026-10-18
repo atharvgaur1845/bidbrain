@@ -17,15 +17,19 @@ Governance
   demo (DEMO-0 / DEMO-1 -> BID -> NO-BID), whatever other visitors published. Facts whose winning claim came
   from a planted demo event are allowed but flagged `demo: true`; like every fact they apply only where the
   visitor opted in. Planted evaluation claims are never published.
-* **Four eyes.** The session that queued a publish cannot approve it alone. Its approve attempt files a
-  (:PublishRequest) in the company graph; a *different* session approves it there
-  (POST /api/company/record/requests/{id}/approve), or an operator approves the action with ORG_ADMIN_TOKEN.
-  The OrgFact records both `published_by` (the executing session) and `approved_by` (the other party).
+* **Four eyes, on verified identities.** Every shared step needs a signed-in principal (api/auth.py); a session
+  id or a typed name is never an identity, and with no principals configured publication is disabled. The
+  principal who approves the publish action files a (:PublishRequest {requested_by_principal, version}); a
+  *different* principal holding the `approver` role approves exactly that request id and version
+  (POST /api/company/record/requests/{id}/approve {version}: compare-and-set, so a replay or a concurrent
+  approve yields one transition), or an operator approves the action with ORG_ADMIN_TOKEN. The OrgFact records
+  `owner_principal` (the initiator), `published_by` and `approved_by` (the other principal); every decision is
+  also written as an (:OrgAudit {at, principal, action, target, session}) node.
 * **Not a trump card.** An applied fact is a claim like any other in the conflict engine
   (`engine._propose_with_record`): it settles only what its source decision already weighed; newer or stronger
   evidence can beat it or open a card. Any session can *contest* a fact it applied: the decisions it made there
   reopen as resolve cards and it stops applying there.
-* **Retire propagates.** Only the publisher (or an operator) retires a fact. Every workspace that applied it
+* **Retire propagates.** Only the owning principal (or an admin / operator) retires a fact. Every workspace that applied it
   notices on its next request (`sync_record_status`): the claim the fact brought is withdrawn, the claims its
   decision set aside come back, the engine decides the fact again without it, and the change ripples to cases.
 
@@ -41,6 +45,7 @@ import json
 import re
 import threading
 
+from bidbrain.api import auth
 from bidbrain.graph.client import Graph, db
 
 CLAIM_KEYS = ("id", "subject_label", "subject_key", "predicate", "value", "value_str", "source_doc", "source_kind",
@@ -94,6 +99,21 @@ def _lock():
     return _ORG_LOCK
 
 
+def _principal(what: str) -> auth.Principal:
+    """The verified principal for a shared change (auth.require), raised as OrgMemoryError."""
+    try:
+        return auth.require(what)
+    except auth.AuthError as exc:
+        raise _err(str(exc), exc.status)
+
+
+def audit(org: Graph, action: str, target: str, principal: str | None, session: str | None = None,
+          note: str | None = None) -> None:
+    """One audit row per shared decision: who (verified principal), what, on which id, from which workspace."""
+    org.run("""CREATE (:OrgAudit {at: timestamp(), action: $a, target: $t, principal: $p, session: $s, note: $n})""",
+            {"a": action, "t": target, "p": principal, "s": session, "n": (note or "")[:200] or None})
+
+
 # ------------------------------------------------------------------ publication requests (four eyes)
 
 def _req_id(tag: str, decision_id: str) -> str:
@@ -118,20 +138,25 @@ def _snapshot(g: Graph, decision_id: str) -> dict:
     return rows[0]
 
 
-def request_publication(g: Graph, action_id: str, decision_id: str) -> dict:
-    """File (idempotently) a request for another party to approve publishing this decision."""
+def request_publication(g: Graph, action_id: str, decision_id: str, principal: str) -> dict:
+    """File (idempotently) a request for another principal to approve publishing this decision."""
     snap = _snapshot(g, decision_id)
     tag, rid = _tag(g), _req_id(_tag(g), decision_id)
     with _lock():
         org = _org(create=True)
         org.run("""MERGE (r:PublishRequest {id:$id})
-                   ON CREATE SET r.key = $id, r.status = 'pending', r.requested_at = timestamp(),
+                   ON CREATE SET r.key = $id, r.status = 'pending', r.requested_at = timestamp(), r.version = 1,
+                                 r._new = true, r.requested_by_principal = $who,
                                  r.source_session = $tag, r.decision_id = $d, r.action_id = $a,
                                  r.subject_key = $sk, r.subject = $subj, r.predicate = $p, r.value = $v,
                                  r.policy = $pol, r.rationale = $why, r.source_doc = $doc, r.demo = $demo""",
                 {"id": rid, "tag": tag, "d": decision_id, "a": action_id, "sk": snap["subject_key"],
                  "subj": snap["subject"], "p": snap["predicate"], "v": snap["value"], "pol": snap["policy"],
-                 "why": snap["rationale"], "doc": snap["source_doc"], "demo": snap["planted"] == "demo"})
+                 "why": snap["rationale"], "doc": snap["source_doc"], "demo": snap["planted"] == "demo",
+                 "who": principal})
+        if org.run("MATCH (r:PublishRequest {id:$id}) WHERE r._new = true SET r._new = NULL RETURN r.id AS id",
+                   {"id": rid}):
+            audit(org, "publish_request", rid, principal, tag, f"action {action_id}, decision {decision_id}")
         org.run("""MATCH (r:PublishRequest {status:'pending'}) WITH r ORDER BY r.requested_at DESC SKIP $keep
                    DELETE r""", {"keep": MAX_PENDING_REQUESTS})
         org.run("""MATCH (r:PublishRequest) WHERE r.status <> 'pending'
@@ -148,48 +173,73 @@ def check_publish_approval(g: Graph, action_id: str, by: str) -> None:
     rows = g.read("MATCH (a:Action {id:$a}) RETURN a.kind AS kind, a.payload AS payload", {"a": action_id})
     if not rows or rows[0]["kind"] != "publish_to_company_record" or approving_admin.get():
         return
+    try:
+        p = auth.require("approving a company-record publication")
+    except auth.AuthError as exc:
+        raise ActionError(str(exc), exc.status)
     decision_id = json.loads(rows[0]["payload"] or "{}").get("decision_id")
     tag = _tag(g)
     req = _request(_req_id(tag, decision_id)) if decision_id else None
-    if req and req.get("status") == "approved" and req.get("approved_by") not in (None, tag):
+    if req and req.get("status") == "approved" and req.get("approved_principal"):
+        if req["approved_principal"] == p.name:
+            raise ActionError(f"{p.name} approved request {req['id']} as the second approver; the same principal "
+                              f"cannot also approve the publish action (four eyes)", 403)
         return
     if req and req.get("status") == "rejected":
         raise ActionError(f"publication request {req['id']} was rejected by {req.get('decided_by')}"
                           f"{': ' + req['note'] if req.get('note') else ''}; reject this action", 403)
-    req = request_publication(g, action_id, decision_id)
-    raise ActionError(f"publishing to the company record needs a second approver: request {req['id']} is now "
-                      f"listed in the company record (Memory page) for another workspace to approve, or an operator "
-                      f"approves this action with the admin token", 403)
+    req = request_publication(g, action_id, decision_id, p.name)
+    raise ActionError(f"publishing to the company record needs a second approver: request {req['id']} "
+                      f"(version {req.get('version')}) is now listed in the company record (Memory page) for a "
+                      f"different principal with the approver role to approve, or an operator approves this "
+                      f"action with the admin token", 403)
 
 
 def decide_request(rid: str, verb: str, g: Graph | None, admin: bool = False, user: str | None = None,
-                   note: str | None = None) -> dict:
-    """approve | reject a publication request, from a session other than the one that filed it (or as admin)."""
+                   note: str | None = None, version=None) -> dict:
+    """approve | reject one publication request, at the version the decider saw. Needs a signed-in principal
+    with the `approver` (or admin) role that is not the principal who filed it, or the operator admin token.
+    Compare-and-set on (status = 'pending', version): of concurrent or replayed decisions exactly one moves the
+    request; a repeat by the same principal with the same outcome gets that result back (`already`), anything
+    else a 409."""
     from bidbrain.conflicts.engine import _label
     if not isinstance(rid, str) or not REQ_ID_RE.match(rid):
         raise _err("id must look like PR-<10 hex>", 400)
     if verb not in ("approve", "reject"):
         raise _err(f"unknown verb {verb!r}", 400)
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise _err("version (integer) required: approve exactly the request version you reviewed", 400)
+    p = None if admin else _principal(f"{verb} of a company-record publication")
+    if p is not None and p.role not in ("approver", "admin"):
+        raise _err(f"{p.name} has role {p.role}; only a principal with the approver role can {verb} a publication",
+                   403)
     tag = _tag(g) if g is not None and g.name.startswith("session_") else None
-    if not admin and tag is None:
-        raise _err("approving a publication needs a session (X-Session header) or the admin token", 400)
     to = "approved" if verb == "approve" else "rejected"
+    who = "admin" if admin else p.name
     with _lock():
         req = _request(rid)
         if req is None:
             raise _err(f"no publication request {rid}", 404)
-        if req["status"] == to:
-            return {**req, "already": True}
+        if p is not None and req.get("requested_by_principal") == p.name:
+            raise _err(f"{p.name} filed {rid}; the initiator cannot approve or reject their own request "
+                       "(a different approver, or an operator with the admin token, must)", 403)
         if req["status"] != "pending":
-            raise _err(f"{rid} is {req['status']}; it cannot be {to}", 409)
-        if not admin and req.get("source_session") == tag:
-            raise _err("the workspace that asked to publish this fact cannot approve or reject its own request; "
-                       "another workspace (or an operator with the admin token) must", 403)
-        who = "admin" if admin else tag
-        _org().run("""MATCH (r:PublishRequest {id:$id}) SET r.status = $to, r.decided_by = $by,
-                          r.decided_by_label = $lab, r.decided_at = timestamp(), r.note = $note
-                      SET r.approved_by = CASE WHEN $to = 'approved' THEN $by ELSE NULL END""",
-                   {"id": rid, "to": to, "by": who, "lab": _label(user), "note": (str(note or "")[:200]).strip() or None})
+            if req["status"] == to and req.get("decided_principal") == who:
+                return {**req, "already": True}
+            raise _err(f"{rid} is {req['status']} (by {req.get('decided_principal') or req.get('decided_by')}); "
+                       f"it cannot be {to}", 409)
+        rows = _org().run("""MATCH (r:PublishRequest {id:$id}) WHERE r.status = 'pending' AND coalesce(r.version, 1) = $v
+                             SET r.status = $to, r.decided_by = $by, r.decided_principal = $by,
+                                 r.decided_session = $tag, r.decided_by_label = $lab, r.decided_at = timestamp(),
+                                 r.note = $note, r.version = coalesce(r.version, 1) + 1
+                             SET r.approved_by = CASE WHEN $to = 'approved' THEN $by ELSE NULL END,
+                                 r.approved_principal = CASE WHEN $to = 'approved' THEN $by ELSE NULL END
+                             RETURN r.id AS id""",
+                          {"id": rid, "to": to, "by": who, "tag": tag, "v": version, "lab": _label(user),
+                           "note": (str(note or "")[:200]).strip() or None})
+        if not rows:
+            raise _err(f"{rid} is at version {req.get('version', 1)}, not {version}: reload it and review again", 409)
+        audit(_org(), f"publish_request_{to}", rid, who, tag, note)
     return {**(_request(rid) or {}), "already": False}
 
 
@@ -216,14 +266,16 @@ def _approver(g: Graph, decision_id: str) -> tuple[str, str | None]:
     """Who approved this publication: the other session that approved its request, or 'admin'."""
     tag = _tag(g)
     req = _request(_req_id(tag, decision_id))
-    if req and req.get("status") == "approved" and req.get("approved_by") not in (None, tag):
-        return req["approved_by"], req["id"]
+    if req and req.get("status") == "approved" and req.get("approved_principal") \
+            and req["approved_principal"] != req.get("requested_by_principal"):
+        return req["approved_principal"], req["id"]
     by = g.scalar("""MATCH (a:Action {kind:'publish_to_company_record', target:$d})
                      WHERE a.status IN ['approved', 'executing'] AND a.decided_by STARTS WITH 'admin'
                      RETURN a.decided_by LIMIT 1""", {"d": decision_id})
     if by and str(by).startswith("admin"):
         return "admin", None
-    raise ValueError("publishing needs a second approver (another workspace, or an operator with the admin token)")
+    raise ValueError("publishing needs a second approver (a different principal with the approver role, or an "
+                     "operator with the admin token)")
 
 
 def publish(g: Graph, decision_id: str, by: str) -> dict:
@@ -238,7 +290,10 @@ def publish(g: Graph, decision_id: str, by: str) -> dict:
     d, c, doc = rows[0]["d"], rows[0]["c"], rows[0]["doc"] or {}
     if c.get("planted") not in (None, "demo"):        # demo fixtures are flagged; eval plants never leave
         raise ValueError("planted evaluation claims are never published to the company record")
+    p = auth.current.get()
     approver, rid = _approver(g, decision_id)
+    owner = (_request(rid) or {}).get("requested_by_principal") if rid else None
+    owner = owner or (p.name if p else "admin")
     fid = "OF-" + hashlib.sha1(f"{c['subject_key']}|{c['predicate']}|{c['id']}".encode()).hexdigest()[:10]
     ruled = sorted(x for x in rows[0]["ruled"] if x and x != c["id"])
     with _lock():
@@ -248,18 +303,21 @@ def publish(g: Graph, decision_id: str, by: str) -> dict:
                                  f.claim = $claim, f.document = $doc, f.ruled = $ruled, f.source_decision = $d,
                                  f.policy = $policy, f.rationale = $why, f.source_session = $sess,
                                  f.published_by = $by, f.approved_by = $appr, f.request = $rid,
+                                 f.owner_principal = $owner, f.published_principal = $pp,
                                  f.published_at = timestamp(), f.status = 'active', f.demo = $demo""",
                 {"id": fid, "sl": c["subject_label"], "sk": c["subject_key"], "p": c["predicate"], "v": str(c["value"]),
                  "claim": json.dumps({k: c.get(k) for k in CLAIM_KEYS}, default=str),
                  "doc": json.dumps({k: doc.get(k) for k in DOC_KEYS}, default=str), "ruled": json.dumps(ruled),
                  "d": decision_id, "policy": d.get("policy"), "why": d.get("rationale"),
-                 "sess": _tag(g), "by": by, "appr": approver, "rid": rid, "demo": c.get("planted") == "demo"})
+                 "sess": _tag(g), "by": by, "appr": approver, "rid": rid, "demo": c.get("planted") == "demo",
+                 "owner": owner, "pp": p.name if p else "admin"})
         # an older published value of the same fact is superseded, never deleted (the record keeps its history)
         org.run("""MATCH (old:OrgFact {subject_key:$sk, predicate:$p, status:'active'}) WHERE old.id <> $id
                    SET old.status = 'superseded', old.superseded_by = $id, old.superseded_at = timestamp()""",
                 {"sk": c["subject_key"], "p": c["predicate"], "id": fid})
         if rid:
             org.run("MATCH (r:PublishRequest {id:$r}) SET r.status = 'published', r.org_fact = $f", {"r": rid, "f": fid})
+        audit(org, "publish", fid, p.name if p else "admin", _tag(g), f"decision {decision_id}, approved by {approver}")
     g.run("MATCH (d:Decision {id:$d}) SET d.published_as = $f", {"d": decision_id, "f": fid})
     _mirror()
     _note_applied(g, fid, own=True)    # the publishing workspace already holds this fact (its own decision)
@@ -274,18 +332,29 @@ def retire(fid: str, session_graph: str | None, admin: bool = False, reason: str
     'retired' (history is never deleted). Every workspace that applied it withdraws it on its next request
     (`sync_record_status`): the decisions it made there are re-decided without it, and that ripples."""
     from bidbrain.conflicts.engine import session_tag
+    p = None
+    if not admin:
+        try:
+            p = auth.require("retiring a published fact")
+        except auth.AuthError as exc:
+            raise PermissionError(str(exc)) if exc.status == 403 else _err(str(exc), exc.status)
     org = _org()
-    rows = org.read("MATCH (f:OrgFact {id:$id}) RETURN f.source_session AS s, f.status AS st", {"id": fid}) if org else []
+    rows = org.read("MATCH (f:OrgFact {id:$id}) RETURN f.owner_principal AS o, f.status AS st", {"id": fid}) if org else []
     if not rows:
         raise LookupError(f"no published fact {fid}")
-    if not admin and (session_graph is None or session_tag(session_graph) != rows[0]["s"]):
-        raise PermissionError("only the workspace that published this fact can retire it; contest it instead "
-                              f"(POST /api/company/record/{fid}/contest) to stop it applying in your workspace")
+    if p is not None and not p.is_admin and rows[0]["o"] != p.name:
+        raise PermissionError(f"only the principal who owns {fid} ({rows[0]['o'] or 'an operator'}) can retire it; "
+                              f"contest it instead (POST /api/company/record/{fid}/contest) to stop it applying in "
+                              f"your workspace")
     if rows[0]["st"] == "retired":
         return {"retired": fid, "already": True}
-    org.run("""MATCH (f:OrgFact {id:$id}) SET f.status = 'retired', f.retired_at = timestamp(), f.retire_reason = $r,
-                   f.retired_by = $by""",
-            {"id": fid, "r": (reason or "")[:300], "by": "admin" if admin else rows[0]["s"]})
+    who = "admin" if p is None else p.name
+    sess = session_tag(session_graph) if session_graph else None
+    with _lock():
+        org.run("""MATCH (f:OrgFact {id:$id}) SET f.status = 'retired', f.retired_at = timestamp(), f.retire_reason = $r,
+                       f.retired_by = $by, f.retired_principal = $by, f.retired_session = $s""",
+                {"id": fid, "r": (reason or "")[:300], "by": who, "s": sess})
+        audit(org, "retire_fact", fid, who, sess, reason)
     _mirror()
     return {"retired": fid, "already": False}
 
@@ -300,6 +369,7 @@ def contest(g: Graph, fid: str, reason: str | None = None, user: str | None = No
         raise _err("contesting a published fact needs a session (X-Session header)", 400)
     if not isinstance(fid, str) or not FACT_ID_RE.match(fid):
         raise _err("id must look like OF-<10 hex>", 400)
+    p = _principal("contesting a published fact")
     tag = _tag(g)
     org = _org()
     rows = org.read("MATCH (f:OrgFact {id:$id}) RETURN f {.*} AS f", {"id": fid}) if org else []
@@ -323,10 +393,11 @@ def contest(g: Graph, fid: str, reason: str | None = None, user: str | None = No
         if n < MAX_CONTESTS:
             org.run("""MATCH (f:OrgFact {id:$id})
                        MERGE (c:Contest {key:$key}) ON CREATE SET c.at = timestamp(), c.session = $tag
-                       SET c.label = $lab, c.reason = $why
+                       SET c.label = $lab, c.reason = $why, c.principal = $who
                        MERGE (c)-[:CONTESTS]->(f)""",
-                    {"id": fid, "key": f"{fid}:{tag}", "tag": tag, "lab": _label(user),
+                    {"id": fid, "key": f"{fid}:{tag}", "tag": tag, "lab": _label(user), "who": p.name,
                      "why": (str(reason or "")[:200]).strip() or None})
+            audit(org, "contest_fact", fid, p.name, tag, reason)
         contests = org.scalar("MATCH (c:Contest)-[:CONTESTS]->(:OrgFact {id:$id}) RETURN count(c)", {"id": fid}) or 0
         org.run("MATCH (f:OrgFact {id:$id}) SET f.contests = $n", {"id": fid, "n": contests})
     _mirror()
@@ -378,7 +449,8 @@ def facts(status: str | None = "active") -> list[dict]:
                               f.published_by AS published_by, f.approved_by AS approved_by, f.request AS request,
                               f.published_at AS published_at, f.status AS status, coalesce(f.demo, false) AS demo,
                               coalesce(f.contests, 0) AS contests, f.superseded_by AS superseded_by,
-                              f.retired_at AS retired_at, f.retire_reason AS retire_reason
+                              f.retired_at AS retired_at, f.retire_reason AS retire_reason,
+                              f.owner_principal AS owner_principal, f.retired_by AS retired_by
                        ORDER BY f.published_at""", {"s": status})
 
 

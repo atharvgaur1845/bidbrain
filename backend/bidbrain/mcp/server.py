@@ -18,6 +18,13 @@ Acting tools (readOnlyHint=False), all on a *session's* own graph copy (`session
   returns the case, its verdicts and the follow-up actions it created;
 * `transition_action` approves, rejects or executes one of those actions (company/actions.py:
   compare-and-set lifecycle, audit trail, four-eyes rule on publishing to the company record).
+
+Identity: an MCP caller is anonymous unless it presents a principal token (`principal_token`, or an
+`Authorization: Bearer` header on /mcp; get one from POST /api/auth/login). Actions created by an MCP call
+(every action `qualify_tender` returns, and every action in a session it created) are marked
+`created_via='mcp'`, and `transition_action` refuses to *approve* those without a principal token: the agent
+that raised a follow-up cannot also sign it off. Reject and execute stay session-scoped for local actions;
+publishing to the shared company record always needs a principal and a different second approver.
 `list_actions` reads the session's action queue. Nothing an MCP client does can write to the
 base graph: every acting tool refuses a graph that is not a `session_` graph.
 
@@ -203,6 +210,8 @@ def qualify_tender(session_id: str, tender_id: str | None = None, text: str | No
     if g.name == config.BASE_GRAPH or not g.name.startswith("session_"):
         raise ToolError("refusing to write outside a session graph")      # never the shared base
 
+    if new:
+        g.run("MATCH (m:Meta {key:'meta'}) SET m.created_via = 'mcp'")
     lock = _session_lock(g.name)
     if not lock.acquire(timeout=120):
         raise ToolError(f"session {sid} is busy with another run; try again shortly")
@@ -217,6 +226,9 @@ def qualify_tender(session_id: str, tender_id: str | None = None, text: str | No
     finally:
         lock.release()
 
+    made = [a.get("id") for a in out.get("actions") or [] if isinstance(a, dict) and a.get("id")]
+    if made:      # the MCP caller raised these follow-ups: it cannot also approve them anonymously
+        g.run("MATCH (a:Action) WHERE a.id IN $ids AND a.status = 'pending' SET a.created_via = 'mcp'", {"ids": made})
     case = out.get("case") or {}
     return {"session_id": sid, "graph": g.name, "case_id": case.get("id"), "overall": case.get("verdict"),
             "bid_date": case.get("bid_date"), "title": case.get("title"),
@@ -246,22 +258,38 @@ def list_actions(session_id: str, status: str | None = None, case_id: str | None
 
 
 def transition_action(session_id: str, action_id: str, op: Literal["approve", "reject", "execute"],
-                      note: str | None = None) -> dict:
+                      note: str | None = None, principal_token: str | None = None) -> dict:
     """Move one action in a session's graph through its lifecycle: approve (pending -> approved), reject
     (pending/approved -> rejected) or execute (approved -> executed; runs the action's deterministic
     executor, e.g. records an internal reference-letter request; nothing is emailed). Transitions are
     compare-and-set and audited; a repeat returns the same result. Publishing to the shared company record
-    needs a second approver from another workspace. Returns the action with its audit trail."""
+    needs a signed-in principal and a second approver who is a different principal. Approving an action an
+    MCP call created (qualify_tender's follow-ups) needs `principal_token` (from POST /api/auth/login): the
+    caller that raised an action cannot sign it off anonymously. Returns the action with its audit trail."""
+    from bidbrain.api import auth
     from bidbrain.company import actions as A
     from bidbrain.api import sessions
     from bidbrain.conflicts.engine import session_tag
     g = _session_graph(session_id)
-    by = f"{session_tag(g.name)} (via MCP)"
+    p = auth.current.get()
+    if principal_token:
+        try:
+            p = auth.verify(principal_token)
+        except auth.AuthError as exc:
+            raise ToolError(f"principal_token refused: {exc}") from exc
+    if op == "approve" and p is None:
+        row = g.read("""MATCH (a:Action {id:$a}) OPTIONAL MATCH (m:Meta {key:'meta'})
+                        RETURN a.created_via AS via, m.created_via AS sess""", {"a": action_id})
+        if row and "mcp" in (row[0]["via"], row[0]["sess"]):
+            raise ToolError(f"{action_id} was created by an MCP call; the caller that raised it cannot approve it "
+                            "anonymously. Approve it in the web app, or pass principal_token from POST "
+                            "/api/auth/login (HTTP 403)")
+    by = auth.actor(p, session_tag(g.name), "via MCP")
     lock = _session_lock(g.name)
     if not lock.acquire(timeout=60):
         raise ToolError(f"session {session_id} is busy with another run; try again shortly")
     try:
-        with sessions.busy(g):
+        with sessions.busy(g), auth.acting_as(p):
             if op == "execute":
                 return A.execute(g, action_id, by)
             return A.transition(g, action_id, op, by, note or "")
@@ -269,6 +297,8 @@ def transition_action(session_id: str, action_id: str, op: Literal["approve", "r
         raise ToolError(f"{exc} (HTTP {getattr(exc, 'status', 409)})") from exc
     except ToolError:
         raise
+    except auth.AuthError as exc:
+        raise ToolError(f"{exc} (HTTP {exc.status})") from exc
     except Exception as exc:
         from bidbrain.agents.providers import redact
         raise ToolError(redact(f"{type(exc).__name__}: {exc}")) from exc

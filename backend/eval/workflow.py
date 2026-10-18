@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import secrets
 import shutil
 import tempfile
@@ -100,7 +101,19 @@ class Harness:
         self.base_counts = _counts(config.BASE_GRAPH)
         self.org_counts = _counts(self.real_org)
         self.fresh_org()
+        # throwaway principals for this run (shared publication needs a signed-in principal; api/auth.py)
+        from bidbrain.api import auth
+        self.auth = auth
+        self._env = {k: os.environ.get(k) for k in ("BIDBRAIN_PRINCIPALS", "BIDBRAIN_AUTH_KEY")}
+        self.secrets = {n: secrets.token_urlsafe(12) for n in ("manager", "approver")}
+        roles = {"manager": "bid_manager", "approver": "approver"}
+        os.environ["BIDBRAIN_PRINCIPALS"] = ",".join(f"{n}:{roles[n]}:{auth.hash_secret(s)}"
+                                                     for n, s in self.secrets.items())
+        os.environ["BIDBRAIN_AUTH_KEY"] = secrets.token_urlsafe(24)
         self.client = TestClient(main.app)
+        self.tokens = {n: self.client.post("/api/auth/login", json={"name": n, "secret": s}).json()["token"]
+                       for n, s in self.secrets.items()}
+        self.client.cookies.clear()     # identity travels only as the explicit Bearer header of each session
         return self
 
     def __exit__(self, *exc):
@@ -108,6 +121,11 @@ class Harness:
         Graph(self.engine.ORG_GRAPH).delete()
         for (mod, attr), v in self._saved.items():
             setattr(mod, attr, v)
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
         shutil.rmtree(self.tmp, ignore_errors=True)
         return False
 
@@ -132,12 +150,13 @@ class Harness:
         self.upload_sids.clear()
 
     # -- graphs
-    def session(self) -> dict:
+    def session(self, principal: str | None = "manager") -> dict:
+        """A new workspace, signed in as `principal` (Bearer token from /api/auth/login); None: anonymous."""
         r = self.client.post("/api/session")
         assert r.status_code == 200, r.text
         sid = r.json()["session_id"]
         self.made.add(f"session_{sid}")
-        return {"X-Session": sid}
+        return {"X-Session": sid, **({"Authorization": f"Bearer {self.tokens[principal]}"} if principal else {})}
 
     def g(self, h: dict) -> Graph:
         return Graph(f"session_{h['X-Session']}")
@@ -178,10 +197,11 @@ class Harness:
         """Four eyes: the publishing workspace's approve files a request (403); a second workspace approves it;
         then the first approve succeeds. Returns (first status code, final response)."""
         first = self.act(h, aid, "approve").status_code
-        other = self.session()
+        other = self.session("approver")          # a different principal holding the approver role
         for r in self.client.get("/api/company/record", headers=other).json()["requests"]:
             if not r["mine"] and r["status"] == "pending":
-                self.client.post(f"/api/company/record/requests/{r['id']}/approve", json={}, headers=other)
+                self.client.post(f"/api/company/record/requests/{r['id']}/approve", json={"version": r["version"]},
+                                 headers=other)
         return first, self.act(h, aid, "approve")
 
     def opt_in(self, h: dict) -> dict:
@@ -869,6 +889,46 @@ def s_isolation(H: Harness) -> None:
             {"graph_prefix": res["graph"].startswith("session_"),
              "case_there": Graph(res["graph"]).scalar("MATCH (c:Case {id:$c}) RETURN count(c)", {"c": res["case_id"]}),
              "A": gA.scalar("MATCH (c:Case) RETURN count(c)"), "B": gB.scalar("MATCH (c:Case) RETURN count(c)")})
+    # MCP: the caller that raised a follow-up cannot also approve it anonymously
+    mcp_act = next((a["id"] for a in res.get("actions") or []), None)
+    try:
+        server.transition_action(res["session_id"], mcp_act, "approve") if mcp_act else None
+        mcp_out = "approved"
+    except Exception as exc:
+        mcp_out = "refused" if "created by an MCP call" in str(exc) else f"other: {exc}"
+    H.check("is.mcp_creator_cannot_self_approve", D, "MCP transition_action refuses to approve an action its own "
+            "qualify_tender call created when no principal token is given", "refused",
+            mcp_out if mcp_act else "no action to test", passed=(mcp_out == "refused") if mcp_act else True)
+
+    # identity: a second tab (anonymous, or the same principal) is not a second approver
+    H.mark()
+    hP = H.session("manager")
+    H.fire(hP, "DEMO-1")
+    pa = next(a["id"] for a in H.client.get("/api/actions", headers=hP).json()["actions"]
+              if a["kind"] == "publish_to_company_record")
+    filed = H.act(hP, pa, "approve").status_code
+    req = next(r for r in H.client.get("/api/company/record", headers=hP).json()["requests"] if r["mine"])
+    path = f"/api/company/record/requests/{req['id']}/approve"
+    anon = H.client.post(path, json={"version": req["version"]}, headers=H.session(None)).status_code
+    same = H.client.post(path, json={"version": req["version"]}, headers=H.session("manager")).status_code
+    spoof = H.client.post(path, json={"version": req["version"], "user": "approver"},
+                          headers={**H.session(None), "X-Principal": "approver"}).status_code
+    ok = H.client.post(path, json={"version": req["version"]}, headers=H.session("approver")).status_code
+    replay = H.client.post(path, json={"version": req["version"]}, headers=H.session("approver")).json().get("already")
+    H.check("is.second_approver_is_a_verified_principal", D, "publish four eyes: an anonymous second tab (401), the "
+            "initiating principal in another tab (403) and a spoofed name (401) are refused; a different approver "
+            "principal succeeds once and a replay is idempotent",
+            {"filed": 403, "anon": 401, "same": 403, "spoof": 401, "ok": 200, "replay": True},
+            {"filed": filed, "anon": anon, "same": same, "spoof": spoof, "ok": ok, "replay": replay})
+    # fail closed: with no principals configured, shared promotion is disabled (session work is unaffected)
+    saved = os.environ.pop("BIDBRAIN_PRINCIPALS")
+    try:
+        off = H.client.post("/api/memory/promote", json={"rule_id": "RULE-0000000000"}, headers=hP).status_code
+        local = H.client.get("/api/cases", headers=hP).status_code
+    finally:
+        os.environ["BIDBRAIN_PRINCIPALS"] = saved
+    H.check("is.fail_closed_without_principals", D, "with no principals configured, promote answers 503 while "
+            "session-local reads keep working", {"promote": 503, "local": 200}, {"promote": off, "local": local})
     H.cleanup()
 
 
@@ -888,9 +948,12 @@ def s_temporal(H: Harness) -> None:
                     RETURN c.recorded_at AS t, c.id AS id""", {"k": PKG113})[0]
     tool = lambda as_of: H.client.post("/api/tool/fact_as_of", headers=h,
                                        json={"key": PKG113, "predicate": "value", "as_of": as_of}).json()["result"]
-    # valid time: the certificate counts from the date its document prints (base-graph Cypher), not before
+    # valid time: the certificate's fact counts from the effective date the document prints for it (the work's
+    # completion date, Claim.valid_from_day), else the document's own date (base-graph Cypher), not before
     cert_day = base.scalar("""MATCH (c:Claim {subject_key:$k, predicate:'value', source_kind:'client_certificate'})
-                              -[:FROM]->(d:Document) RETURN d.issued""", {"k": PKG113})
+                              -[:FROM]->(d:Document)
+                              RETURN coalesce(toString(date({year:1970, month:1, day:1}) + duration({days:c.valid_from_day})), d.issued)""",
+                           {"k": PKG113})
     early, before_doc = tool(cert_day), tool("2000-01-01")
     H.check("tm.before_corrigendum_cert_value", D, "as of the certificate's own date the company believed the "
             "certificate's value (base-graph Cypher), with the corrigendum listed as learned later; as of 2000-01-01, "

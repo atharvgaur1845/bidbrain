@@ -89,7 +89,7 @@ ORDER = [f"{p}:{m}" for p, m in POOL]          # kept for callers that print the
 
 class LLMUnavailable(RuntimeError):
     """No completion could be obtained. `kind` says why: 'request' (every endpoint rejected this request,
-    e.g. 400 invalid tool call / context too long), 'rate_limited', 'unavailable' (timeouts, 5xx, auth),
+    e.g. 400 invalid tool call / context too long), 'too_large' (HTTP 413: shrink and retry), 'rate_limited', 'unavailable' (timeouts, 5xx, auth),
     'not_configured', 'replay_miss'."""
 
     def __init__(self, msg: str, kind: str = "unavailable"):
@@ -400,6 +400,11 @@ def chat(messages: list[dict], tools: list[dict] | None = None, temperature: flo
                                  ms=round((time.perf_counter() - t0) * 1000, 1),
                                  switched=switched if bucket != prefer else None, malformed=True)
                 desc = _describe(bucket, exc, kind)
+                if getattr(exc, "status_code", None) == 413 or re.search(r"request too large|request_too_large",
+                                                                         str(exc), re.I):
+                    # the request itself is too big for this model's limit: the caller shrinks the context and
+                    # retries the SAME model, so the answer is not handed to another model over its size
+                    raise LLMUnavailable(f"request too large: {desc}", "too_large")
                 errors.append((kind, desc))
                 if kind == "request":
                     rejected[bucket] = desc

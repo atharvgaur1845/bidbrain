@@ -30,6 +30,11 @@ type OrgMemory = { active: number; cap: number; use_company_memory?: boolean; ru
 type Tender = { id: string; title: string; authority?: string; category?: string; estimated_cost?: number; bid_date?: string };
 type SampleEvent = { event_id: string; type: string; title: string; narrative?: string };
 type PendingAction = { id: string; kind: string; title: string; case_id?: string | null; created_at?: number };
+type ImpactClaim = { claim: string; predicate: string; subject_key?: string; subject?: string; rationale?: string | null; decision?: string | null;
+  chosen?: string | null; replaced?: string[] };
+type ImpactDocR = { document: { doc_id: string; title?: string; doc_type?: string; issued?: string | null }; claims: ImpactClaim[];
+  affected: { case_id: string; case: string; clause: string; kind: string; what: string; case_before?: string; case_after?: string; case_now?: string }[];
+  actions: { id: string; kind: string; status: string; title: string; decision: string }[] };
 const ACTION_KIND: Record<string, string> = { review_bid: "Re-approve bid", request_reference_letter: "Request letter",
   renew_credential: "Renew credential", publish_to_company_record: "Publish fact" };
 
@@ -45,9 +50,9 @@ RETURN d.doc_id AS doc_id, d.title AS title, d.doc_type AS doc_type, d.issued AS
 type State = {
   ov: Overview | null; cases: CaseRow[] | null; details: Record<string, CaseDetail>; conflicts: Conflicts | null;
   docs: LiveDoc[] | null; org: OrgMemory | null; tenders: Tender[] | null; events: SampleEvent[] | null;
-  actions: PendingAction[] | null; failed: Set<string>; at: number | null;
+  actions: PendingAction[] | null; impact: ImpactDocR[] | null; failed: Set<string>; at: number | null;
 };
-const EMPTY: State = { ov: null, cases: null, details: {}, conflicts: null, docs: null, org: null, tenders: null, events: null, actions: null,
+const EMPTY: State = { ov: null, cases: null, details: {}, conflicts: null, docs: null, org: null, tenders: null, events: null, actions: null, impact: null,
   failed: new Set(), at: null };
 
 function useControlRoom(ov: Overview | null, ovFailed: boolean) {
@@ -57,7 +62,7 @@ function useControlRoom(ov: Overview | null, ovFailed: boolean) {
     setLoading(true);
     const failed = new Set<string>();
     const grab = <T,>(name: string, p: Promise<T>): Promise<T | null> => p.catch(() => { failed.add(name); return null; });
-    const [cases, conflicts, docs, org, tenders, events, actions] = await Promise.all([
+    const [cases, conflicts, docs, org, tenders, events, actions, impact] = await Promise.all([
       grab("cases", api<CaseRow[]>("/api/cases")),
       grab("conflicts", api<Conflicts>("/api/conflicts")),
       grab("docs", api<{ result: LiveDoc[] }>("/api/tool/cypher_readonly", { method: "POST", body: JSON.stringify({ query: LIVE_DOCS }) })
@@ -66,11 +71,12 @@ function useControlRoom(ov: Overview | null, ovFailed: boolean) {
       grab("tenders", api<Tender[]>("/api/tenders")),
       grab("events", api<SampleEvent[]>("/api/events")),
       grab("actions", api<{ actions: PendingAction[] }>("/api/actions?status=pending").then((r) => r.actions || [])),
+      grab("impact", api<{ documents: ImpactDocR[] }>("/api/impact").then((r) => r.documents || [])),
     ]);
     const details: Record<string, CaseDetail> = {};
     await Promise.all((cases || []).slice(0, 24).map((c) =>
       api<CaseDetail>(`/api/cases/${encodeURIComponent(c.id)}`).then((d) => { details[c.id] = d; }).catch(() => {})));
-    setS({ ov: null, cases, details, conflicts, docs, org, tenders, events, actions, failed, at: Date.now() });
+    setS({ ov: null, cases, details, conflicts, docs, org, tenders, events, actions, impact, failed, at: Date.now() });
     setLoading(false);
   }, []);
   useEffect(() => {
@@ -120,11 +126,29 @@ const cardHref = (id: string) => `/live/?card=${encodeURIComponent(id)}`;
 type Item = { key: string; rank: number; status: string; badge?: string; kind: string; title: string; why: React.ReactNode;
   next: string; href: string };
 
-function buildQueue(cards: ConflictCard[], cases: CaseRow[], details: Record<string, CaseDetail>, actions: PendingAction[] = []): Item[] {
+/** "Publish <key> <predicate> = <raw> to the company record" -> readable, with the subject's name from the impact read */
+function actionTitle(t: string, names: Map<string, string>) {
+  const m = t.match(/^Publish (\S+) (\w+) = (.+) to the company record$/);
+  if (!m) return t;
+  return `Publish ${predicate(m[2]).toLowerCase()} ${claimValue(m[3])} for ${names.get(m[1]) || m[1]} to the company record`;
+}
+
+function buildQueue(cards: ConflictCard[], cases: CaseRow[], details: Record<string, CaseDetail>, actions: PendingAction[] = [],
+  impact: ImpactDocR[] = []): Item[] {
   const items: Item[] = [];
+  const names = new Map(impact.flatMap((d) => d.claims.filter((c) => c.subject_key && c.subject).map((c) => [c.subject_key!, c.subject!] as [string, string])));
   for (const a of actions) {
-    items.push({ key: `action:${a.id}`, rank: 0.5, status: "pending", badge: "Approve", kind: "Action", title: a.title,
-      why: <>{ACTION_KIND[a.kind] || a.kind.replace(/_/g, " ")} · waiting for approval{a.created_at ? ` since ${ago(a.created_at)}` : ""} · <span className="mono text-[11.5px]">{a.id}</span></>,
+    const src = impact.find((d) => d.actions.some((x) => x.id === a.id));
+    const dec = src?.actions.find((x) => x.id === a.id)?.decision;
+    const cl = src?.claims.find((c) => c.decision === dec);
+    const aff = src?.affected.find((x) => x.case_id === a.case_id);
+    items.push({ key: `action:${a.id}`, rank: 0.5, status: "pending", badge: "Approve", kind: "Action", title: actionTitle(a.title, names),
+      why: src ? (
+        <>Because <span className="text-ink">{src.document.title || src.document.doc_id}</span>
+          {cl?.replaced?.length ? <> changed {predicate(cl.predicate).toLowerCase()} {claimValue(cl.replaced[0].replace(/,/g, ""))} → <span className="text-ink">{claimValue((cl.chosen || "").replace(/,/g, ""))}</span></> : null}
+          {aff ? <>; clause {aff.clause} {words(aff.kind)} now {statusInfo(aff.what.match(/-> (\S+)/)?.[1]).label.toLowerCase()}</> : null}
+          {" · "}<span className="mono text-[11.5px]">{a.id}</span></>
+      ) : <>{ACTION_KIND[a.kind] || a.kind.replace(/_/g, " ")} · waiting for approval{a.created_at ? ` since ${ago(a.created_at)}` : ""} · <span className="mono text-[11.5px]">{a.id}</span></>,
       next: "Review and approve", href: `/actions/?id=${encodeURIComponent(a.id)}` });
   }
   for (const k of cards) {
@@ -250,7 +274,8 @@ export function ControlRoom({ ov, ovFailed, onSchema, onRetryOverview }:
   const cards = useMemo(() => d.conflicts?.cards || [], [d.conflicts]);
   const cases = useMemo(() => (d.cases || []).filter((c) => (c.status || "open") === "open"), [d.cases]);
   const docs = useMemo(() => [...(d.docs || [])].sort((a, b) => (b.at || 0) - (a.at || 0) || docSuffix(b.doc_id) - docSuffix(a.doc_id)), [d.docs]);
-  const queue = useMemo(() => buildQueue(cards, cases, d.details, d.actions || []), [cards, cases, d.details, d.actions]);
+  const queue = useMemo(() => buildQueue(cards, cases, d.details, d.actions || [], d.impact || []), [cards, cases, d.details, d.actions, d.impact]);
+  const impactOf = useMemo(() => new Map((d.impact || []).map((x) => [x.document.doc_id, x])), [d.impact]);
   const first = d.loading && d.at === null;
   const fresh = !first && !cases.length && !docs.length && !cards.length && !(d.actions || []).length;
 
@@ -289,7 +314,7 @@ export function ControlRoom({ ov, ovFailed, onSchema, onRetryOverview }:
           sub={<Breakdown parts={[["BID", byVerdict("BID")], ["BID WITH FIXES", byVerdict("BID WITH FIXES")], ["NEEDS REVIEW", byVerdict("NEEDS REVIEW")], ["NO-BID", byVerdict("NO-BID")]]} />} />
         <Kpi href="/live/" label="Open conflicts" value={fmt(d.conflicts ? cards.length : ov?.open_cards)} loading={first}
           sub={cards.length ? "awaiting your decision" : "nothing to decide"} />
-        <Kpi href="/live/" label="Documents received" value={fmt(d.docs?.length ?? (d.failed.has("docs") ? undefined : 0))} loading={first}
+        <Kpi href="/impact/" label="Documents received" value={fmt(d.docs?.length ?? (d.failed.has("docs") ? undefined : 0))} loading={first}
           sub={docs.length ? `${docsSettled} settled by policy · ${docsOpen} to decide` : "none ingested yet"} />
         <Kpi href="/memory/" label="Active company rules" value={fmt(d.org?.active)} loading={first}
           sub={d.org ? `of ${d.org.cap} · ${d.org.use_company_memory ? "applied in this session" : "not applied here"}` : "company memory unavailable"} />
@@ -353,7 +378,7 @@ export function ControlRoom({ ov, ovFailed, onSchema, onRetryOverview }:
           ) : (
             <Table label="Documents ingested this session">
               <thead>
-                <tr><Th>Document</Th><Th className="max-md:hidden">Subject</Th><Th className="max-lg:hidden">Issuer</Th><Th>Outcome</Th><Th align="right" className="max-sm:hidden">Issued</Th></tr>
+                <tr><Th>Document</Th><Th className="max-md:hidden">Changed fact</Th><Th className="max-[1399px]:hidden">Outcome</Th><Th>Effect on bids</Th><Th align="right" className="max-sm:hidden">Issued</Th></tr>
               </thead>
               <tbody>
                 {docs.slice(0, 12).map((x) => (
@@ -368,13 +393,35 @@ export function ControlRoom({ ov, ovFailed, onSchema, onRetryOverview }:
                         </span>
                       </button>
                     </Td>
-                    <Td className="max-w-[260px] truncate text-[12.5px] max-md:hidden" muted>{x.subjects.join(", ") || "—"}</Td>
-                    <Td className="max-w-[220px] truncate text-[12.5px] max-lg:hidden" muted>{x.issuer || "—"}</Td>
-                    <Td>
+                    <Td className="max-w-[300px] text-[12.5px] max-md:hidden" muted>
+                      {(() => {
+                        const c = impactOf.get(x.doc_id)?.claims.find((y) => y.replaced?.length);
+                        return c ? (
+                          <span className="block truncate" title={`${c.subject}: ${predicate(c.predicate)}`}>
+                            <span className="text-ink-2">{predicate(c.predicate)}</span> <span className="num line-through">{claimValue(c.replaced![0].replace(/,/g, ""))}</span> → <span className="num font-medium text-ink">{claimValue((c.chosen || "").replace(/,/g, ""))}</span>
+                            <span className="block truncate text-[11.5px] text-ink-3">{c.subject}</span>
+                          </span>
+                        ) : <span className="block truncate">{x.subjects.join(", ") || "—"}</span>;
+                      })()}
+                    </Td>
+                    <Td className="max-[1399px]:hidden">
                       {x.cards.length ? (
                         <Link href={cardHref(x.cards[0])} className="rounded-sm"><StatusBadge status="open" label="Needs decision" size="sm" /></Link>
                       ) : x.decisions ? <StatusBadge status="resolved" label="Settled by policy" size="sm" />
                         : <StatusBadge status="pending" label="Recorded" size="sm" />}
+                    </Td>
+                    <Td className="text-[12.5px]">
+                      {(() => {
+                        const im = impactOf.get(x.doc_id);
+                        const a = im?.affected.find((y) => y.case_before && y.case_after && y.case_before !== y.case_after) || im?.affected[0];
+                        return (
+                          <Link href={`/impact/?doc=${encodeURIComponent(x.doc_id)}`} className="group inline-flex items-center gap-1.5 rounded-sm" title="Trace in the Impact Room">
+                            {a?.case_before && a.case_after ? <><StatusBadge status={a.case_before} size="sm" /><ArrowRight size={12} className="text-ink-3" aria-hidden /><StatusBadge status={a.case_after} size="sm" /></>
+                              : <span className="text-ink-3 group-hover:text-kb-ink">{im?.affected.length ? `${im.affected.length} clause(s) re-checked` : "no bid affected"}</span>}
+                            <span className="text-kb-ink group-hover:underline">Trace</span>
+                          </Link>
+                        );
+                      })()}
                     </Td>
                     <Td numeric muted className="pr-4! text-[12px] max-sm:hidden" title={x.at ? `Settled ${ago(x.at)}` : undefined}>{x.issued || "—"}</Td>
                   </tr>

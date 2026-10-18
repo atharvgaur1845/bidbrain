@@ -86,7 +86,8 @@ def test_still_tool_free_is_marked_ungrounded(g, monkeypatch):
     res = _qa(g, Q_TRISHAKTI)
     assert len(seen) == 2 and res.usage["tool_calls"] == 0                # one re-ask, no more
     assert res.note.startswith("UNGROUNDED") and res.checks["ungrounded"] is True
-    assert parse_answer(res.final)[0] == 0                                # the answer is kept, flagged
+    # a tool-free "0" is an unproven negative: flagged, and replaced by the deterministic uncertainty statement
+    assert parse_answer(res.final)[0] == "NOT ESTABLISHED" and res.checks["answer_status"] == "NEEDS_REVIEW"
     # a question that names nothing and asks for no number is not re-asked
     seen = _script(monkeypatch, [_reply("I answer questions about the company graph.")])
     res = _qa(g, "hello")
@@ -409,4 +410,5 @@ def test_qa_ask_reports_its_checks(g, monkeypatch):
     from bidbrain.agents import qa
     _script(monkeypatch, [_reply("ANSWER: 0")])
     out = qa.ask(g, Q_TRISHAKTI)
-    assert out["checks"]["ungrounded"] is True and out["note"].startswith("UNGROUNDED") and out["answer"] == 0
+    assert out["checks"]["ungrounded"] is True and out["note"].startswith("UNGROUNDED") and out["answer"] == "NOT ESTABLISHED"
+    assert out["checks"]["answer_status"] == "NEEDS_REVIEW"

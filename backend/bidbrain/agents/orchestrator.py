@@ -253,15 +253,15 @@ class _Team:
         res["_referenced"] = used_ref
         return res
 
-    def needs_review(self, kid: str, c: dict, run: str, why: str) -> None:
+    def needs_review(self, kid: str, c: dict, run: str, why: str, agent: str = "EvidenceHunter") -> None:
         """A requirement nobody could check: verdict NEEDS REVIEW plus a high-severity finding, so every
         path that recomputes the recommendation (the ripple, review_bid) also refuses a plain BID."""
         C.set_verdict(self.g, kid, "NEEDS REVIEW", why, [], run)
         self.g.run("MATCH (k:Clause {id:$k}) SET k.verification = 'needs_review'", {"k": kid})
         C.add_finding(self.g, kid, "needs_review", why, "high", [], run)
-        self.emit({"type": "verdict", "agent": "EvidenceHunter", "clause_id": kid, "ref": c["id"],
+        self.emit({"type": "verdict", "agent": agent, "clause_id": kid, "ref": c["id"],
                    "kind": c["kind"], "verdict": "NEEDS REVIEW", "basis": why})
-        self.emit({"type": "finding", "agent": "EvidenceHunter", "clause_id": kid, "kind": "needs_review",
+        self.emit({"type": "finding", "agent": agent, "clause_id": kid, "kind": "needs_review",
                    "severity": "high", "text": why})
 
     # ── AbsenceAuditor helpers ──────────────────────────────────────────────
@@ -424,6 +424,39 @@ class _Team:
         except Exception:
             return None
 
+    def check_declarations(self, run: str) -> int:
+        """A DECLARE clause whose text states a requirement amount, a percentage or a financial term (read
+        by the Verifier's own tokenizer, not the parser) is not a declaration: NEEDS REVIEW."""
+        n = 0
+        for k in self.g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause) WHERE k.verdict = 'DECLARE'
+                                RETURN k.id AS id, k.ref AS ref, k.kind AS kind, k.text AS text""", {"c": self.case_id}):
+            probs = clause_mod.declaration_problems(k["text"] or "")
+            if probs:
+                n += 1
+                self.needs_review(k["id"], {"id": k["ref"], "kind": k["kind"]}, run,
+                                  f"Verifier: filed as a declaration, but {'; '.join(probs)}: a requirement no "
+                                  f"engine check covers; a person must confirm it", agent="Verifier")
+        return n
+
+    def check_coverage(self, run: str) -> int:
+        """Requirement text the clause list dropped (an amount, a percentage or a financial term that no
+        emitted clause's text carries) becomes its own NEEDS REVIEW clause, so the verdict, the clause table,
+        the memo and the bid pack all show it."""
+        rows = self.g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause)
+                              RETURN k.text AS text, k.kind AS kind, k.verdict AS verdict""", {"c": self.case_id})
+        n = 0
+        for i, d in enumerate(clause_mod.coverage_problems(self.tender.get("text") or "", rows)):
+            n += 1
+            c = {"id": f"V{i + 1}", "text": d["text"], "kind": "other",
+                 "params": {"unparsed": "dropped", "reason": "not carried by any parsed clause"}}
+            kid = C.add_clause(self.g, self.case_id, c, run)
+            self.emit({"type": "clause", "agent": "Verifier", "clause_id": kid, "ref": c["id"], "kind": "other",
+                       "text": c["text"], "params": c["params"]})
+            self.needs_review(kid, c, run, f"Verifier: the tender states {', '.join(d['problems'])} here, but no "
+                                           f"parsed clause carries it: a person must read this requirement",
+                              agent="Verifier")
+        return n
+
     # ── hand-back 2: Verifier -> EvidenceHunter -> Verifier ─────────────────
     def rederive(self, first: list[dict]) -> list[dict]:
         g, M = self.g, self.M
@@ -563,8 +596,9 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
                     if alts:
                         txt += (f" {len(alts)} referenced work(s) in the clause's scope: handed back to the "
                                 f"EvidenceHunter to re-select.")
-                    fid = C.add_finding(g, kid, "absence", txt, "high" if "reference" in (h["text"] or "").lower()
-                                        else "medium", [("Work", m["key"]) for m in missing], r3)
+                    # high whether or not the clause text asks for letters: a credited work the client has not
+                    # attested is an open action, so the case is at best BID WITH FIXES until it is resolved
+                    fid = C.add_finding(g, kid, "absence", txt, "high", [("Work", m["key"]) for m in missing], r3)
                     if alts:
                         T.request(fid, "reselect_referenced", r3, alternates=len(alts))
                     n_find += 1
@@ -668,7 +702,10 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
                             f"Verifier: {'; '.join(m['reasons'])} (case says {m['stored']}); asked the "
                             f"EvidenceHunter to re-derive it once.", "high", [], r5)
         T.request(fid, "rederive", r5)
-    M.done(mismatches=len(first), unverified=len(unverified))
+    # independent of the parser: a clause filed as a declaration must not state a requirement amount or a
+    # financial term, and no requirement amount / term in the tender text may be missing from every clause
+    n_decl, n_cov = T.check_declarations(r5), T.check_coverage(r5)
+    M.done(mismatches=len(first), unverified=len(unverified), declarations_reopened=n_decl, dropped=n_cov)
     mismatches = (T.rederive(first) if first else []) + unverified
     review = [r["ref"] for r in g.read("""MATCH (:Case {id:$c})-[:HAS_CLAUSE]->(k:Clause)
                                           WHERE k.verdict = 'NEEDS REVIEW' RETURN k.ref AS ref""", {"c": case_id})]
@@ -693,6 +730,11 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
         # requirement could not be read: never recommend on that record (the ripple keeps it, c.verified=false)
         overall = "NEEDS REVIEW"
     evidence = _evidence(g, case_id)
+    # the follow-ups become accountable actions (reference-letter requests, credential renewals) before the
+    # memo is written, so the memo and the bid pack list exactly the open actions the case carries
+    from bidbrain.company import actions as A
+    acts = A.from_findings(g, case_id)
+    open_acts = _open_actions(g, case_id)
     memo, how, check = None, "template", None
     if prefer_llm and (providers.available() or providers.REPLAY):
         try:
@@ -701,7 +743,8 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
             facts = _money_facts({"tender": {k: tender.get(k) for k in ("id", "title", "authority", "bid_date")},
                                   "overall": overall, "clauses": rec["clauses"], "evidence": evidence[:40],
                                   "verifier": {"ok": not mismatches, "mismatches": mismatches, "retried": first},
-                                  "team_handoffs": T.plan["handoffs"], "precedents": prec.get("result", [])[:2]})
+                                  "team_handoffs": T.plan["handoffs"], "precedents": prec.get("result", [])[:2],
+                                  "open_actions": open_acts})
             full = json.dumps(facts, default=str, ensure_ascii=False)
             res = run_agent(g, "Assembler", ASSEMBLER_SYSTEM, full[:16000], ["who_knows", "key_people"], max_steps=4,
                             emit=emit)
@@ -711,7 +754,7 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
                 # what the model saw: the record it was given and what its own tools returned
                 seen = full[:16000] + json.dumps(res.evidence, default=str)
                 problems = memo_problems(res.final, seen, clauses=rec["clauses"], evidence=evidence,
-                                         mismatches=mismatches)
+                                         mismatches=mismatches, overall=overall)
                 check = {"ok": not problems, "problems": problems}
                 if problems:
                     emit({"type": "memo_check", "agent": "Assembler", "ok": False, "problems": problems,
@@ -722,16 +765,13 @@ def qualify_tender(g: Graph, tender: dict, emit=None, prefer_llm: bool = True) -
             memo = None
     if not memo:
         memo = _template_memo(tender, rec, overall, prec.get("result", []), evidence, mismatches,
-                              T.plan["handoffs"])
+                              T.plan["handoffs"], open_acts)
     g.run("MATCH (c:Case {id:$c}) SET c.memo = $m, c.verdict = $v, c.status = 'open', c.memo_method = $h, "
           "c.memo_check = $k", {"c": case_id, "m": memo, "v": overall, "h": how,
                                 "k": json.dumps(check) if check else None})
     M.done(method=how, **({"llm_memo_rejected": len(check["problems"])} if check and not check["ok"] else {}))
     emit({"type": "memo", "agent": "Assembler", "markdown": memo, "overall": overall, "method": how,
           **({"memo_check": check} if check else {})})
-    # the Assembler's follow-ups become accountable actions (reference-letter requests, credential renewals)
-    from bidbrain.company import actions as A
-    acts = A.from_findings(g, case_id)
     if acts:
         emit({"type": "actions", "agent": "Assembler", "case_id": case_id, "actions": acts,
               "summary": f"{len(acts)} follow-up action(s) queued for approval"})
@@ -801,8 +841,16 @@ def _money_facts(x, key: str = ""):
     return x
 
 
+_RECO = re.compile(r"NO[-\s]BID|BID\s+WITH\s+FIXES|NEEDS\s+REVIEW|\bBID\b")
+
+
+def _reco(s: str) -> str:
+    s = re.sub(r"\s+", " ", s.upper())
+    return "NO-BID" if s.startswith("NO") else s
+
+
 def memo_problems(memo: str, facts: str, clauses: list[dict] | None = None, evidence: list[dict] | None = None,
-                  mismatches: list[dict] | None = None) -> list[str]:
+                  mismatches: list[dict] | None = None, overall: str | None = None) -> list[str]:
     """An LLM memo is kept only if every DOC id it cites and every ₹ amount it states is in what it was
     given (the case record, its evidence table and its own tool results); amounts within ₹0.01 Cr.
 
@@ -818,6 +866,11 @@ def memo_problems(memo: str, facts: str, clauses: list[dict] | None = None, evid
                           if not ({round(v / 1e5) - 1, round(v / 1e5), round(v / 1e5) + 1} & known)})
     out = ([f"cites {d}, which is not in the case evidence" for d in bad_docs]
            + [f"states {a}, which is not among the figures it was given" for a in bad_amounts])
+    if overall:
+        # the memo's recommendation is the case's: the first recommendation it states must be `overall`
+        first = _RECO.search(memo)
+        if not first or _reco(first.group(0)) != overall:
+            out.append(f"recommends {_reco(first.group(0)) if first else 'nothing'}, but the case is {overall}")
     if clauses is not None:
         out += [p for p in _memo_clause_problems(memo, clauses, evidence or [], mismatches or []) if p not in out]
     return out
@@ -911,7 +964,8 @@ def rebuild_memo(g: Graph, case_id: str, cause: str, before: str | None, after: 
     rec = C.case_get(g, case_id)["result"]
     prec = C.precedents(g, category=row["category"])["result"] if row["category"] else []
     plan = json.loads(row["plan"] or "{}")
-    memo = _template_memo(row, rec, after, prec, _evidence(g, case_id), None, plan.get("handoffs"))
+    memo = _template_memo(row, rec, after, prec, _evidence(g, case_id), None, plan.get("handoffs"),
+                          _open_actions(g, case_id))
     head = (f"> **Updated after {cause}.** Recommendation {before or '—'} → **{after}**. This memo was "
             f"re-assembled from the case graph and supersedes the one written at qualification.")
     memo = head + "\n\n" + memo
@@ -920,8 +974,15 @@ def rebuild_memo(g: Graph, case_id: str, cause: str, before: str | None, after: 
     return memo
 
 
+def _open_actions(g: Graph, case_id: str) -> list[dict]:
+    from bidbrain.company import actions as A
+    return [{k: a.get(k) for k in ("id", "kind", "status", "title", "owner", "assignee")}
+            for a in A.list_actions(g, case_id=case_id) if a.get("status") in ("pending", "approved", "executing")]
+
+
 def _template_memo(tender: dict, rec: dict, overall: str, precedents: list, evidence: list | None = None,
-                   mismatches: list | None = None, handoffs: list | None = None) -> str:
+                   mismatches: list | None = None, handoffs: list | None = None,
+                   open_actions: list | None = None) -> str:
     lines = [f"## {tender.get('title')} — recommendation: **{overall}**", "",
              f"Authority: {tender.get('authority', '—')} · bid due {tender.get('bid_date', '—')}", "",
              "| Clause | Verdict | Basis |", "|---|---|---|"]
@@ -952,6 +1013,9 @@ def _template_memo(tender: dict, rec: dict, overall: str, precedents: list, evid
     risks = [(c["ref"], f) for c in rec["clauses"] for f in c["findings"] if f and f.get("severity") in ("high", "medium")]
     if risks:
         lines += ["", "### Gaps & risks"] + [f"- **{ref}** ({f['kind']}): {f['text']}" for ref, f in risks]
+    if open_actions:
+        lines += ["", "### Open actions (to close before submission)"] + [
+            f"- {a['title']} ({a['status']}; owner {a.get('assignee') or a.get('owner') or '—'})" for a in open_actions]
     if handoffs:
         lines += ["", "### Team hand-backs"] + [
             f"- {h['from']} → {h['to']} ({h['why']}): "

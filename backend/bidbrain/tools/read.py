@@ -172,6 +172,10 @@ def resolve_entity(g: Graph, text: str, kind: str) -> dict:
                 "note": f"no {kind} named like '{text}' in the graph (best score below {RESOLVE_MIN:.0f})"}
     if len(kept) == 1:
         kept[0].pop("ambiguous", None)
+    elif kept[0].get("ambiguous"):
+        return {"result": kept, "ambiguous": True,
+                "note": f"'{text}' matches {len(kept)} {kind}s about equally: ask which one, or narrow the name; "
+                        "do not answer for one of them, and do not conclude that none exists"}
     return {"result": kept}
 
 
@@ -298,11 +302,23 @@ def list_cases(g: Graph, status: str | None = None) -> dict:
                       "open_findings": [{k: (f[k][:240] if k == "text" and f[k] else f[k])
                                          for k in ("clause", "kind", "severity", "text")}
                                         for f in found if f["case_id"] == r["case_id"]]})
+    # tender status ('open' / 'closed', with its basis and as-of): "open tenders" are answered from this
+    tq = """MATCH (t:Tender) RETURN t.key AS tender, coalesce(t.title, t.name, t.key) AS title, t.status AS status,
+                   t.corpus_status AS corpus_status, t.status_basis AS status_basis, t.status_as_of AS status_as_of
+            ORDER BY tender"""
+    tenders = g.read(tq)
+    for c in cases:
+        t = next((t for t in tenders if t["tender"] and t["tender"] == c.get("tender")), None)
+        if t:
+            c["tender_status"] = {k: t[k] for k in ("status", "corpus_status", "status_basis", "status_as_of")}
     sg = {"nodes": [_node("Case", c["case_id"], c["title"]) for c in cases], "edges": []}
     return {"result": {"n": len(cases), "cases": cases,
+                       "open_tenders": [t for t in tenders if t["status"] == "open"],
+                       "tender_status_counts": {s: sum(1 for t in tenders if t["status"] == s)
+                                                for s in sorted({str(t["status"]) for t in tenders})},
                        "note": None if cases else "no qualification cases in this workspace yet (run a tender "
                                                   "on the Qualify page); past Bid submissions are not cases"},
-            "subgraph": sg, "cypher": [q, fq]}
+            "subgraph": sg, "cypher": [q, fq, tq]}
 
 
 # --------------------------------------------------------------------------

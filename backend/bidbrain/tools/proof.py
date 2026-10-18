@@ -195,7 +195,11 @@ PARAMS = {"similar_works": {"categories", "estimated_cost", "min_value", "count"
           "years_in_business": {"min_years"}}
 NEEDS = {"similar_works": ({"estimated_cost", "min_value", "options", "min_total"},
                           "estimated_cost, min_value, options or min_total"),
-         "turnover": ({"min_average", "min_each_year"}, "min_average or min_each_year")}
+         "turnover": ({"min_average", "min_each_year"}, "min_average or min_each_year"),
+         # without these the check passes for anyone (any certificate CONTAINS '', 0 years, a defaulted PMP)
+         "key_personnel": ({"credential"}, "credential"),
+         "certification": ({"standard"}, "standard"),
+         "years_in_business": ({"min_years"}, "min_years")}
 
 
 def _check_options(params: dict) -> list[dict]:
@@ -248,6 +252,13 @@ def qualify_clause(g: Graph, kind: str, params: dict, bid_date: str | None = Non
         raise ValueError(f"{kind} params take {sorted(PARAMS[kind])}; unknown: {unknown}")
     if kind in NEEDS and not (NEEDS[kind][0] & set(params)):
         raise ValueError(f"{kind} needs {NEEDS[kind][1]}")
+    for k in ("min_years", "min_average", "min_each_year", "min_value", "estimated_cost"):
+        if k in params:
+            try:
+                if int(params[k]) <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                raise ValueError(f"{k} must be a positive number; got {params[k]!r}") from None
     if kind == "similar_works" and "options" in params:
         params["options"] = _check_options(params)
     if kind == "similar_works" and "min_total" in params:

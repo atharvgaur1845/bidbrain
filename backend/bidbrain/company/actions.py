@@ -27,6 +27,10 @@ Rules:
   derived from the action, so a retry never duplicates a side effect and nothing is written under a
   rejected action. A failed executor hands the action back (executing -> approved); one left `executing`
   by a crashed process can be re-claimed after EXECUTING_LEASE_MS.
+* Identity: workspace-local actions (review_bid, letters, renewals) stay session-scoped. Approving or executing
+  a publish_to_company_record needs a signed-in principal (api/auth.py) and a second, different approver
+  (company/record.py). Every ActionEvent records the verified `principal` (null when anonymous) next to `by`.
+  An optional `version` makes a transition apply only to the version the caller saw (409 otherwise).
 * Only deterministic code here executes an action, and an action is `executed` only after its executor
   returned. Nothing is reported as sent that was not: the reference-letter request is an internal
   DocumentRequest node, because there is no email integration.
@@ -85,7 +89,7 @@ def ensure(g: Graph, kind: str, *, title: str, detail: str, case_id: str | None 
                     ON CREATE SET a.id = $id, a.key = $id, a.kind = $kind, a.status = 'pending', a.title = $title,
                                   a.detail = $detail, a.owner = $owner, a.case_id = $case, a.target = $target,
                                   a.payload = $payload, a.created_at = timestamp(), a.updated_at = timestamp(),
-                                  a._new = true
+                                  a._new = true, a.version = 1
                     WITH a, coalesce(a._new, false) AS created SET a._new = null
                     RETURN a.id AS id, a.status AS status, created""",
                  {"idem": idem, "id": aid, "kind": kind, "title": title, "detail": detail, "owner": owner,
@@ -107,9 +111,12 @@ def ensure(g: Graph, kind: str, *, title: str, detail: str, case_id: str | None 
 
 
 def _event(g: Graph, aid: str, frm: str | None, to: str, by: str, note: str) -> None:
+    from bidbrain.api import auth
+    p = auth.current.get()
     g.run("""MATCH (a:Action {id:$a})
-             CREATE (a)-[:HAS_EVENT]->(:ActionEvent {at:timestamp(), from:$f, to:$t, by:$by, note:$n})""",
-          {"a": aid, "f": frm, "t": to, "by": by, "n": note})
+             CREATE (a)-[:HAS_EVENT]->(:ActionEvent {at:timestamp(), from:$f, to:$t, by:$by, note:$n,
+                                                     principal:$p, target:$a})""",
+          {"a": aid, "f": frm, "t": to, "by": by, "n": note, "p": p.name if p else None})
 
 
 # ---- generation: the graph decides which follow-ups exist ------------------------------------------
@@ -244,7 +251,7 @@ def fulfil_reference(g: Graph, work_keys: list[str], doc_id: str, by: str = "sys
 
 # ---- lifecycle -----------------------------------------------------------------------------------
 
-def transition(g: Graph, aid: str, verb: str, by: str, note: str = "") -> dict:
+def transition(g: Graph, aid: str, verb: str, by: str, note: str = "", version: int | None = None) -> dict:
     if verb not in ("approve", "reject"):
         raise ActionError(f"unknown transition {verb!r}", 400)
     frm, to = TRANSITIONS[verb]
@@ -254,17 +261,24 @@ def transition(g: Graph, aid: str, verb: str, by: str, note: str = "") -> dict:
         raise ActionError(f"no action {aid}", 404)
     if cur == to:
         return get(g, aid)                      # a repeated click: same answer, no second event
+    if version is not None and (isinstance(version, bool) or not isinstance(version, int)):
+        raise ActionError("version must be an integer", 400)
     if verb == "approve":                       # four eyes on publish_to_company_record (see company/record.py)
         from bidbrain.company import record
         record.check_publish_approval(g, aid, by)
-    rows = g.run("""MATCH (a:Action {id:$a}) WHERE a.status IN $frm
+    from bidbrain.api import auth
+    p = auth.current.get()
+    rows = g.run("""MATCH (a:Action {id:$a}) WHERE a.status IN $frm AND ($v IS NULL OR coalesce(a.version, 1) = $v)
                      WITH a, a.status AS before
-                     SET a.status = $to, a.updated_at = timestamp(), a.decided_by = $by RETURN before""",
-                  {"a": aid, "frm": list(frm), "to": to, "by": by})
+                     SET a.status = $to, a.updated_at = timestamp(), a.decided_by = $by,
+                         a.decided_principal = $p, a.version = coalesce(a.version, 1) + 1 RETURN before""",
+                  {"a": aid, "frm": list(frm), "to": to, "by": by, "v": version, "p": p.name if p else None})
     if not rows:
         now = g.scalar("MATCH (a:Action {id:$a}) RETURN a.status", {"a": aid})
         if now == to:
             return get(g, aid)                  # a concurrent identical click won the CAS: same answer
+        if version is not None and now in frm:
+            raise ActionError(f"{aid} changed since version {version}; reload it and decide again")
         raise ActionError(f"{aid} is {now}; cannot {verb} it"
                           + (" while it is being executed" if now == "executing" else ""))
     _event(g, aid, rows[0]["before"], to, by, note or verb)
@@ -279,6 +293,14 @@ def execute(g: Graph, aid: str, by: str, wait_s: float = EXECUTE_WAIT_S) -> dict
     (Superseded) closes it as `superseded` without doing anything; one that fails hands it back to
     `approved`, so it can be retried (every executor is idempotent)."""
     deadline = time.monotonic() + wait_s
+    if g.scalar("MATCH (a:Action {id:$a}) RETURN a.kind", {"a": aid}) == "publish_to_company_record":
+        from bidbrain.api import auth
+        from bidbrain.company import record
+        if not record.approving_admin.get():
+            try:
+                auth.require("executing a company-record publication")
+            except auth.AuthError as exc:
+                raise ActionError(str(exc), exc.status)
     while True:
         a = get(g, aid)
         st = a["status"]
@@ -430,7 +452,8 @@ def get(g: Graph, aid: str) -> dict:
         raise ActionError(f"no action {aid}", 404)
     r = rows[0]
     ev = g.read("""MATCH (:Action {id:$a})-[:HAS_EVENT]->(e:ActionEvent)
-                   RETURN e.at AS at, e.from AS from, e.to AS to, e.by AS by, e.note AS note ORDER BY e.at""",
+                   RETURN e.at AS at, e.from AS from, e.to AS to, e.by AS by, e.principal AS principal, e.note AS note
+                   ORDER BY e.at""",
                 {"a": aid})
     out = {k: v for k, v in r["a"].items() if k not in ("idem", "key")}
     out.update(trigger={"label": r["tl"], "id": r["tid"]} if r["tid"] else None,

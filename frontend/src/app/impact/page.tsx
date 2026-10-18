@@ -12,6 +12,7 @@ import { Badge, Button, Card, CodeCell, EmptyState, ErrorState, Notice, Skeleton
   Th, useOpenDoc } from "@/components/ui";
 import { ActionControls, ActionFull, ActionResult, kindLabel } from "@/lib/actions";
 import { api, fmtINR, stream } from "@/lib/api";
+import { GraphPanel, VerdictCompare, useCaseClauses } from "./graph";
 
 type Claim = { claim: string; predicate: string; value: string; page?: number; status?: string; subject_label?: string;
   subject_key?: string; subject?: string; decision?: string | null; policy?: string | null; rationale?: string | null;
@@ -19,7 +20,7 @@ type Claim = { claim: string; predicate: string; value: string; page?: number; s
 type Affected = { decision: string; case_id: string; case: string; clause: string; kind: string; what: string; severity?: string;
   verdict_now?: string; case_now?: string; approved?: string | null };
 type ImpactAction = { id: string; kind: string; status: string; title: string; case_id?: string | null; decision: string };
-type Impact = { document: { doc_id: string; title?: string; doc_type?: string }; claims: Claim[]; decisions: string[];
+type Impact = { document: { doc_id: string; title?: string; doc_type?: string; issued?: string | null }; claims: Claim[]; decisions: string[];
   affected: Affected[]; actions: ImpactAction[]; summary: string };
 type ImpactDoc = { result: Impact; evidence: unknown[]; cypher: string[] };
 
@@ -66,6 +67,7 @@ function Chain({ doc, onActionChange }: { doc: ImpactDoc; onActionChange: () => 
   const open = useOpenDoc();
   const r = doc.result;
   const [full, setFull] = useState<Record<string, ActionFull>>({});
+  const clauses = useCaseClauses(r);
   const issuer = r.claims.map((c) => issuerOf(c.rationale)).find(Boolean);
   const page = r.claims.find((c) => c.page)?.page;
   // case verdict before -> after, from the review action raised for each case
@@ -89,6 +91,15 @@ function Chain({ doc, onActionChange }: { doc: ImpactDoc; onActionChange: () => 
 
   return (
     <div className="flex flex-col gap-4">
+      <Card title="Dependency graph" subtitle="Source document → claim → decision → requirement → bid → action, as stored in FalkorDB. Select a node or line."
+        pad={false}>
+        <GraphPanel docId={r.document.doc_id} result={r} />
+      </Card>
+      {r.affected.length > 0 && (
+        <Card title="Verdict change" subtitle="Before and after, with the rule that decided it, the evidence and the action it raised">
+          <VerdictCompare r={r} clauses={clauses} />
+        </Card>
+      )}
       <Card title={r.document.title || r.document.doc_id} subtitle={r.summary}
         action={<Button size="sm" onClick={() => open({ doc_id: r.document.doc_id, page })}><FileText size={14} strokeWidth={1.75} aria-hidden /> Open PDF</Button>}>
         <ol aria-label="Impact chain">
@@ -361,21 +372,21 @@ export default function ImpactPage() {
         {docs.every(fromRecord) && (
           <div className="mb-4"><DemoRunner onDone={() => load("corrigendum")} /></div>
         )}
-        <div className="grid items-start gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <Card title="Document events" subtitle="Newest first" pad={false} className="lg:sticky lg:top-16">
-            <ul aria-label="Documents" className="scroll-thin max-h-[40vh] overflow-y-auto lg:max-h-[calc(100vh-180px)]">
+        <div className="flex flex-col gap-4">
+          <Card title="Event timeline" subtitle="Documents received in this session, newest first. Select one to trace what it changed." pad={false}>
+            <ul aria-label="Documents" className="scroll-thin flex overflow-x-auto">
               {docs.map((d) => {
                 const id = d.document.doc_id;
                 const nCases = new Set(d.affected.map((a) => a.case_id)).size;
                 const pend = pendingFor(d);
                 return (
-                  <li key={id} className="border-b border-line last:border-b-0">
+                  <li key={id} className="w-[320px] shrink-0 border-r border-line last:border-r-0">
                     <button type="button" aria-selected={sel === id} onClick={() => setSel(id)}
-                      className={clsx("block w-full px-4 py-2.5 text-left transition-colors duration-100 hover:bg-surface-2 focus-visible:outline-offset-[-2px]",
-                        sel === id && "bg-kb-soft shadow-[inset_2px_0_0_var(--kb)] hover:bg-kb-soft")}>
+                      className={clsx("block h-full w-full px-4 py-2.5 text-left transition-colors duration-100 hover:bg-surface-2 focus-visible:outline-offset-[-2px]",
+                        sel === id && "bg-kb-soft shadow-[inset_0_-2px_0_var(--kb)] hover:bg-kb-soft")}>
                       <div className="flex items-center gap-2">
-                        <span className="text-[12px] text-ink-3">{sentence(d.document.doc_type)}{fromRecord(d) ? " · from company record" : ""}</span>
-                        <span className="ml-auto flex gap-1">
+                        <span className="min-w-0 truncate text-[12px] text-ink-3">{d.document.issued ? <span className="num">{d.document.issued} · </span> : null}{sentence(d.document.doc_type)}{fromRecord(d) ? " · from company record" : ""}</span>
+                        <span className="ml-auto flex shrink-0 gap-1">
                           {nCases > 0 ? <StatusBadge status="ripple" label={`${nCases} bid${nCases > 1 ? "s" : ""}`} size="sm" />
                             : <Badge>Unchanged</Badge>}
                           {pend > 0 && <StatusBadge status="pending" label={`${pend} to act`} size="sm" />}
@@ -391,7 +402,7 @@ export default function ImpactPage() {
           </Card>
           <div className="min-w-0">
             {docErr ? <Card><ErrorState text={docErr} onRetry={() => sel && loadDoc(sel)} /></Card>
-              : doc ? <Chain key={doc.result.document.doc_id} doc={doc} onActionChange={() => load()} />
+              : doc ? <Chain key={doc.result.document.doc_id} doc={doc} onActionChange={() => { load(); if (sel) api<ImpactDoc>(`/api/impact/${encodeURIComponent(sel)}`).then(setDoc).catch(() => {}); }} />
               : <Card pad={false}><SkeletonRows rows={6} /></Card>}
           </div>
         </div>

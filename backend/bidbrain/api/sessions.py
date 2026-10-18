@@ -68,6 +68,29 @@ def _allow_new(ip: str) -> bool:
     return True
 
 
+LOGIN_RATE = int(os.getenv("LOGIN_RATE_PER_MIN", "20"))         # sign-in attempts per client IP per minute
+_logins: dict[str, collections.deque] = {}
+
+
+def check_rate(kind: str = "login") -> None:
+    """Sliding one-minute window of sign-in attempts per client IP (slows secret guessing)."""
+    ip = client_ip.get()
+    if ip is None:
+        return
+    now = time.time()
+    with _lock:
+        q = _logins.setdefault(ip, collections.deque())
+        while q and now - q[0] > 60:
+            q.popleft()
+        if len(q) >= LOGIN_RATE:
+            from bidbrain.api.auth import AuthError
+            raise AuthError(f"too many sign-in attempts from this address (max {LOGIN_RATE} a minute)", 429)
+        q.append(now)
+        if len(_logins) > 10_000:
+            for k in [k for k, v in _logins.items() if not v or now - v[-1] > 60]:
+                _logins.pop(k, None)
+
+
 def upload_dir(sid_or_name: str):
     """Per-session upload folder, named by a hash so the session id never appears on disk."""
     sid = sid_or_name.removeprefix("session_")

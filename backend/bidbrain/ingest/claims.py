@@ -56,7 +56,8 @@ def make(subject_label: str, subject_key: str, predicate: str, value, *,
          source_doc: str, source_kind: str, page: int | None = None,
          issuer: str | None = None, valid_from: str | None = None,
          valid_to: str | None = None, observed: str | None = None,
-         extracted_by: str = "extractor", basis: str = "", planted: str | None = None) -> dict:
+         extracted_by: str = "extractor", basis: str = "", planted: str | None = None,
+         valid_basis: str | None = None) -> dict:
     return {
         "id": claim_id(subject_key, predicate, source_doc, basis),
         "subject_label": subject_label,
@@ -70,7 +71,10 @@ def make(subject_label: str, subject_key: str, predicate: str, value, *,
         "precision": MONEY_PRECISION.get(source_kind, 1),
         "issuer": issuer,
         "page": page,
+        # valid time: the effective date the document prints for this fact (a work's completion, a credential's
+        # issue date), with what it is in valid_basis; None when the document prints none for it
         "valid_from_day": day(valid_from),
+        "valid_basis": valid_basis if valid_from else None,
         "valid_to_day": day(valid_to),
         "observed_day": day(observed),
         "extracted_by": extracted_by,
@@ -92,6 +96,12 @@ def prev_fy(fy: str) -> str:
     return f"{a}-{str(a + 1)[2:]}"
 
 
+def _valid_from(claims: list[dict], date: str | None, basis: str) -> None:
+    for c in claims:
+        if date and c["valid_from_day"] is None:
+            c["valid_from_day"], c["valid_basis"] = day(date), basis
+
+
 def from_facts(f: dict, pages) -> list[dict]:
     """All claims the base corpus makes. `pages` is a PageIndex."""
     out: list[dict] = []
@@ -99,6 +109,9 @@ def from_facts(f: dict, pages) -> list[dict]:
         k = w["work_key"]
         cc = w["docs"].get("completion_certificate")
         ccc = w["docs"].get("company_record")
+        # every document about a work (certificate, company record, portfolio) prints its completion date: the
+        # work's facts hold from then (valid time), not only from the date the document was printed
+        n0 = len(out)
         if cc:
             p = pages.find_money(cc, w["value"])
             out.append(make("Work", k, "value", w["value"], source_doc=cc, source_kind="client_certificate",
@@ -133,13 +146,16 @@ def from_facts(f: dict, pages) -> list[dict]:
             out.append(make("Work", k, "role", w["role"], source_doc="DOC-PPP-001", source_kind="portfolio",
                             page=pages.find("DOC-PPP-001", w["work"], w["cert_ref"]), issuer="company",
                             basis="portfolio-role"))
+        _valid_from(out[n0:], w.get("completed"), "the work's completion date, printed in the document")
     for c in f["personnel"]:
+        n0 = len(out)
         out.append(make("Credential", c["credential_id"], "valid_through", c["valid_through"],
                         source_doc=c["doc_id"], source_kind="certification_body", page=1,
                         issuer=c["credential"]))
         out.append(make("Credential", c["credential_id"], "issued", c["issued"],
                         source_doc=c["doc_id"], source_kind="certification_body", page=1,
                         issuer=c["credential"]))
+        _valid_from(out[n0:], c.get("issued"), "the credential's issue date, printed on the certificate")
     for s in f["staff"]:
         from bidbrain.ingest.aliases import norm
         if s.get("experience_years") is not None:

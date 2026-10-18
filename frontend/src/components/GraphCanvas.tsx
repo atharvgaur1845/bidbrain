@@ -90,8 +90,8 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
   useEffect(() => {
     const f = fg.current;
     if (!f) return;
-    f.d3Force("charge")?.strength(-140);
-    f.d3Force("link")?.distance(48);
+    f.d3Force("charge")?.strength(graph.nodes.length > 15 ? -260 : -140);
+    f.d3Force("link")?.distance(graph.nodes.length > 15 ? 64 : 48);
   }, [graph]);
 
   const hl = highlight || new Set<string>();
@@ -150,12 +150,15 @@ export default function GraphCanvas({ data, highlight, height = 460, onNodeClick
             ctx.fillStyle = color; ctx.fill();
             ctx.lineWidth = 1.2; ctx.strokeStyle = pal.stroke; ctx.stroke();
           }
-          const showLabel = showAllLabels || isHl(node.id) || hover === node.id || scale > 2.2 || ["Client", "Case"].includes(node.label);
+          const crowded = graph.nodes.length > 24;
+          const showLabel = showAllLabels || isHl(node.id) || hover === node.id || (scale > (crowded ? 4 : 2.2)) || ["Client", "Case"].includes(node.label);
           if (showLabel && node.name) {
             const fs = Math.max(3.2, 11 / scale);
             ctx.font = `${isHl(node.id) ? 600 : 500} ${fs}px Inter, ui-sans-serif, sans-serif`;
             ctx.textAlign = "center"; ctx.textBaseline = "top";
             const text = String(node.name).length > 42 ? String(node.name).slice(0, 40) + "…" : String(node.name);
+            ctx.lineWidth = Math.max(1, 3 / scale); ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineJoin = "round";
+            ctx.strokeText(text, node.x, node.y + r + 2);
             ctx.fillStyle = dim ? pal.dim : pal.label;
             ctx.fillText(text, node.x, node.y + r + 2);
           }

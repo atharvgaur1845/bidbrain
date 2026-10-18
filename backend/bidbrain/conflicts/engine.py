@@ -609,6 +609,21 @@ def session_tag(session_graph: str) -> str:
     return "s-" + hashlib.sha256(session_graph.encode()).hexdigest()[:12]
 
 
+def _need_principal(what: str):
+    """The verified principal (api/auth.py) for a shared change: 503 when none are configured (fail closed),
+    401 when not signed in. A session id or a typed `user` is never an identity."""
+    from bidbrain.api import auth
+    try:
+        return auth.require(what)
+    except auth.AuthError as exc:
+        raise OrgMemoryError(str(exc), exc.status)
+
+
+def _audit(org: Graph, action: str, target: str, principal: str | None, session: str | None, note=None) -> None:
+    org.run("CREATE (:OrgAudit {at: timestamp(), action: $a, target: $t, principal: $p, session: $s, note: $n})",
+            {"a": action, "t": target, "p": principal, "s": session, "n": (str(note or ""))[:200] or None})
+
+
 def _need_session(g: Graph | None) -> str:
     if g is None or not g.name.startswith("session_"):
         raise OrgMemoryError("company memory changes need a session (X-Session header)", 400)
@@ -813,6 +828,7 @@ def list_org(include_retired: bool = False, session_graph: str | None = None) ->
                             r.retired_by_label AS retired_by_label,
                             r.source_rule AS source_rule, r.source_session AS source_session,
                             r.orphaned_at AS orphaned_at, r.retire_reason AS retire_reason,
+                            r.promoted_by_principal AS promoted_by_principal,
                             coalesce(r.promoted_by, u.key) AS promoted_by, r.promoted_by_label AS promoted_by_label,
                             contests,
                             d {.id, .rationale, .policy, .decided_by, .subject_key, .subject, .predicate,
@@ -834,6 +850,7 @@ def promote(g: Graph, rule_id: str, user: str | None = None) -> dict:
     tag = _need_session(g)
     if not isinstance(rule_id, str) or not RULE_ID_RE.match(rule_id):
         raise OrgMemoryError("rule_id must look like RULE-<10 hex>", 400)
+    who = _need_principal("promoting a rule to company memory").name
     label = _label(user)
     rows = g.read("""MATCH (r:PolicyRule {id:$id})
                      OPTIONAL MATCH (r)-[:LEARNED_FROM]->(d:Decision)
@@ -872,13 +889,13 @@ def promote(g: Graph, rule_id: str, user: str | None = None) -> dict:
         org.run("""MERGE (u:User {key:$tag}) ON CREATE SET u.name = $tag, u.kind = 'session'
                    CREATE (o:OrgRule {id:$id, key:$id, predicate:$p, prefer_kind:$pk, over_kind:$ok, rationale:$why,
                                       retired:false, promoted_at:timestamp(), promoted_by:$tag,
-                                      source_rule:$rid, source_session:$tag})
+                                      source_rule:$rid, source_session:$tag, promoted_by_principal:$who})
                    SET o.promoted_by_label = $lab
                    CREATE (o)-[:PROMOTED_BY {at:timestamp()}]->(u)
                    CREATE (o)-[:LEARNED_FROM]->(:SourceDecision {id:$did, key:$did, rationale:$drat, policy:$dpol,
                           decided_by:$dby, subject_key:$sk, subject:$subj, predicate:$p, chosen_value:$val,
                           source_doc:$doc, at:$dat, source_session:$tag})""",
-                {"tag": tag, "lab": label, "id": oid, "p": r["predicate"], "pk": r["prefer_kind"],
+                {"tag": tag, "lab": label, "id": oid, "who": who, "p": r["predicate"], "pk": r["prefer_kind"],
                  "ok": r["over_kind"], "why": r.get("rationale") or "", "rid": rule_id,
                  "did": d.get("id"), "drat": d.get("rationale"), "dpol": d.get("policy"),
                  "dby": rows[0]["decided_by"], "sk": d.get("subject_key"), "subj": rows[0]["subject"],
@@ -888,17 +905,18 @@ def promote(g: Graph, rule_id: str, user: str | None = None) -> dict:
                    OPTIONAL MATCH (o)-[:LEARNED_FROM]->(d:SourceDecision)
                    OPTIONAL MATCH (c:Contest)-[:CONTESTS]->(o) DETACH DELETE o, d, c""",
                 {"keep": ORG_MAX_KEPT})
+        _audit(org, "promote_rule", oid, who, tag, f"from {rule_id}")
         _export_locked()
     return {"org_rule": oid, "already": False, "recheck": recheck_open_cards(g)}
 
 
-def _owner_check(o: dict, tag: str | None, admin: bool, org_id: str) -> None:
-    if admin:
+def _owner_check(o: dict, who, admin: bool, org_id: str) -> None:
+    """Only the principal who promoted the rule (or an admin principal / the operator token) retires it."""
+    if admin or (who is not None and who.is_admin):
         return
-    if tag is None:
-        raise OrgMemoryError("retiring a company rule needs a session (X-Session header)", 400)
-    if o.get("source_session") != tag:
-        raise OrgMemoryError(f"only the session that promoted {org_id} can retire it; contest it instead "
+    if o.get("promoted_by_principal") != who.name:
+        raise OrgMemoryError(f"only the principal who promoted {org_id} "
+                             f"({o.get('promoted_by_principal') or 'an operator'}) can retire it; contest it instead "
                              f"(POST /api/memory/org/{org_id}/contest) to take it out of play in your session", 403)
 
 
@@ -909,18 +927,25 @@ def retire_org(org_id: str, g: Graph | None = None, user: str | None = None, adm
     if not isinstance(org_id, str) or not ORG_ID_RE.match(org_id):
         raise OrgMemoryError("id must look like ORG-<10 hex>", 400)
     tag = session_tag(g.name) if g is not None and g.name.startswith("session_") else None
+    who = None if admin else _need_principal("retiring a company rule")
     with _ORG_LOCK:
         org = _org()
-        rows = org.read("MATCH (o:OrgRule {id:$id}) RETURN o.retired AS retired, o.source_session AS source_session",
+        rows = org.read("""MATCH (o:OrgRule {id:$id}) RETURN o.retired AS retired, o.source_session AS source_session,
+                                  o.promoted_by_principal AS promoted_by_principal""",
                         {"id": org_id}) if org else []
         if not rows:
             raise OrgMemoryError(f"no company rule {org_id}", 404)
-        _owner_check(rows[0], tag, admin, org_id)
+        _owner_check(rows[0], who, admin, org_id)
         already = bool(rows[0]["retired"])
         if not already:
-            org.run("""MATCH (o:OrgRule {id:$id}) SET o.retired = true, o.retired_at = timestamp(),
-                           o.retired_by = $by, o.retired_by_label = $lab""",
-                    {"id": org_id, "by": tag if tag and not admin else "admin", "lab": _label(user)})
+            by = "admin" if who is None else who.name
+            # compare-and-set: of concurrent retires exactly one records the retirement
+            if org.run("""MATCH (o:OrgRule {id:$id}) WHERE o.retired = false
+                          SET o.retired = true, o.retired_at = timestamp(), o.retired_by = $by,
+                              o.retired_principal = $by, o.retired_session = $tag, o.retired_by_label = $lab
+                          RETURN o.id AS id""",
+                       {"id": org_id, "by": by, "tag": tag, "lab": _label(user)}):
+                _audit(org, "retire_rule", org_id, by, tag)
             _export_locked()
     review = review_org_rule(g, org_id, "retired") if tag else {"flagged": 0, "reopened": []}
     return {"org_rule": org_id, "retired": True, "already": already, **review}
@@ -933,6 +958,7 @@ def contest_org(g: Graph, org_id: str, user: str | None = None, reason: str | No
     tag = _need_session(g)
     if not isinstance(org_id, str) or not ORG_ID_RE.match(org_id):
         raise OrgMemoryError("id must look like ORG-<10 hex>", 400)
+    who = _need_principal("contesting a company rule").name
     with _ORG_LOCK:
         org = _org()
         rows = org.read("""MATCH (o:OrgRule {id:$id}) RETURN o {.*} AS o""", {"id": org_id}) if org else []
@@ -947,10 +973,11 @@ def contest_org(g: Graph, org_id: str, user: str | None = None, reason: str | No
         if n < ORG_MAX_CONTESTS:
             org.run("""MATCH (o:OrgRule {id:$id})
                        MERGE (c:Contest {key:$key}) ON CREATE SET c.at = timestamp(), c.session = $tag
-                       SET c.label = $lab, c.reason = $why
+                       SET c.label = $lab, c.reason = $why, c.principal = $who
                        MERGE (c)-[:CONTESTS]->(o)""",
-                    {"id": org_id, "key": f"{org_id}:{tag}", "tag": tag, "lab": _label(user),
+                    {"id": org_id, "key": f"{org_id}:{tag}", "tag": tag, "lab": _label(user), "who": who,
                      "why": (str(reason or "")[:200]).strip() or None})
+            _audit(org, "contest_rule", org_id, who, tag, reason)
             _export_locked()
         contests = org.scalar("MATCH (c:Contest)-[:CONTESTS]->(:OrgRule {id:$id}) RETURN count(c)", {"id": org_id})
     g.run("""MERGE (r:OrgRuleRef {id:$id}) SET r.key = $id, r.graph = $graph, r.predicate = $p,

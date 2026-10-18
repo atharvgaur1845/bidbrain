@@ -38,7 +38,7 @@ INDEXES = [
     ("LedgerAccount", "key"), ("Asset", "key"), ("Certification", "key"),
     ("BusinessUnit", "key"), ("Claim", "id"), ("Claim", "subject_key"), ("Chunk", "id"),
     ("Case", "id"), ("Clause", "id"), ("Finding", "id"), ("Decision", "id"),
-    ("Bid", "key"), ("PolicyRule", "id"), ("AgentRun", "id"), ("Conversation", "id"),
+    ("Tender", "status"), ("Bid", "key"), ("PolicyRule", "id"), ("AgentRun", "id"), ("Conversation", "id"),
     # created at run time in session graphs (GRAPH.COPY of this one carries the indexes): actions are looked up
     # by id on every approve / execute, and by idempotency key before one is proposed
     ("Action", "id"), ("Action", "idem"),
@@ -112,6 +112,54 @@ def project(g: Graph) -> None:
              CREATE (p)-[:WORKED_FOR {works:n, value:v}]->(c), (c)-[:ENGAGED {works:n, value:v}]->(p)""")
     for q in PROJECTIONS.values():
         g.run(q)
+    g.run("MERGE (m:Meta {key:'meta'}) SET m.projection_sig = $s", {"s": projection_sig(g)})
+
+
+# What the projections are computed from: every (lead, work, client) triple and the work's value. A session write
+# that changes any of them (a new or re-assigned lead, a corrected value) changes this signature.
+PROJECTION_SIG = """MATCH (p:Person)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
+                    WITH p.key + '|' + w.key + '|' + c.key + '|' + toString(coalesce(w.value, 0)) AS t ORDER BY t
+                    RETURN collect(t) AS ts"""
+
+
+def projection_sig(g: Graph) -> str:
+    import hashlib
+    return hashlib.sha1("\n".join(g.scalar(PROJECTION_SIG) or []).encode()).hexdigest()
+
+
+def ensure_projections(g: Graph) -> bool:
+    """Rebuild WORKED_FOR / ENGAGED / OVERLAPS_CLIENTS if who-led-what-for-whom changed since they were built
+    (any session write, through any path). Read-only when they are current. Returns True if it rebuilt."""
+    try:
+        built = g.scalar("MATCH (m:Meta {key:'meta'}) RETURN m.projection_sig")
+    except Exception:  # noqa: BLE001
+        built = None
+    if built == projection_sig(g):
+        return False
+    project(g)
+    return True
+
+
+TENDER_STATUS = """MATCH (t:Tender)
+             OPTIONAL MATCH (b:Bid)-[:FOR_TENDER]->(t)
+             OPTIONAL MATCH (bd:Bond)-[:SECURES]->(t)
+             WITH t, min(b.submitted) AS sub, min(bd.issued) AS bond
+             WITH t, sub, bond, CASE
+                 WHEN sub IS NOT NULL THEN ['closed', 'bid submitted ' + sub]
+                 WHEN t.bid_date IS NOT NULL AND t.bid_date < $s THEN ['closed', 'bid date ' + t.bid_date + ' before snapshot ' + $s]
+                 WHEN t.bid_date IS NOT NULL THEN ['open', 'bid date ' + t.bid_date + ' on or after snapshot ' + $s]
+                 WHEN bond IS NOT NULL THEN ['closed', 'performance bond issued ' + bond]
+                 ELSE ['closed', 'no bid date, bid or bond in the corpus'] END AS st
+             SET t.status = st[0], t.corpus_status = st[0], t.status_basis = st[1], t.status_as_of = $s"""
+
+
+def tender_status(g: Graph, snapshot: str | None) -> None:
+    """Tender.status ('open' | 'closed') as of the corpus snapshot, with the reason in status_basis:
+    closed if the company submitted a bid for it (a dossier), or if its bid date is before the snapshot, or if a
+    bond was issued for it (a performance bond follows an award); open if its bid date is on or after the
+    snapshot and no bid was submitted. corpus_status keeps the ingest value; a session that opens a Case for a
+    tender sets status 'open' there (tools.case.case_open)."""
+    g.run(TENDER_STATUS, {"s": snapshot})
 
 
 def unwind(g: Graph, cypher: str, rows: list[dict], batch: int = 400) -> None:
@@ -412,6 +460,7 @@ def load(graph_name: str = config.BASE_GRAPH, with_chunks: bool = True, quiet: b
     # ---- past bids (episodic memory) -----------------------------------------
     from bidbrain.ingest.dossiers import load_bids
     load_bids(g, pages)
+    tender_status(g, snapshot)
 
     # ---- analysis projections ---------------------------------------------
     # Domain edges are directed (Work->Person, Work->Client), so in a directed

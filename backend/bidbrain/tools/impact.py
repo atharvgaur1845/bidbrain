@@ -6,13 +6,22 @@
     (Decision)<-[:CAUSED_BY]-(Finding {kind:'ripple'})<-[:HAS_FINDING]-(Clause)<-[:HAS_CLAUSE]-(Case)
     (Decision)<-[:TRIGGERED_BY]-(Action)
 
-`fact_as_of(key, predicate, as_of)` answers "what did the company believe on date T" on two axes:
+`fact_as_of(key, predicate, as_of | valid_at, known_at)` answers "what was true on V, as the company knew it on K"
+on two axes (`as_of` sets both; `valid_at` / `known_at` set one each):
 
-    valid time        the claim's document existed by T: its printed issue date (Document.issued_day, parsed at
-                      ingest), else the claim's observed_day, else a stated bound for undated documents
-    transaction time  the graph had recorded the claim by T (recorded_at; corpus claims are the starting record,
+    valid time        the fact held by V's calendar day: the effective date the document prints for the fact (a
+                      work's completion date, a credential's issue date: Claim.valid_from_day, set at ingest), else
+                      the document's printed issue date (Document.issued_day), else the claim's observed_day, else
+                      a stated bound for an undated claim (the result names those claim kinds). Day numbers compare
+                      inclusively: valid_from_day <= V's day.
+    transaction time  the graph had recorded the claim by K (recorded_at; corpus claims are the starting record,
                       recorded_at 0, because the base graph is rebuilt at every boot) and no decision had set it
-                      aside by T (invalidated_at); decisions count from Decision.at (corpus decisions: 0)
+                      aside by K (invalidated_at); decisions count from Decision.at (corpus decisions: 0)
+
+Input times (TIME_SEMANTICS): a date-only input ('2026-10-18') means the END of that calendar day in Asia/Kolkata
+(23:59:59.999 IST), so a change recorded at any time that day is visible; a timestamp keeps its exact instant and
+offset; a timestamp without an offset is read in Asia/Kolkata. The calendar day of a timestamp, for the valid-time
+axis, is its date in Asia/Kolkata.
 
 so a superseded value is never lost, and a value from accounts that did not yet exist is never reported.
 """
@@ -20,6 +29,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+from zoneinfo import ZoneInfo
 
 from bidbrain.graph.client import Graph, day, iso
 from bidbrain.tools.registry import tool
@@ -47,14 +57,17 @@ def change_impact(g: Graph, doc_id: str) -> dict:
                   win.value_str AS chosen, collect(DISTINCT other.value_str) AS replaced,
                   coalesce(c.recorded_at, 0) AS recorded_at, c.invalidated_at AS invalidated_at,
                   c.observed_day AS observed_day, d.issued_day AS doc_issued_day, d.issued AS doc_issued,
-                  d.issued_basis AS doc_issued_basis"""
+                  d.issued_basis AS doc_issued_basis, c.valid_from_day AS claim_valid_from_day,
+                  c.valid_basis AS claim_valid_basis"""
     rows = g.read(q, {"d": doc_id})
     snap = _corpus_snapshot(g)
     for r in rows:   # both time axes per claim: when the graph recorded it, and from when its document is valid
         vf, basis = _valid_from(r, snap)
         r["valid_from"], r["valid_from_basis"] = iso(vf), basis
         r["recorded"] = "corpus (starting record)" if r["recorded_at"] == 0 else _iso_ms(r["recorded_at"])
-        for k in ("observed_day", "doc_issued_day", "doc_issued", "doc_issued_basis"):
+        r["document_date"] = r.get("doc_issued") or iso(r.get("doc_issued_day"))
+        for k in ("observed_day", "doc_issued_day", "doc_issued", "doc_issued_basis", "claim_valid_from_day",
+                  "claim_valid_basis"):
             r.pop(k, None)
     decisions = sorted({r["decision"] for r in rows if r["decision"]})
     flips = g.read("""MATCH (dec:Decision)<-[:CAUSED_BY]-(f:Finding {kind:'ripple'})<-[:HAS_FINDING]-(k:Clause)
@@ -80,21 +93,41 @@ def change_impact(g: Graph, doc_id: str) -> dict:
 DAY_MS = 86_400_000
 
 VALID_BASIS = (
-    "Two time axes. Valid time: a claim counts as of T only if the document stating it existed by T's day "
-    "(valid_from = the date the document prints as its own issue date; else the date the claim was observed in "
-    "that document at ingest; else, for an undated document recorded live, the day it was recorded; else, for an "
-    "undated corpus document, the corpus snapshot date, flagged as such). Transaction time: the graph must have "
-    "recorded the claim by T (recorded_at; 0 = part of the corpus, the company's starting record), and a claim "
+    "Two time axes. Valid time: a claim counts on day V only if its fact held by V (valid_from = the effective "
+    "date the document prints for the fact, such as a work's completion date or a credential's issue date; else "
+    "the date the document prints as its own issue date; else the date the claim was observed in that document at "
+    "ingest; else, for an undated document recorded live, the day it was recorded; else, for an undated corpus "
+    "claim, the corpus snapshot date, flagged as such). Transaction time: the graph must have "
+    "recorded the claim by K (recorded_at; 0 = part of the corpus, the company's starting record), and a claim "
     "set aside by a decision (invalidated_at) stops counting from that instant. Decisions count from their own "
     "time (Decision.at; the corpus's own decisions are part of the starting record, at 0): the latest decision "
-    "on the fact made by T picks the winner among the claims that count; otherwise the highest authority wins.")
+    "on the fact made by K picks the winner among the claims that count; otherwise the highest authority wins.")
+
+
+TZ = ZoneInfo("Asia/Kolkata")
+TIME_SEMANTICS = ("A date-only input (YYYY-MM-DD) means the end of that calendar day in Asia/Kolkata (23:59:59.999 "
+                  "IST), so everything recorded that day counts. A timestamp keeps its exact instant; one without an "
+                  "offset is read in Asia/Kolkata. Valid time compares calendar days inclusively (the fact's "
+                  "valid_from day <= the requested day, the day being the date in Asia/Kolkata); transaction time "
+                  "compares instants (recorded_at <= the requested instant).")
+
+
+def _instant(s: str) -> tuple[int, int, str]:
+    """(epoch ms, calendar day number, how it was read) for an as_of / valid_at / known_at input."""
+    s = s.strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        d = dt.date.fromisoformat(s)
+        end = dt.datetime.combine(d + dt.timedelta(days=1), dt.time(), TZ) - dt.timedelta(milliseconds=1)
+        return int(end.timestamp() * 1000), (d - dt.date(1970, 1, 1)).days, "date: end of day, Asia/Kolkata"
+    d = dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    how = "timestamp"
+    if d.tzinfo is None:
+        d, how = d.replace(tzinfo=TZ), "timestamp without offset, read in Asia/Kolkata"
+    return int(d.timestamp() * 1000), (d.astimezone(TZ).date() - dt.date(1970, 1, 1)).days, how
 
 
 def _ms(as_of: str) -> int:
-    d = dt.datetime.fromisoformat(as_of.replace("Z", "+00:00"))
-    if d.tzinfo is None:
-        d = d.replace(tzinfo=dt.timezone.utc)
-    return int(d.timestamp() * 1000)
+    return _instant(as_of)[0]
 
 
 def _iso_ms(ms: int | None) -> str | None:
@@ -111,7 +144,9 @@ def _corpus_snapshot(g: Graph) -> int | None:
 
 
 def _valid_from(r: dict, snapshot_day: int | None) -> tuple[int | None, str]:
-    """(day the stating document is known to have existed, basis) for one claim row."""
+    """(day from which the claim's fact holds, basis) for one claim row."""
+    if r.get("claim_valid_from_day") is not None:
+        return r["claim_valid_from_day"], f"effective date printed for the fact ({r.get('claim_valid_basis') or 'printed'})"
     if r.get("doc_issued_day") is not None:
         return r["doc_issued_day"], f"document date ({r.get('doc_issued_basis') or 'issue date'})"
     if r.get("doc_issued"):
@@ -134,7 +169,8 @@ _CLAIMS_Q = """MATCH (c:Claim {subject_key:$k, predicate:$p})
                   d.doc_id AS doc, c.page AS page, coalesce(c.recorded_at, 0) AS recorded_at,
                   c.invalidated_at AS invalidated_at, c.invalidated_by AS invalidated_by, c.status AS status_now,
                   c.status_history AS status_history, c.observed_day AS observed_day, d.issued_day AS doc_issued_day, d.issued AS doc_issued,
-                  d.issued_basis AS doc_issued_basis
+                  d.issued_basis AS doc_issued_basis, c.valid_from_day AS claim_valid_from_day,
+                  c.valid_basis AS claim_valid_basis
            ORDER BY recorded_at, claim"""
 _DECISIONS_Q = """MATCH (c:Claim {subject_key:$k, predicate:$p})<-[:BASED_ON|SELECTS]-(dec:Decision)
            WITH DISTINCT dec OPTIONAL MATCH (dec)-[:SELECTS]->(w:Claim)
@@ -164,16 +200,23 @@ def _aside_at(r: dict, t: int) -> bool:
 
 
 @tool("fact_as_of",
-      """What the company believed about one fact at a point in time, on both time axes: a claim counts only if
-      its document existed by then (valid time) and the graph had recorded it and not set it aside by then
-      (transaction time); the latest decision made by then picks among those. Also returns the claims recorded
-      later, the claims whose document is dated after T, and the ones set aside since. Params key (entity key),
-      predicate (e.g. 'value'), as_of (ISO date or datetime).""",
-      {"key": {"type": "string"}, "predicate": {"type": "string"}, "as_of": {"type": "string"}},
-      ["key", "predicate", "as_of"])
-def fact_as_of(g: Graph, key: str, predicate: str, as_of: str) -> dict:
-    t = _ms(as_of)
-    t_day = t // DAY_MS
+      """What was true about one fact on a day, as the company knew it at a time, on both time axes: a claim
+      counts only if its fact held by valid_at's day (valid time: the effective date its document prints) and the
+      graph had recorded it and not set it aside by known_at (transaction time); the latest decision made by
+      known_at picks among those. as_of sets both; valid_at and known_at override one each ("valid on X as known
+      on Y"). A date-only input means the end of that day in Asia/Kolkata; a timestamp is exact. Also returns
+      the claims recorded later, the claims whose fact starts after valid_at, and the ones set aside since.
+      Params key (entity key), predicate (e.g. 'value'), as_of / valid_at / known_at (ISO date or datetime).""",
+      {"key": {"type": "string"}, "predicate": {"type": "string"}, "as_of": {"type": "string"},
+       "valid_at": {"type": "string"}, "known_at": {"type": "string"}},
+      ["key", "predicate"])
+def fact_as_of(g: Graph, key: str, predicate: str, as_of: str | None = None, valid_at: str | None = None,
+               known_at: str | None = None) -> dict:
+    valid_at, known_at = valid_at or as_of, known_at or as_of
+    if not valid_at or not known_at:
+        raise ValueError("give as_of, or both valid_at and known_at (ISO date or datetime)")
+    _, t_day, valid_how = _instant(valid_at)
+    t, _, known_how = _instant(known_at)
     rows = g.read(_CLAIMS_Q, {"k": key, "p": predicate})
     if not rows:
         raise ValueError(f"no claims about {key}.{predicate}")
@@ -182,7 +225,9 @@ def fact_as_of(g: Graph, key: str, predicate: str, as_of: str) -> dict:
         vf, basis = _valid_from(r, snap)
         r["valid_from_day"], r["valid_from"], r["valid_from_basis"] = vf, iso(vf), basis
         r["recorded"] = "corpus (starting record)" if r["recorded_at"] == 0 else _iso_ms(r["recorded_at"])
-        for k in ("observed_day", "doc_issued_day", "doc_issued", "doc_issued_basis"):
+        r["document_date"] = r.get("doc_issued") or iso(r.get("doc_issued_day"))
+        for k in ("observed_day", "doc_issued_day", "doc_issued", "doc_issued_basis", "claim_valid_from_day",
+                  "claim_valid_basis"):
             r.pop(k, None)
     decs = g.read(_DECISIONS_Q, {"k": key, "p": predicate})
     made = [d for d in decs if d["at"] <= t and (d["reopened_at"] is None or d["reopened_at"] > t)]
@@ -196,8 +241,11 @@ def fact_as_of(g: Graph, key: str, predicate: str, as_of: str) -> dict:
     win = best[0] if best else None
     how = (None if not win else f"selected by decision {head['decision']} ({head['policy']})"
            if chosen_by == win["claim"] else "highest authority among the claims that count")
-    undated = sorted({r["source_kind"] for r in rows if not r["valid_from_basis"].startswith(("document", "claim"))})
-    return {"result": {"as_of": as_of, "as_of_day": iso(t_day), "value": win["value"] if win else None,
+    undated = sorted({r["source_kind"] for r in rows if not r["valid_from_basis"].startswith(("effective", "document", "claim"))})
+    return {"result": {"as_of": as_of, "valid_at": valid_at, "known_at": known_at, "valid_day": iso(t_day),
+                       "as_of_day": iso(t_day), "known_at_instant": _iso_ms(t),
+                       "read_as": {"valid_at": valid_how, "known_at": known_how}, "time_semantics": TIME_SEMANTICS,
+                       "value": win["value"] if win else None,
                        "claim": win, "chosen_by": how, "decision_then": head, "valid_basis": VALID_BASIS,
                        "alive_then": live,
                        "learned_later": [r for r in rows if r["recorded_at"] > t],
@@ -206,7 +254,12 @@ def fact_as_of(g: Graph, key: str, predicate: str, as_of: str) -> dict:
                        "set_aside_by_then": [r for r in issued if _aside_at(r, t)],
                        "decisions_later": [d for d in decs if d["at"] > t],
                        "undated_kinds": undated,
-                       "note": (f"no document date in the data for {', '.join(undated)}: those claims' valid_from is "
-                                "a stated bound (see valid_from_basis), not the document's own date") if undated else None},
+                       "note": (f"no date in the data for {', '.join(undated)} claims: their valid_from is a stated "
+                                "bound (see valid_from_basis), not a date the document prints, so before it they do "
+                                "not count") if undated else None,
+                       "why_none": None if win else (
+                           "no claim about this fact was recorded by known_at" if not known else
+                           "no recorded claim's fact had started by valid_at (see not_yet_issued)" if not issued else
+                           "every claim that counted had been set aside by known_at")},
             "evidence": [{"doc_id": r["doc"], "page": r["page"], "what": f"{predicate} = {r['value']}"} for r in live],
             "cypher": [_CLAIMS_Q, _DECISIONS_Q]}

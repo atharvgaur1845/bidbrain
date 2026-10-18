@@ -1,11 +1,12 @@
 "use client";
 
 import { Route, Search, Compass as CompassIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import GraphCanvas, { GData, GNode, mergeGraph } from "@/components/GraphCanvas";
+import { useEffect, useMemo, useRef, useState } from "react";
+import GraphCanvas, { GData, GNode, LABEL_COLORS, mergeGraph } from "@/components/GraphCanvas";
 import { PageHeader } from "@/components/Shell";
 import { Button, Card, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
+import { Detail } from "./detail";
 import { AlgoList, AlgoResult, Candidates, Endpoint, KINDS, Kind, LABEL_OF, Properties, Segmented } from "./parts";
 
 const HOME = { label: "Client", key: "nationalexpresswaydevelopmentauthority" };
@@ -28,6 +29,8 @@ export default function ExplorePage() {
   const [busy, setBusy] = useState(false);
   const [running, setRunning] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [sel, setSel] = useState<string | null>(null);
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [pa, setPa] = useState({ a: "Sunita Joshi", ak: "person", b: "National Expressway Development Authority", bk: "client" });
 
   async function open(label: string, key: string) {
@@ -35,6 +38,7 @@ export default function ExplorePage() {
     setGraph((g) => mergeGraph(g, nb));
     setHl(new Set([`${label}:${key}`]));
     setFocus(`${label}:${key}`);
+    setSel(`${label}:${key}`);
     const k = Object.entries(LABEL_OF).find(([, v]) => v === label)?.[0];
     if (k) api(`/api/entity/${k}/${encodeURIComponent(key)}`)
       .then((e) => { setEntity(e.result?.entity); setEntityLabel(label); })
@@ -82,6 +86,16 @@ export default function ExplorePage() {
     } finally { setSearching(false); }
   }
 
+  // start where this session's latest change landed (the subject of the newest received document), else the demo client
+  async function startRelevant() {
+    try {
+      const r = await api<{ documents: any[] }>("/api/impact");
+      const c = r.documents.flatMap((d) => d.claims || []).find((x: any) => x.subject_label && x.subject_key && /^[A-Za-z]+$/.test(x.subject_label));
+      if (c) { await open(c.subject_label, c.subject_key); return; }
+    } catch { /* fall through */ }
+    expand(HOME.label, HOME.key);
+  }
+
   async function runAlgo(name: string) {
     setBusy(true);
     setRunning(name);
@@ -116,18 +130,29 @@ export default function ExplorePage() {
     const first = handledQ.current === null;
     handledQ.current = text;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- once per ?q= change; the URL is external state
+    const sp = new URLSearchParams(window.location.search);
+    const L = sp.get("label"), K = sp.get("key");
     if (text) lookup(text);
-    else if (first) expand(HOME.label, HOME.key);
+    else if (first && L && K && /^[A-Za-z]+$/.test(L)) expand(L, K);
+    else if (first) startRelevant();
   });
 
   const focusNode = focus ? graph.nodes.find((n) => n.id === focus) : undefined;
+  const selNode = sel ? graph.nodes.find((n) => n.id === sel) : undefined;
+  const labelsIn = useMemo(() => [...new Set(graph.nodes.map((n) => n.label))].sort(), [graph.nodes]);
+  const shown: GData = useMemo(() => {
+    if (!hidden.size) return graph;
+    const nodes = graph.nodes.filter((n) => !hidden.has(n.label) || n.id === sel);
+    const ids = new Set(nodes.map((n) => n.id));
+    return { nodes, edges: graph.edges.filter((e) => ids.has(e.source as string) && ids.has(e.target as string)) };
+  }, [graph, hidden, sel]);
 
   return (
     <div>
       <PageHeader icon={<CompassIcon size={19} strokeWidth={1.75} />} tone="sand" title="Explore"
         subtitle="Search any entity, expand its neighbourhood, run FalkorDB's built-in algorithms." />
-      <div className="grid gap-5 lg:grid-cols-12">
-        <div className="flex min-w-0 flex-col gap-5 lg:col-span-4">
+      <div className="grid gap-4 lg:grid-cols-12">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-4 xl:col-span-3">
           <Card title="Find" action={searching ? <Spinner label="Searching" /> : null}>
             <Segmented label="Entity kind" value={kind} onChange={setKind}
               options={KINDS.map((k) => ({ id: k, label: LABEL_OF[k] }))} />
@@ -149,7 +174,7 @@ export default function ExplorePage() {
                 onText={(v) => setPa({ ...pa, a: v })} onKind={(v) => setPa({ ...pa, ak: v })} />
               <Endpoint label="To" text={pa.b} kind={pa.bk}
                 onText={(v) => setPa({ ...pa, b: v })} onKind={(v) => setPa({ ...pa, bk: v })} />
-              <Button variant="primary" className="mt-1 w-full" disabled={busy}>
+              <Button type="submit" variant="primary" className="mt-1 w-full" disabled={busy}>
                 <Route size={16} strokeWidth={1.75} />
                 {running === "explain_path" ? "Finding paths" : "Find paths"}
               </Button>
@@ -157,18 +182,35 @@ export default function ExplorePage() {
           </Card>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-5 lg:col-span-8">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-8 xl:col-span-6">
           <Card title="Graph" pad={false} className="overflow-hidden"
             action={
               <Button variant="ghost" size="sm" disabled={!graph.nodes.length}
-                onClick={() => { setGraph({ nodes: [], edges: [] }); setHl(new Set()); }}>
+                onClick={() => { setGraph({ nodes: [], edges: [] }); setHl(new Set()); setSel(null); setFocus(null); }}>
                 Clear
               </Button>
             }>
-            <GraphCanvas data={graph} highlight={hl} height={520} emptyHint="Find an entity or run an algorithm."
+            {labelsIn.length > 1 && (
+              <div role="group" aria-label="Filter node types" className="flex flex-wrap items-center gap-1.5 border-b border-line px-4 py-2 text-[12px]">
+                <span className="mr-1 text-ink-3">Show</span>
+                {labelsIn.map((l) => {
+                  const on = !hidden.has(l);
+                  const n = graph.nodes.filter((x) => x.label === l).length;
+                  return (
+                    <button key={l} type="button" aria-pressed={on} title={on ? `Hide ${l} nodes` : `Show ${l} nodes`}
+                      onClick={() => setHidden((h) => { const x = new Set(h); if (on) x.add(l); else x.delete(l); return x; })}
+                      className={"inline-flex items-center gap-1.5 rounded border px-1.5 py-0.5 transition-colors duration-100 " + (on ? "border-line-strong bg-surface text-ink-2 hover:bg-surface-2" : "border-line text-ink-3 line-through hover:bg-surface-2")}>
+                      <span className="h-2 w-2 rounded-full" style={{ background: on ? (LABEL_COLORS[l] || "#8a8f98") : "transparent", border: `1px solid ${LABEL_COLORS[l] || "#8a8f98"}` }} />
+                      {l} <span className="num text-ink-3">{n}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <GraphCanvas data={shown} highlight={hl} height={520} emptyHint="Find an entity or run an algorithm."
               onNodeClick={(n: GNode) => { const [label, ...rest] = n.id.split(":"); expand(label, rest.join(":")); }} />
             <div className="flex items-center gap-3 border-t border-line px-5 py-3 text-[12.5px] text-ink-3">
-              <span className="shrink-0">Click a node to expand its neighbourhood.</span>
+              <span className="shrink-0">Click a node to select it and expand its neighbourhood. Scroll to zoom, drag to pan.</span>
               {focusNode && (
                 <span className="ml-auto min-w-0 truncate">
                   Focused on <span className="font-medium text-ink-2">{focusNode.name || focusNode.id}</span>
@@ -179,9 +221,14 @@ export default function ExplorePage() {
 
           {err && <p role="alert" className="rounded-[10px] bg-bad-soft px-4 py-3 text-[13px] text-bad">{err}</p>}
 
-          <div className="grid gap-5 2xl:grid-cols-2">
+          <AlgoResult a={algo} onOpen={expand} />
+        </div>
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-12 xl:col-span-3">
+          <div className="contents">
+            <Detail node={selNode} graph={graph} onExpand={expand}
+              onChain={(g, ids) => { setGraph((x) => mergeGraph(x, g)); setHl(new Set(ids)); }}
+              onPath={(end, name, k) => setPa((p) => (end === "a" ? { ...p, a: name, ak: k } : { ...p, b: name, bk: k }))} />
             <Properties entity={entity} label={entityLabel} />
-            <AlgoResult a={algo} onOpen={expand} />
           </div>
         </div>
       </div>

@@ -30,11 +30,11 @@ BRIEF = {
     "compliance_check": "Re-test our past compliance-matrix MET claims against the graph on each bid date. Optional tender, kind, only_disagreements.",
     "communities": "Groups of people who keep serving the same clients (of='people') or clients served by one pool of leads (of='clients'), with defining clients.",
     "fact_history": "Why we believe a fact: competing claims (doc, page, authority, status) and the decisions that settled them. Use for 'why/which document/what changed'.",
-    "blast_radius": "What breaks if a fact changes (read-only): open cases whose clauses rely on it, past bids citing it, tenders it secures, and the verdict flips a re-check would give. label: Work|Person|Bond|FinancialStatement|Credential|Certification|Contract|Company; key = the graph key (from resolve_entity / find_portfolio).",
+    "blast_radius": "What breaks if a fact changes (read-only): open cases whose clauses rely on it, past bids citing it, tenders it secures, and the verdict flips a re-check would give. `dependents` lists everything reached by graph paths (with the paths): use it for impact answers. Empty lists are not proof that nothing is affected. label: Work|Person|Bond|FinancialStatement|Credential|Certification|Contract|Company; key = the graph key (from resolve_entity / find_portfolio).",
     "depends_on": "Read-only provenance of one document (doc_id): every fact, decision, bid and case clause that depends on it, and sole_source = what loses its evidence if the document is withdrawn.",
     "case_get": "Read one qualification case by case_id: clauses, verdicts, evidence, findings and which agent wrote what.",
-    "list_cases": "This workspace's bid cases (the open bids being qualified; NOT past Bid submissions): case_id, title, tender, bid date, recommendation, approved recommendation, open findings. Use for 'open bids' or 'the <name> case', then case_get.",
-    "fact_as_of": "What we believed about one fact on a past date: key (graph key from resolve_entity), predicate ('value', 'completed', 'valid_through', ...), as_of (ISO date). Use only for 'what did we think X was on <date>'.",
+    "list_cases": "This workspace's bid cases (the open bids being qualified; NOT past Bid submissions): case_id, title, tender (with tender_status), bid date, recommendation, approved recommendation, open findings; plus open_tenders (Tender.status='open', with status_basis / status_as_of). Use it for 'open tenders'. Use for 'open bids' or 'the <name> case', then case_get.",
+    "fact_as_of": "What we believed about one fact on a past date: key (graph key from resolve_entity), predicate ('value', 'completed', 'valid_through', ...), as_of (ISO date). Use only for 'what did we think X was on <date>'; the then-vs-now comparison is added to your answer automatically.",
     "change_impact": "What one document (doc_id) changed: its claims, the decisions they triggered (before -> after), the open cases that flipped and the actions created. Use for 'what did DOC-... change'.",
     "get_entity": "One entity's properties and direct links. kind: client|person|work|tender|bond|credential|contract|document.",
     "vector_search": "Semantic search over document pages (for prose, not for counting).",
@@ -66,6 +66,12 @@ How to work:
   say so plainly ("<name> is not in the company graph"), never answer about a nearest candidate instead.
 - When a tool returns a `verdict` (PROVEN / UNPROVEN, PASS / FAIL / AT_RISK, ...), quote it verbatim. Never
   call an UNPROVEN result confirmed or proven: say what is unproven and why (the failed check).
+- An empty result is NOT proof of absence. Never answer "none", "no ...", "0", "never" or "would not be
+  affected" from one empty result (blast_radius, vector_search, get_entity ...). A negative needs either
+  prove_absence with verdict PROVEN (quote its scope and checks), or a count over a defined set whose entity
+  resolved (find_portfolio / aggregate op=count / list_cases). Otherwise say what the tool returned and that
+  absence is not established. If resolve_entity says `ambiguous`, ask which one instead of answering.
+- Do not repeat a tool call with the same arguments: the result will not change.
 - When the answer is that something is missing, name the missing items (the works, people or documents
   the tool lists as absent), not only how many there are. After prove_absence, list every item in its
   `absent` result by name before the ANSWER line.
@@ -106,7 +112,11 @@ Return ONLY a JSON object {"clauses": [...]} where each clause is
 - certification: {"standard": "ISO 9001" | "ISO 14001" | "ISO 45001" | "CPWD" | "NABL"}
 - years_in_business: {"min_years": int}
 - other: {} (anything else, e.g. declarations, EMD, registrations)
-Crore = 10,000,000 rupees; Lakh = 100,000. Do not invent requirements."""
+Crore = 10,000,000 rupees; Lakh = 100,000. Do not invent requirements.
+One clause per requirement: text joined by ";" that states two requirements (similar works; turnover) is two
+clauses. Header lines ("Estimated Cost: Rs 120 Crore", "Name of Work: ...") are context, not clauses. Net worth,
+bid capacity, solvency, liquid assets, working capital, profit, or "twice the estimated cost" have no kind: use
+"other" with {} (a person reviews them). Never fill a param the text does not state: leave it out."""
 
 ASSEMBLER_SYSTEM = """You are the Bid Pack Assembler. Given the verified case record (clauses, verdicts,
 evidence, findings), write a concise bid qualification memo in Markdown for the bid manager:

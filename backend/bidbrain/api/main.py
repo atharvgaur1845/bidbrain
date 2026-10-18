@@ -3,7 +3,10 @@
     uvicorn bidbrain.api.main:app --port 7860
 
 Every request names a session (header `X-Session`); the session's own graph
-copy is created on first use. Long-running agent work streams Server-Sent
+copy is created on first use. A session is a private workspace, not an identity: changes to shared
+company memory (promote / retire / contest rules, approve / execute / retire / contest company-record
+facts) need a signed-in principal (POST /api/auth/login; see api/auth.py), and are disabled when no
+principals are configured. Long-running agent work streams Server-Sent
 Events (`text/event-stream`) so the UI can animate each step as it happens.
 The MCP server is mounted at /mcp for any MCP client (Claude Desktop, etc.).
 """
@@ -26,7 +29,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from bidbrain import config
 from bidbrain.agents import providers
-from bidbrain.api import sessions
+from bidbrain.api import auth, sessions
 from bidbrain.graph.client import Graph
 from bidbrain.tools import TOOLS, call
 
@@ -77,6 +80,11 @@ class _Guard:
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
             sessions.client_ip.set(_client_ip(scope))
+            # the verified principal for this request (or why its token was refused); read by company code
+            hdrs = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers") or []}
+            p, why = auth.resolve(hdrs, _cookies(hdrs.get("cookie", "")))
+            auth.current.set(p)
+            auth.problem.set(why)
             if scope["path"] == "/mcp":
                 scope = {**scope, "path": "/mcp/", "raw_path": b"/mcp/"}
             elif scope["path"] == "/api/ingest" and scope["method"] == "POST":
@@ -95,6 +103,16 @@ class _Guard:
 FORWARDED_HOPS = int(os.getenv("FORWARDED_HOPS") or "0")
 
 
+def _cookies(raw: str) -> dict:
+    from http.cookies import SimpleCookie
+    c = SimpleCookie()
+    try:
+        c.load(raw)
+    except Exception:
+        return {}
+    return {k: m.value for k, m in c.items()}
+
+
 def _client_ip(scope) -> str:
     """The address new-session rate limits are keyed on. With FORWARDED_HOPS=0 (the default) it is the socket
     peer. Behind a proxy (HF Spaces, FORWARDED_HOPS=1) the peer is the proxy, so take the entry the nearest
@@ -109,7 +127,13 @@ def _client_ip(scope) -> str:
 app = FastAPI(title="BidBrain", version="1.0", lifespan=lifespan)
 app.add_middleware(_Guard)
 app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
-                   allow_methods=["*"], allow_headers=["*"], expose_headers=["X-Session"])
+                   allow_methods=["*"], allow_headers=["*"], expose_headers=["X-Session"],
+                   allow_credentials="*" not in os.getenv("CORS_ORIGINS", "*"))
+
+
+@app.exception_handler(auth.AuthError)
+async def _auth_error(_req: Request, exc: auth.AuthError):
+    return JSONResponse({"detail": str(exc)}, status_code=exc.status)
 
 TENDERS = json.loads((config.DATA / "tenders" / "demo_tenders.json").read_text())
 PDF_DIR = config.DATA / "conflicts" / "pdf"
@@ -275,6 +299,48 @@ def schema(x_session: str | None = Header(None)):
     rows = g.read("""MATCH (a)-[e]->(b) WHERE NOT a:Chunk AND NOT b:Chunk
                      RETURN labels(a)[0] AS src, type(e) AS rel, labels(b)[0] AS dst, count(*) AS n""")
     return {"triples": rows}
+
+
+# ------------------------------------------------------------------ sign-in (principals; api/auth.py)
+
+def _cookie_kw(request: Request) -> dict:
+    same = (os.getenv("BIDBRAIN_AUTH_COOKIE_SAMESITE") or "lax").lower()
+    same = same if same in ("lax", "strict", "none") else "lax"
+    secure = same == "none" or request.url.scheme == "https" or \
+        request.headers.get("x-forwarded-proto", "").lower() == "https"
+    return {"httponly": True, "samesite": same, "secure": secure, "path": "/"}
+
+
+@app.post("/api/auth/login")
+async def auth_login(request: Request):
+    """{name, secret} -> an HttpOnly signed cookie (and the same token in the body, for Authorization: Bearer
+    from a cross-site UI or an MCP client). The secret is checked against the configured sha256 in constant time."""
+    body = await _body(request)
+    sessions.check_rate("login")
+    p, token, exp = auth.login(body.get("name"), body.get("secret"))
+    resp = JSONResponse({"principal": p.as_dict(), "expires_at": exp, "token": token})
+    resp.set_cookie(auth.COOKIE, token, max_age=max(1, exp - int(time.time())), **_cookie_kw(request))
+    return resp
+
+
+@app.get("/api/auth/me")
+def auth_me():
+    """Who this request is signed in as (null when anonymous), and whether shared publication is enabled."""
+    p = auth.current.get()
+    why = auth.problem.get()
+    return {"principal": p.as_dict() if p else None, "enabled": auth.enabled(),
+            "problem": str(why) if why else None,
+            "message": None if auth.enabled() else auth.DISABLED_MSG}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request):
+    tok, _ = auth.token_from(request.headers, request.cookies)
+    if tok:
+        auth.revoke(tok)
+    resp = JSONResponse({"principal": None})
+    resp.delete_cookie(auth.COOKIE, **{k: v for k, v in _cookie_kw(request).items() if k != "httponly"})
+    return resp
 
 
 # ------------------------------------------------------------------ ask
@@ -790,10 +856,10 @@ def eval_results():
 # ------------------------------------------------------------------ actions, change impact, company record
 
 def _actor(g: Graph, body: dict | None) -> str:
-    """Who acted: the session's hashed tag, plus any typed name as an unverified label."""
+    """Who acted: the verified principal (if signed in) and the session's hashed tag; a typed name is only an
+    unverified label in parentheses, never the identity."""
     from bidbrain.conflicts import engine
-    lab = engine._label((body or {}).get("user"))
-    return engine.session_tag(g.name) + (f" ({lab})" if lab else "")
+    return auth.actor(auth.current.get(), engine.session_tag(g.name), engine._label((body or {}).get("user")))
 
 
 @app.get("/api/actions")
@@ -832,7 +898,7 @@ async def action_do(action_id: str, verb: str, body: dict | None = None, x_sessi
     def work():
         if verb == "execute":
             return actions.execute(g, action_id, by)
-        return actions.transition(g, action_id, verb, by, (body or {}).get("note", ""))
+        return actions.transition(g, action_id, verb, by, (body or {}).get("note", ""), (body or {}).get("version"))
     tok = record.approving_admin.set(admin)
     try:
         with sessions.busy(g):
@@ -890,8 +956,16 @@ def company_record(include_decided: bool = False, x_session: str | None = Header
     from bidbrain.company import record
     from bidbrain.conflicts import engine
     g = G(x_session) if x_session else None
+    me = auth.current.get()
     out = {"facts": record.facts_for(g),
-           "requests": record.list_requests(g.name if g else None, include_decided)}
+           "requests": record.list_requests(g.name if g else None, include_decided),
+           "principal": me.as_dict() if me else None, "auth_enabled": auth.enabled()}
+    for f in out["facts"]:
+        f["can_retire"] = bool(me and (me.is_admin or f.get("owner_principal") == me.name))
+    for r in out["requests"]:
+        r["requested_by_me"] = bool(me and r.get("requested_by_principal") == me.name)
+        r["can_decide"] = bool(me and me.role in ("approver", "admin") and not r["requested_by_me"]
+                               and r.get("status") == "pending")
     if g is not None:
         out["use_company_memory"] = engine.uses_company_memory(g)
         out["session_tag"] = engine.session_tag(g.name)
@@ -904,7 +978,10 @@ async def company_record_retire(fact_id: str, body: dict | None = None, x_sessio
     """Retire a published fact for everyone (publisher or admin token). Every workspace that applied it
     withdraws it on its next request and decides the fact again without it; the acting one does so now."""
     from bidbrain.company import record
+    from bidbrain.conflicts import engine
     admin = _admin(x_admin_token)
+    if x_admin_token and not admin:
+        raise HTTPException(403, "invalid admin token")
     g = await aG(x_session) if x_session else None
     try:
         out = await asyncio.to_thread(record.retire, fact_id, g.name if g else None, admin,
@@ -913,6 +990,8 @@ async def company_record_retire(fact_id: str, body: dict | None = None, x_sessio
         raise HTTPException(404, str(exc))
     except PermissionError as exc:
         raise HTTPException(403, str(exc))
+    except engine.OrgMemoryError as exc:
+        raise HTTPException(exc.status, str(exc))
     if g is not None:
         with sessions.busy(g):
             out["here"] = await asyncio.to_thread(record.catch_up, g)
@@ -944,14 +1023,16 @@ async def company_record_request(request_id: str, verb: str, body: dict | None =
     admin = _admin(x_admin_token)
     if x_admin_token and not admin:
         raise HTTPException(403, "invalid admin token")
-    g = await aG(x_session) if (x_session or not admin) else None
+    g = await aG(x_session) if x_session else None
     body = body or {}
     try:
         return await asyncio.to_thread(record.decide_request, request_id, verb, g, admin, body.get("user"),
-                                       body.get("note"))
+                                       body.get("note"), body.get("version"))
     except engine.OrgMemoryError as exc:
         raise HTTPException(exc.status, str(exc))
 
+
+from bidbrain.api.views import router as _views_router; app.include_router(_views_router)  # UI view endpoints
 
 # ------------------------------------------------------------------ MCP (streamable HTTP) + static UI
 

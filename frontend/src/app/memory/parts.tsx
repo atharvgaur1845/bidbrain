@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Avatar, Badge, Button, Card, Empty, EmptyState, ErrorState, Markdown, SkeletonRows, Spinner, StatusBadge, Table, Td, Th, Verdict, useOpenDoc } from "@/components/ui";
 import { api, fmtINR } from "@/lib/api";
+import { useAuth } from "@/components/SignIn";
 
 // Table cells line up with the card's 20px gutter. `.kt` is unlayered CSS, so the overrides need `!`.
 // Cards that hold a table clip it (`overflow-hidden`) so the row hover tint follows the rounded corners.
@@ -439,9 +440,10 @@ export function CompanyMemory({ rules, cap, graph, ready, onRetire, onContest, t
 export type OrgFact = { id: string; subject_label?: string; subject_key: string; predicate: string; value: string;
   source_decision?: string; policy?: string; rationale?: string; approved_by?: string; published_at?: number; status?: string;
   applied_here?: boolean; document?: string; here?: string; mine?: boolean; demo?: boolean; contests?: number;
-  published_by?: string };
+  published_by?: string; owner_principal?: string; can_retire?: boolean };
 type PubRequest = { id: string; subject?: string; subject_key?: string; predicate?: string; value?: string;
-  policy?: string; source_doc?: string; status?: string; mine?: boolean; requested_at?: number; demo?: boolean };
+  policy?: string; source_doc?: string; status?: string; mine?: boolean; requested_at?: number; demo?: boolean;
+  version?: number; requested_by_principal?: string; requested_by_me?: boolean; can_decide?: boolean };
 const HERE: Record<string, { label: string; status: string }> = {
   own: { label: "Published here", status: "executed" }, active: { label: "Applied", status: "executed" },
   contested: { label: "Contested here", status: "rejected" }, superseded: { label: "Superseded", status: "pending" },
@@ -456,12 +458,14 @@ export function CompanyRecord() {
   const [asOf, setAsOf] = useState<Record<string, { busy?: boolean; text?: string }>>({});
   const [reqs, setReqs] = useState<PubRequest[]>([]);
   const [note, setNote] = useState("");
+  const auth = useAuth();
+  const me = auth?.principal;
   const load = () => api("/api/company/record").then((r) => { setFacts(r.facts || []); setReqs(r.requests || []); })
     .catch((e) => setErr(e?.message || String(e)));
-  useEffect(() => { load(); }, []);
-  async function act(path: string, done: string) {
+  useEffect(() => { load(); }, [me?.name]);
+  async function act(path: string, done: string, body: object = {}) {
     setNote("");
-    try { await api(path, { method: "POST", body: "{}" }); setNote(done); }
+    try { await api(path, { method: "POST", body: JSON.stringify(body) }); setNote(done); }
     catch (e: any) { setNote(e?.message || String(e)); }
     load();
   }
@@ -490,10 +494,13 @@ export function CompanyRecord() {
               <span className="mono text-[12px]">{r.id}</span>
               <span>{r.subject || r.subject_key} · {r.predicate} = <span className="num font-medium">{r.value}</span></span>
               {r.demo && <StatusBadge status="pending" label="Demo" size="sm" />}
-              {r.mine ? <span className="text-ink-3">yours: another workspace must approve it</span> : (
+              {r.requested_by_principal && <span className="text-[12px] text-ink-3">by {r.requested_by_principal}</span>}
+              {r.requested_by_me || (r.mine && !me) ? <span className="text-ink-3">yours: a different approver must approve it</span>
+                : !me ? <span className="text-ink-3">sign in as an approver to decide</span>
+                : !r.can_decide ? <span className="text-ink-3">needs the approver role</span> : (
                 <>
-                  <button type="button" className="text-kb-ink hover:underline" onClick={() => act(`/api/company/record/requests/${r.id}/approve`, `${r.id} approved: its workspace can now approve and execute the publish action.`)}>Approve</button>
-                  <button type="button" className="text-bad hover:underline" onClick={() => act(`/api/company/record/requests/${r.id}/reject`, `${r.id} rejected.`)}>Reject</button>
+                  <button type="button" className="text-kb-ink hover:underline" onClick={() => act(`/api/company/record/requests/${r.id}/approve`, `${r.id} approved by ${me.name}: its requester can now approve and execute the publish action.`, { version: r.version ?? 1 })}>Approve</button>
+                  <button type="button" className="text-bad hover:underline" onClick={() => act(`/api/company/record/requests/${r.id}/reject`, `${r.id} rejected by ${me.name}.`, { version: r.version ?? 1 })}>Reject</button>
                 </>
               )}
             </div>
@@ -536,11 +543,11 @@ export function CompanyRecord() {
                     {(() => { const h = HERE[f.here || (f.applied_here ? "active" : "not_applied")] || HERE.not_applied;
                       return <StatusBadge status={h.status} label={f.status && f.status !== "active" && f.here === "not_applied" ? f.status : h.label} size="sm" />; })()}
                     {f.demo && <div className="text-[11px] text-ink-3">demo fact</div>}
-                    {f.here === "active" && f.status === "active" && (
+                    {f.here === "active" && f.status === "active" && me && (
                       <button type="button" className="text-[11.5px] text-kb-ink hover:underline" title="Stop this fact counting here; its decisions reopen as cards"
                         onClick={() => act(`/api/company/record/${f.id}/contest`, `${f.id} contested: its decisions here reopened as cards on Live documents.`)}>Contest</button>
                     )}
-                    {f.mine && f.status === "active" && (
+                    {f.can_retire && f.status === "active" && (
                       <button type="button" className="text-[11.5px] text-bad hover:underline" title="Withdraw this fact from every workspace"
                         onClick={() => act(`/api/company/record/${f.id}/retire`, `${f.id} retired: every workspace that applied it decides the fact again without it.`)}>Retire</button>
                     )}

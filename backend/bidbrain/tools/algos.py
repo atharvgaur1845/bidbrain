@@ -6,6 +6,7 @@ import random
 from bidbrain.graph.client import Graph
 from bidbrain.tools.read import _edge, _node, _resolve
 from bidbrain.tools.registry import tool
+from bidbrain.ingest.load_graph import ensure_projections
 
 LABEL_KIND = {"Person": "person", "Client": "client", "Work": "work", "Tender": "tender"}
 
@@ -57,6 +58,7 @@ def _agreement(exact: dict[str, float], approx: dict[str, float]) -> dict:
        "client": {"type": "string"}, "category": {"type": "string"}, "limit": {"type": "integer"}})
 def key_people(g: Graph, algo: str = "betweenness", client: str | None = None,
                category: str | None = None, limit: int = 10) -> dict:
+    ensure_projections(g)   # the projections follow session writes to LED_BY / FOR_CLIENT / Work.value
     ck = _resolve(g, client, "client")[0] if client else None
     cat = _resolve(g, category, "category")[0] if category else None
     if algo == "betweenness":
@@ -99,6 +101,7 @@ def key_people(g: Graph, algo: str = "betweenness", client: str | None = None,
        "limit": {"type": "integer"}})
 def who_knows(g: Graph, client: str | None = None, category: str | None = None,
               state: str | None = None, limit: int = 8) -> dict:
+    ensure_projections(g)   # the projections follow session writes to LED_BY / FOR_CLIENT / Work.value
     ck = _resolve(g, client, "client")[0] if client else None
     cat = _resolve(g, category, "category")[0] if category else None
     q = """MATCH (p:Person)<-[:LED_BY]-(w:Work)-[:FOR_CLIENT]->(c:Client)
@@ -126,6 +129,7 @@ def who_knows(g: Graph, client: str | None = None, category: str | None = None,
        "b": {"type": "string"}, "b_kind": {"type": "string", "enum": list(LABEL_KIND.values())}},
       ["a", "a_kind", "b", "b_kind"])
 def explain_path(g: Graph, a: str, a_kind: str, b: str, b_kind: str) -> dict:
+    ensure_projections(g)   # the projections follow session writes to LED_BY / FOR_CLIENT / Work.value
     inv = {v: k for k, v in LABEL_KIND.items()}
     ak, bk = _resolve(g, a, a_kind)[0], _resolve(g, b, b_kind)[0]
     q = f"""MATCH (a:{inv[a_kind]} {{key:$a}}), (b:{inv[b_kind]} {{key:$b}})
@@ -364,6 +368,7 @@ def random_partition_modularity(edges: list[dict], part: dict[str, int], n: int 
       graph, beside `random_partition_modularity` (same sizes, labels shuffled).""",
       {"of": {"type": "string", "enum": ["people", "clients"]}})
 def communities(g: Graph, of: str = "people") -> dict:
+    ensure_projections(g)   # the projections follow session writes to LED_BY / FOR_CLIENT / Work.value
     q = COMMUNITY_PEOPLE if of == "people" else COMMUNITY_CLIENTS
     rows = g.read(q)
     if of == "clients":   # a client with no led work is in no circle: listed as its own community

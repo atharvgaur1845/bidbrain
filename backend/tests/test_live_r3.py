@@ -34,13 +34,15 @@ def client(monkeypatch, tmp_path):
     def no_llm(*a, **k):
         raise AssertionError("no LLM calls in these tests")
     monkeypatch.setattr(providers, "chat", no_llm)
+    from tests.test_memory import bearer, set_test_principals
+    set_test_principals(monkeypatch)
     made: list[str] = []
     c = TestClient(main.app)
 
     def new_session() -> tuple[dict, Graph]:
         sid = c.post("/api/session").json()["session_id"]
         made.append(sid)
-        return {"X-Session": sid}, Graph(f"session_{sid}")
+        return {"X-Session": sid, **bearer("manager")}, Graph(f"session_{sid}")
     c.new_session = new_session
     yield c
     for sid in made:

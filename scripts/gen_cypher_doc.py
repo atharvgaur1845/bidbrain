@@ -12,7 +12,7 @@ import pathlib
 import re
 
 from bidbrain.graph.client import Graph
-from bidbrain.ingest.load_graph import PROJECTIONS
+from bidbrain.ingest.load_graph import PROJECTION_SIG, PROJECTIONS, TENDER_STATUS
 from bidbrain.tools import TOOLS, call
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -46,7 +46,7 @@ SAMPLES = {
     "cypher_readonly": {"query": "MATCH (w:Work) RETURN count(w) AS works"},
     "precedents": {"category": "expressways"},
     "audit_bid": {},
-    "blast_radius": {"label": "Work", "key": "ringroaduttarpradeshpkg113", "rerun": False},
+    "blast_radius": {"label": "Person", "key": "rahulmenon", "rerun": False},
     "case_get": None,
 }
 
@@ -114,6 +114,12 @@ EXTRA = {
          "WITH p, c, count(w) AS n, sum(w.value) AS v\nCREATE (p)-[:WORKED_FOR {works:n, value:v}]->(c), (c)-[:ENGAGED {works:n, value:v}]->(p)"),
         *[(f"{name} projection (communities: shared clients >= 1.5x the configuration-model expectation)",
            "\n".join(l.strip() for l in q.strip().splitlines())) for name, q in PROJECTIONS.items()],
+        ("Projection freshness: OVERLAPS_CLIENTS / WORKED_FOR are rebuilt in a session whenever their inputs change "
+         "(ensure_projections, called by key_people, who_knows, explain_path and communities; the base graph stores "
+         "the signature at load, so a current projection is never rewritten)",
+         PROJECTION_SIG.strip() + "\n-- sha1 of the list != Meta.projection_sig  ->  project(g): delete and rebuild the projections"),
+        ("Tender status as of the corpus snapshot (tender_status; case_open sets 'open' in a session with a live case)",
+         "\n".join(l.strip() for l in TENDER_STATUS.strip().splitlines())),
         ("Workbook provenance (found by isolated_entities scope='corpus')",
          "UNWIND $rows AS r MATCH (n:Asset {key:r.key}), (d:Document {doc_id:r.doc})\n"
          "CREATE (n)-[:EVIDENCED_BY {kind:'asset_register'}]->(d)      -- also TBLine, BOQItem, Measurement"),

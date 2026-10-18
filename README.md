@@ -66,7 +66,7 @@ No LLM key is needed for any of this.
 | Track | What BidBrain does | Evidence |
 |---|---|---|
 | **T3 Company Brain** (lead) | One graph of works, clients, people, credentials, documents, claims, decisions and actions. Values are claims with source and page; a decision selects one and keeps the others. A **company record** (`OrgFact` in `bidbrain_org`) is applied, in workspaces that opt in, through the conflict engine; any workspace can contest it. Bitemporal claims (valid time = the document's own date, transaction time = when the graph recorded it) answer "what did we believe on date T" (`fact_as_of`). | `change_impact`, `fact_history`, `fact_as_of`, `depends_on`; Decisions trace; workflow eval *provenance* 8/8 and *temporal* 4/4; `tests/test_loop_e2e.py` |
-| **T1 Agents That Act on Connected Data** | A corrigendum flips a bid, and the system **acts**: a `review_bid` action with an approval gate and a deterministic executor that re-verifies every clause; reference-letter and credential-renewal requests become internal `DocumentRequest` nodes. A planner and six agents qualify tenders over one case graph. 32 graph tools, also served over MCP (32 read-only tools, including `list_actions`, plus two acting tools: `qualify_tender`, which acts on a session copy, and `transition_action`). | `company/actions.py`; workflow eval *task_completion* 16/16 and *impact_recall* 18/18 (P = R = 1.0 against an independent recompute); team TND 144/144 (see caveats) |
+| **T1 Agents That Act on Connected Data** | A corrigendum flips a bid, and the system **acts**: a `review_bid` action with an approval gate and a deterministic executor that re-verifies every clause; reference-letter and credential-renewal requests become internal `DocumentRequest` nodes. A planner and six agents qualify tenders over one case graph. 32 graph tools in one registry (31 read, 1 write: `case_open`), served over MCP as 34 tools (32 read-only: the 31 read tools plus `list_actions`; and two acting tools: `qualify_tender`, which acts on a session copy, and `transition_action`). | `company/actions.py`; workflow eval *task_completion* 16/16 and *impact_recall* 18/18 (P = R = 1.0 against an independent recompute); team TND 144/144 (see caveats) |
 | **T2 Agent Memory & Coordination** | Agents coordinate through the case subgraph (`AgentRun -[:HANDED_OFF_TO]->`, hand-backs through `Finding`s). Per-visitor `GRAPH.COPY` workspaces. Procedural memory: rules learned from human decisions, optionally promoted to company memory (opt-in, contestable, retireable). Published facts transfer to new workspaces without any private data. Conversation recall through `Turn-[:MENTIONS]->entity`. | workflow eval *memory_transfer* 9/9 and *isolation* 9/9; `tests/test_memory.py`; persistence via RDB + JSON mirror |
 
 ## Requirement matrix
@@ -355,7 +355,7 @@ have no reference letter, it leaves a request on the `Finding`, and the Evidence
 `AgentRun` with `pass_no`) and re-selects referenced works, keeping them only if the clause still passes. After a
 run, the open absence and expiry findings become `request_reference_letter` and `renew_credential` actions.
 
-**Q&A agent.** A thin OpenAI-compatible tool loop over 26 of the read tools (23 during the benchmark runs), with no agent framework. The prompt
+**Q&A agent.** A thin OpenAI-compatible tool loop over 26 of the 31 read tools (23 during the benchmark runs), with no agent framework. The prompt
 teaches how to *use the graph* and leaves domain knowledge to the tools. An **unasked-filter guard** checks every
 narrowing filter the model sets against what the user asked. **One model per answer**: later steps prefer the
 provider that served the first step. Follow-ups recall up to 3 older turns that `MENTIONS` an entity the question
@@ -512,7 +512,7 @@ cd frontend && npm ci && NEXT_PUBLIC_API_BASE=http://localhost:7860 npm run dev
 ```
 
 **Connect an MCP client** (Claude Desktop, etc.): point it at `/mcp/` (streamable HTTP) on your running instance, or
-run `python -m bidbrain.mcp.server` for stdio. The 32 read-only tools run against the pristine base graph,
+run `python -m bidbrain.mcp.server` for stdio. The 32 read-only MCP tools (the registry's 31 read tools plus `list_actions`) run against the pristine base graph,
 or against an existing session's graph when given its `session_id`; `qualify_tender` acts on a session copy (pass
 `session_id='new'`) and `transition_action` moves a session's actions.
 
@@ -534,7 +534,7 @@ python -m eval.run --summarize
 
 ```
 backend/bidbrain/ingest     graph loader, claims, page provenance, aliases, past-bid dossiers, chunks+embeddings
-backend/bidbrain/tools      the 32 graph tools (one registry → agents, MCP, eval); impact.py: change_impact, fact_as_of
+backend/bidbrain/tools      the 32 graph tools: 31 read + `case_open` (one registry → agents, MCP, eval); impact.py: change_impact, fact_as_of
 backend/bidbrain/conflicts  conflict engine, company memory (rules), planted events, PDF rendering + live ingestion
 backend/bidbrain/company    actions.py (accountable actions), record.py (company record)
 backend/bidbrain/agents     provider failover + cache, tool loop, Q&A agent, tender team, baselines

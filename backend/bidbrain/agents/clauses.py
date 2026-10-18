@@ -92,7 +92,72 @@ PCT_OF_EST = re.compile(r"\s*of\s+(?:the\s+)?(?:estimated|tender(?:ed)?|contract
 CUMULATIVE_RE = re.compile(r"\b(?:(?:cumulative|aggregate)\s+(?:[\w&/-]+\s+){0,3}?"
                            r"(?:value|cost|amount|worth|works?|contracts?)"
                            r"|total\s+(?:(?:value|cost|amount|worth)\s+of\s+(?:all\s+|such\s+|the\s+)?)?"
-                           r"(?:[\w&/-]+\s+){0,2}?(?:works|contracts|projects))\b", re.I)
+                           r"(?:[\w&/-]+\s+){0,2}?(?:works|contracts|projects)"
+                           # 'of cumulative INR 500 Cr', 'cumulatively worth', 'in aggregate', 'summing to'
+                           r"|cumulative(?:ly)?|aggregat(?:e|ed|ing)|in\s+(?:the\s+)?aggregate|summing\s+(?:up\s+)?to"
+                           r"|sum\s+(?:total\s+)?of)\b", re.I)
+# 'works of total value not less than ...': aggregate when the works are plural and no single work is named
+TOTAL_VALUE_RE = re.compile(r"\btotal\s+(?:value|cost|amount|worth)\b", re.I)
+SINGLE_WORK_RE = re.compile(rf"\b(?:one|a|single|1|each)\s+(?:[\w&/()-]+\s+){{0,4}}?(?:work|contract|project)\b(?!s)",
+                            re.I)
+# financial requirements the engine has no kind (and the graph no checked data path) for: a clause naming one
+# is NEEDS REVIEW, never DECLARE and never folded into another kind. (FinancialStatement holds paid_up_capital
+# and reserves, so net worth is derivable, but no engine check reads it; a person must confirm it.)
+UNSUPPORTED = (("net_worth", r"\bnet[\s-]*worth\b"), ("bid_capacity", r"\bbid(?:ding)?\s+capacity\b"),
+               ("solvency", r"\bsolven(?:cy|t)\b"), ("liquid_assets", r"\bliquid(?:ity|\s+assets?|\s+funds?)\b"),
+               ("working_capital", r"\bworking\s+capital\b"),
+               ("credit_facility", r"\b(?:credit\s+(?:facilit\w+|limits?|lines?)|line\s+of\s+credit|bank\s+credit)\b"),
+               ("profit", r"\b(?:net\s+)?profit(?:s|ab\w*)?\b|\blos(?:s|ses)\b"),
+               ("ratio", r"\b(?:current|debt[\s-]+equity|quick)\s+ratio\b"),
+               ("multiple", r"\b(?:twice|thrice|double|triple|two[\s-]fold|(?:\d+(?:\.\d+)?|one|two|three|four|five)"
+                            r"(?:\s*(?:times|x)\s+(?:the\s+)?(?:estimated|annual|tender|contract|project|value|cost)|\s+times\b))"))
+UNSUPPORTED_RE = [(k, re.compile(r, re.I)) for k, r in UNSUPPORTED]
+# a deposit or fee to enclose with the bid (EMD, bid security, tender fee): its amount is not a qualification
+DEPOSIT_RE = re.compile(r"\b(?:emd|e\.m\.d\.?|earnest\s+money|bid\s+(?:security|guarantee|bond)|"
+                        r"tender\s+(?:fee|cost|document\s+(?:fee|cost)|processing\s+fee)|cost\s+of\s+(?:the\s+)?"
+                        r"(?:tender|bid)\s+document|document\s+fee|processing\s+fee|security\s+deposit|"
+                        r"performance\s+(?:security|guarantee|bank\s+guarantee))\b", re.I)
+# tender metadata printed above the criteria ('Name of Work: ...', 'Tender No. ...', 'Estimated Cost: Rs 120 Cr')
+CONTEXT_RE = re.compile(r"^(?:\(?(?:[ivxl]+|[a-z]|\d+(?:\.\d+)*)[.)]\s*)?(?:the\s+)?(?:name\s+of\s+(?:the\s+)?(?:work|project)|"
+                        r"(?:nit|tender|bid|rfp|reference|ref)\.?\s*(?:no|number|id|ref)\b|estimated\s+(?:cost|value)|"
+                        r"(?:period|time)\s+of\s+completion|completion\s+(?:period|time)|location|client|employer|"
+                        r"authority|department|(?:last|closing|due)\s+date|date\s+of|bid\s+(?:due|validity))\b", re.I)
+LABEL_LINE_RE = re.compile(r"^[A-Z][\w .,()/&'-]{1,48}:\s*\S")
+
+
+def unsupported_term(text: str) -> str | None:
+    """The financial requirement a text names that no engine kind checks ('net_worth', 'bid_capacity', ...)."""
+    for k, rx in UNSUPPORTED_RE:
+        if rx.search(text or ""):
+            return k
+    return None
+
+
+def _deposit_bound(s: str, at: int) -> bool:
+    """The amount / percentage starting at `at` belongs to a deposit or fee named just before it."""
+    head = s[max(0, at - 70):at]
+    m = list(DEPOSIT_RE.finditer(head))
+    return bool(m) and not re.search(r"[.;]\s", head[m[-1].end():])
+
+
+def material(text: str) -> str | None:
+    """Why a text is a qualification requirement rather than a declaration / document to enclose: a money
+    amount or percentage (other than the tender's estimate or a deposit / fee), an aggregate value, or a
+    financial term the engine has no kind for. None for a genuine declaration (affidavit, undertaking, no
+    blacklisting, a bid security to enclose)."""
+    s = text or ""
+    if (u := unsupported_term(s)):
+        return u
+    est_at = _estimate(s)[1]
+    for a, _, _ in _money_spans(s):
+        if a != est_at and not _deposit_bound(s, a):
+            return "financial"
+    for m in PCT_RE.finditer(s):
+        if not _deposit_bound(s, m.start()):
+            return "financial"
+    if CUMULATIVE_RE.search(s) or TOTAL_VALUE_RE.search(s):
+        return "financial"
+    return None
 # a line that only states the tender's estimated cost ('Estimated cost Rs 2000 Cr'): context, not a requirement
 EST_LINE_RE = re.compile(r"^(?:\(?(?:[ivxl]+|[a-z]|\d+(?:\.\d+)*)[.)]\s*)?(?:the\s+)?estimated\s+(?:cost|value)\b", re.I)
 
@@ -122,7 +187,10 @@ def _pct_of(s: str, est: int | None = None) -> list[int | None]:
         if not re.match(r"\s*of\b", after, re.I):
             continue
         nxt = next(((a, v) for a, _, v in spans if a >= m.end()), None)
-        if nxt and nxt[0] - m.end() <= 70 and not PCT_RE.search(s[m.end():nxt[0]]):
+        # the amount after 'X% of' is its base only when nothing else is said in between ('40% of the estimated
+        # cost or two works of INR 30 Cr': 30 Cr belongs to the other alternative, not to the 40%)
+        if nxt and nxt[0] - m.end() <= 70 and not PCT_RE.search(s[m.end():nxt[0]]) \
+                and not re.search(r"\b(?:or|and|each|works?|contracts?|projects?)\b|[,;]", s[m.end():nxt[0]], re.I):
             out.append(int(round(float(m.group(1)) / 100 * nxt[1])))
         elif PCT_OF_EST.match(after):
             out.append(int(round(float(m.group(1)) / 100 * est)) if est else None)
@@ -144,6 +212,10 @@ def _cumulative(s: str, est: int | None = None) -> tuple[int | None, tuple[int, 
     phrase and its amount, whether the phrase was seen at all). A phrase with no readable amount comes back as
     (None, None, True): the clause must not silently lose it."""
     m = CUMULATIVE_RE.search(s)
+    t = TOTAL_VALUE_RE.search(s)
+    if t and (not m or t.start() < m.start()) and re.search(r"\b(?:works|contracts|projects)\b", s[:t.start()], re.I) \
+            and not SINGLE_WORK_RE.search(s[:t.start()]):
+        m = t
     if not m:
         return None, None, False
     window = s[m.start():m.end() + 100]
@@ -258,11 +330,12 @@ KNOWN_KINDS = ("turnover", "similar_works", "key_personnel", "certification", "y
 
 def known_kind(text: str, context_est: int | None = None) -> str | None:
     """The eligibility kind the rule parser recognises in a text (whether or not it could read the
-    threshold), or None for a declaration / document to enclose. A text of a known kind is never DECLARE."""
+    threshold), or what makes it a requirement ('net_worth', 'financial', ...: see `material`), or None for a
+    genuine declaration / document to enclose. A text with a non-None answer is never DECLARE."""
     for r in parse_rules(text or "", context_est):
         if r["kind"] in KNOWN_KINDS:
             return r["kind"]
-        if r["params"].get("unparsed") in KNOWN_KINDS:
+        if r["params"].get("unparsed"):
             return r["params"]["unparsed"]
     return None
 
@@ -288,6 +361,14 @@ def _chunks(text: str) -> list[str]:
                 line = line[h.end():].strip()
                 if not line:
                     continue
+            if LABEL_LINE_RE.match(line) or CONTEXT_RE.match(line) or EST_LINE_RE.match(line):
+                # 'Estimated Cost: Rs. 120 Crore' / 'Name of Work: ...' is a line of its own: never joined
+                # onto the requirement below it (its amount would be read as that requirement's threshold)
+                if buf:
+                    out.append(buf)
+                buf = ""
+                if CONTEXT_RE.match(line) and not _REQ_WORDS.search(line):
+                    continue                    # tender metadata: context for the clauses, not one
             buf = f"{buf} {line}".strip()
             if re.search(r"[.;:]$", buf):
                 out.append(buf)
@@ -295,6 +376,50 @@ def _chunks(text: str) -> list[str]:
         if buf:
             out.append(buf)
     return out
+
+
+_REQ_WORDS = re.compile(r"turnover|similar|experience|shall|must|should|required|minimum|at least|not less|"
+                        r"net[\s-]*worth|bid(?:ding)?\s+capacity|solven", re.I)
+
+
+def topic(seg: str) -> str | None:
+    """Which requirement a text is about, by keyword (None: no requirement keyword of its own, so it
+    continues the text before it): used only to decide where one clause ends and the next begins."""
+    low = (seg or "").lower()
+    if unsupported_term(seg):
+        return "unsupported"
+    if "turnover" in low:
+        return "turnover"
+    if re.search(r"\bpmp\b|six\s*sigma|project manager|key personnel", low):
+        return "personnel"
+    if re.search(r"iso\s*\d+|cpwd|nabl", low):
+        return "certification"
+    if re.search(r"\byears?\b", low) and re.search(r"business|existence|incorporat", low):
+        return "business"
+    if re.search(r"similar|experience|\bworks?\b|\bprojects?\b|\bcontracts?\b", low):
+        return "works"
+    if DEPOSIT_RE.search(seg or "") or re.search(r"blacklist|debar|affidavit|undertaking|declar", low):
+        return "declaration"
+    return None
+
+
+def split_requirements(raw: str) -> list[str]:
+    """One chunk -> the requirements it states. A ';' or a sentence end starts a new requirement when what
+    follows is about a different topic ('three similar works ... 5 years; average annual turnover of Rs 60
+    Cr'); a continuation ('; or (b) two works of 60%', 'Client reference letters shall be enclosed') stays."""
+    parts = [p for p in re.split(r"(?<=;)\s*|(?<=\.)\s+(?=[A-Z(])", raw) if p.strip()]
+    out: list[str] = []
+    cur_topic = None
+    for p in parts:
+        t = topic(p)
+        joins = re.match(r"\W*(?:\(?[a-z0-9]{1,4}[.)]\s*)?(?:or|and|nor|either|but|provided)\b", p, re.I)
+        if out and (joins or t is None or t == cur_topic or cur_topic is None):
+            out[-1] = f"{out[-1]} {p}"
+            cur_topic = cur_topic or t
+        else:
+            out.append(p)
+            cur_topic = t
+    return [o.strip().rstrip(";").strip() for o in out]
 
 
 def _turnover_sentence(raw: str) -> str:
@@ -307,15 +432,22 @@ def parse_rules(text: str, context_est: int | None = None) -> list[dict]:
     does not state the amount is resolved against `context_est`, or the estimate stated anywhere in `text`."""
     clauses = []
     est = context_est or tender_estimate(text)
-    for i, raw in enumerate(_chunks(text)):
+    segs = []
+    for i, chunk in enumerate(_chunks(text)):
+        ref = re.match(r"\(?([ivxl]+|[a-z]|\d+(?:\.\d+)*)[.)]?\s", chunk, re.I)
+        base = ref.group(1) if ref else f"C{i}"
+        parts = split_requirements(chunk)
+        segs += [(base if len(parts) == 1 else f"{base}{'abcdefghij'[j]}", part) for j, part in enumerate(parts)]
+    for cid, raw in segs:
         if len(raw) < 12:
             continue
         low = raw.lower()
-        ref = re.match(r"\(?([ivxl]+|[a-z]|\d+(?:\.\d+)*)[.)]?\s", raw, re.I)
-        cid = ref.group(1) if ref else f"C{i}"
         if EST_LINE_RE.match(raw) and len(raw) < 140 and not re.search(
                 r"turnover|similar|experience|shall|must|should|required|minimum|at least|not less", low):
             continue                        # 'Estimated cost Rs 2000 Cr': context for the clauses, not one
+        if (u := unsupported_term(raw)):
+            clauses.append(_unparsed(cid, raw, u, f"it: no engine check reads a {u.replace('_', ' ')} requirement"))
+            continue
         money = _money(raw)
         if "turnover" in low:
             ts = _turnover_sentence(raw)
@@ -342,7 +474,10 @@ def parse_rules(text: str, context_est: int | None = None) -> list[dict]:
             if cats := _cats(raw.split("experience")[-1] if "experience" in low else raw):
                 p["categories"] = cats
             clauses.append({"id": cid, "text": raw, "kind": "key_personnel", "params": p})
-        elif "similar" in low or ("experience" in low and ("work" in low or "project" in low)):
+        elif "similar" in low or ("experience" in low and ("work" in low or "project" in low)) or (
+                re.search(r"\b(?:execut\w*|complet\w*|carried\s+out|undertaken|constructed)\b", low)
+                and re.search(r"\b(?:works?|projects?|contracts?)\b", low)
+                and (_amounts(raw) or PCT_RE.search(raw) or CUMULATIVE_RE.search(raw))):
             p = {"categories": _cats(raw), "lookback_years": _num(LAST_YEARS, raw, 7) or 7}
             # an aggregate value ('and a cumulative value of INR 500 Cr') is its own requirement, read first
             # and blanked out so it is not mistaken for a single-work threshold or an alternative
@@ -398,6 +533,10 @@ def parse_rules(text: str, context_est: int | None = None) -> list[dict]:
                 clauses.append(_unparsed(cid, raw, "years_in_business", "the minimum years"))
             else:
                 clauses.append({"id": cid, "text": raw, "kind": "years_in_business", "params": {"min_years": n}})
+        elif (why := material(raw)):
+            # an amount, a percentage or an aggregate the rules cannot map onto an engine kind
+            clauses.append(_unparsed(cid, raw, why, "it: it states an amount / financial term no engine check "
+                                                    "maps onto"))
         else:
             clauses.append({"id": cid, "text": raw, "kind": "other", "params": {}})
     return clauses
@@ -690,6 +829,10 @@ def amount_check(kind: str, params: dict, text: str, context_est: int | None = N
         problems.append(why)
         return out
 
+    terms = term_problems(kind, params, text)
+    if any("no engine check reads" in t for t in terms):
+        return unverified("; ".join(t for t in terms if "no engine check reads" in t))
+    problems += terms
     if kind in ("similar_works", "turnover"):
         th = _thresholds(kind, params)
         if not th:
@@ -719,6 +862,11 @@ def amount_check(kind: str, params: dict, text: str, context_est: int | None = N
         for n in need:
             if n > 1 and n not in counts:
                 problems.append(f"a count of {n} works is not in the text")
+    if kind in ("key_personnel", "certification", "years_in_business"):
+        problems += [f"the text states {_crs(a)}, which a {kind} clause does not check" for a in money]
+        problems += [f"the text states {p:g}%, which a {kind} clause does not check" for p in pcts]
+    if kind in ("similar_works", "turnover"):
+        pass
     elif kind == "key_personnel":
         cred = str(params.get("credential") or "")
         low = (text or "").lower()
@@ -757,6 +905,102 @@ def amount_check(kind: str, params: dict, text: str, context_est: int | None = N
                 problems.append(f"{key} {params.get(key, default)} but the text says the last {n} years")
     if problems:
         out["status"] = "mismatch"
+    return out
+
+
+# financial terms, read independently of the parser: (what, pattern). 'aggregate' needs a min_total on a
+# similar-works clause; every other term has no engine check, so the clause stating it must be NEEDS REVIEW.
+_V_TERMS = [("aggregate", re.compile(r"\bcumulative(?:ly)?\b|\baggregat\w*|\bsum(?:ming)?\s+(?:total\s+)?(?:of|to)\b|"
+                                     r"\bworks\b[^.;]{0,60}\btotal\s+(?:value|cost|amount|worth)\b", re.I)),
+            ("net worth", re.compile(r"\bnet[\s-]*worth\b", re.I)),
+            ("bid capacity", re.compile(r"\bbid(?:ding)?\s+capacity\b", re.I)),
+            ("solvency", re.compile(r"\bsolven(?:cy|t)\b", re.I)),
+            ("liquid assets", re.compile(r"\bliquid(?:ity|\s+assets?|\s+funds?)\b", re.I)),
+            ("working capital", re.compile(r"\bworking\s+capital\b", re.I)),
+            ("credit facility", re.compile(r"\bcredit\s+(?:facilit|limit|line)|\bbank\s+credit\b", re.I)),
+            ("profit", re.compile(r"\bprofit|\blosses\b", re.I)),
+            ("ratio", re.compile(r"\bratio\b", re.I)),
+            ("a multiple of an amount", re.compile(r"\b(?:twice|thrice|double|triple)\b|\b(?:\d+(?:\.\d+)?|one\s+and\s+a\s+half|two|three|four|"
+                                                  r"five)\s*(?:times|x)\s", re.I))]
+_V_DEPOSIT = re.compile(r"\bemd\b|earnest\s+money|bid\s+(?:security|guarantee|bond)|tender\s+(?:fee|cost|document)|"
+                        r"document\s+(?:fee|cost)|processing\s+fee|security\s+deposit|performance\s+(?:security|"
+                        r"guarantee|bank)", re.I)
+
+
+def _v_material(text: str) -> tuple[list[int], list[float], list[str]]:
+    """(money amounts, percentages, financial terms) a text states as requirements: amounts that are the
+    tender's estimated cost or a deposit / fee named just before them are context, not requirements."""
+    t = text or ""
+    est = {m.start(1) for m in _V_EST.finditer(t)}
+    money, pcts = [], []
+    for m in _V_TOKEN.finditer(t):
+        cur, unit = m.group(1), (m.group(3) or "").lower()
+        if not (cur or unit):
+            continue
+        head = t[max(0, m.start() - 70):m.start()]
+        dep = list(_V_DEPOSIT.finditer(head))
+        if (dep and not re.search(r"[.;]\s", head[dep[-1].end():])) or any(abs(m.start() - e) <= 1 for e in est):
+            continue
+        v = float(m.group(2).replace(",", ""))
+        if unit.startswith(("%", "per")):
+            pcts.append(v)
+        else:
+            money.append(int(round(v * _V_SCALE.get(unit[:3], _V_SCALE.get(unit, 1)))) if unit else int(round(v)))
+    terms = [w for w, rx in _V_TERMS if rx.search(t)]
+    return money, pcts, terms
+
+
+def declaration_problems(text: str) -> list[str]:
+    """Why a clause filed as a declaration (DECLARE) is not one: it states a requirement amount, a percentage
+    or a financial term. Empty for an affidavit / undertaking / no-blacklisting / deposit to enclose."""
+    money, pcts, terms = _v_material(text)
+    return ([f"it states {_crs(a)}" for a in money] + [f"it states {p:g}%" for p in pcts]
+            + [f"it names {w}" for w in terms])
+
+
+def term_problems(kind: str, params: dict, text: str) -> list[str]:
+    """Financial terms in a clause's text that its kind / params do not represent."""
+    _, _, terms = _v_material(text)
+    out = [f"the text names {w}, which no engine check reads" for w in terms if w != "aggregate"]
+    if kind == "similar_works":
+        if "aggregate" in terms and not (params or {}).get("min_total"):
+            out.append("the text states an aggregate / cumulative value, but the params carry no min_total")
+        if (params or {}).get("min_total") and "aggregate" not in terms:
+            out.append("the params carry a min_total, but the text states no aggregate / cumulative value")
+    elif "aggregate" in terms:
+        out.append(f"the text states an aggregate / cumulative value, which a {kind} clause does not check")
+    return out
+
+
+def _v_segments(text: str) -> list[str]:
+    return [x.strip() for x in re.split(r"\n+|;|(?<=[.])\s+(?=[A-Z(])", text or "") if x and x.strip()]
+
+
+def _v_words(s: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z]{3,}", (s or "").lower())}
+
+
+def coverage_problems(tender_text: str, clauses: list[dict]) -> list[dict]:
+    """Requirement text the clause list does not carry at all: every segment of the tender that states a
+    requirement amount, a percentage or a financial term must overlap some emitted clause's text that also
+    states it. A clause the parser (or the LLM) dropped comes back as {'text', 'problems'}."""
+    out = []
+    for seg in _v_segments(tender_text):
+        money, pcts, terms = _v_material(seg)
+        if not (money or pcts or terms):
+            continue
+        words = _v_words(seg)
+        cover = [c for c in clauses if seg.lower() in (c.get("text") or "").lower()
+                 or (words and len(words & _v_words(c.get("text"))) >= 0.6 * len(words))]
+        cm, cp, ct = [], [], []
+        for c in cover:
+            m2, p2, t2 = _v_material(c.get("text") or "")
+            cm, cp, ct = cm + m2, cp + p2, ct + t2
+        miss = ([f"{_crs(a)}" for a in money if not any(_near(a, b) for b in cm)]
+                + [f"{p:g}%" for p in pcts if not any(abs(p - q) < 1e-6 for q in cp)]
+                + [w for w in terms if w not in ct])
+        if miss:
+            out.append({"text": seg, "problems": miss})
     return out
 
 
@@ -818,6 +1062,13 @@ def _checked(cl: dict, context_est: int | None = None) -> list[dict]:
         if c["kind"] in ("other",):
             out.append(c)
             continue
+        if (u := unsupported_term(c["text"])):
+            # 'net worth', 'bid capacity', 'twice the estimated cost': whatever kind the LLM chose, no engine
+            # check represents it, so its params would be a guess
+            out.append({**_unparsed(c["id"], c["text"], u, f"it: no engine check reads a {u.replace('_', ' ')} "
+                                                           f"requirement"),
+                        "corrected": f"the LLM read it as {c['kind']}; it names {u.replace('_', ' ')}"})
+            continue
         rules = [r for r in parse_rules(c["text"], context_est) if r["kind"] == c["kind"]]
         if len(rules) == 1:
             c = _reconcile(c, rules[0])
@@ -878,6 +1129,17 @@ def parse_llm(text: str) -> list[dict]:
                                  "years_in_business", "other"}:
             c["kind"] = "other"
         raw = c.get("params") or {}
+        text = c.get("text") or ""
+        parts = split_requirements(text)
+        if len(parts) > 1:
+            # one LLM clause holding several requirements ('three similar works ...; average annual turnover of
+            # Rs 60 Cr'): its params can represent only one, so each requirement is read on its own by the rules
+            cid = str(c.get("id", len(cls) + 1))
+            for j, r in enumerate(parse_rules(";\n".join(parts), est)):
+                cls.append({**r, "id": f"{cid}{'abcdefghij'[j]}",
+                            "corrected": f"the LLM merged {len(parts)} requirements into one {c['kind']} clause; "
+                                         f"each is read on its own by the rule parser"})
+            continue
         cl = {"id": str(c.get("id", len(cls) + 1)), "text": c.get("text", ""), "kind": c["kind"],
               "params": _sanitize(c["kind"], raw, c.get("text", ""))}
         if c["kind"] == "certification" and isinstance(raw.get("standard"), list) and len(raw["standard"]) > 1:

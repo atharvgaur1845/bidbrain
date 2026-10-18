@@ -16,10 +16,11 @@ from tests.test_memory import _result, client, org  # noqa: F401  (fixtures)
 
 def _second_approval(client, h) -> None:
     """Publishing needs a second party: another workspace approves the request the first approve filed."""
-    other = client.new_session()
+    other = client.new_session("approver")       # a different principal with the approver role
     for r in client.get("/api/company/record", headers=other).json()["requests"]:
         if not r["mine"] and r["status"] == "pending":
-            client.post(f"/api/company/record/requests/{r['id']}/approve", json={}, headers=other)
+            client.post(f"/api/company/record/requests/{r['id']}/approve", json={"version": r["version"]},
+                        headers=other)
 
 PKG113 = "ringroaduttarpradeshpkg113"
 
@@ -109,7 +110,7 @@ def test_published_fact_can_only_be_retired_by_its_publisher(client):
     _second_approval(client, h1)
     client.post(f"/api/actions/{pub['id']}/approve", json={}, headers=h1)
     of = client.post(f"/api/actions/{pub['id']}/execute", json={}, headers=h1).json()["result"]["org_fact"]
-    h2 = client.new_session()
+    h2 = client.new_session("manager2")
     assert client.post(f"/api/company/record/{of}/retire", json={}, headers=h2).status_code == 403
     assert client.post(f"/api/company/record/{of}/retire", json={"reason": "test"}, headers=h1).json()["retired"] == of
     h3 = client.new_session()

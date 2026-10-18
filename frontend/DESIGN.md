@@ -56,3 +56,12 @@ micro 11 (column headers, nav groups) · caption 12 (meta) · small 12.5 (dense 
 | `Avatar`, `Spinner`, `CodeCell`, `Markdown`, `EvidenceList`, `useOpenDoc`, `DocProvider` | unchanged APIs |
 
 Shell: `PageHeader({title, subtitle?, meta?, actions?})` (`icon/tone/eyebrow` accepted, not drawn). Graph: `GraphCanvas` (props unchanged), restrained categorical `LABEL_COLORS`, path colour `--graph-path`.
+
+## Impact Room (`impact/`)
+Event timeline (horizontal strip, newest first) → Dependency graph (`impact/graph.tsx`: layered SVG, columns Source documents | Claims | Fact and decision | Requirement | Bid | Action; 3px stripe = role: evidence grey, entity blue, decision violet, requirement teal, bid navy, action amber; dashed = superseded) with an Inspector (properties, relationships, Open source page) → Verdict change (before/after fact, clause, bid; business rule = clause text; evidence; action) → numbered chain → Cypher. Data: `GET /api/views/impact-graph/{doc}` (backend/bidbrain/api/views.py); if absent the same chain is composed from `/api/impact`, decision traces and case reads, and the footer says so. Edge labels show only on the selected edge.
+
+## Explore
+Three columns at xl (controls | graph | Selection). Starts from the subject of the newest received document (else the demo client); `?label=&key=` deep-links. Node-type filter chips above the canvas; Selection panel shows provenance (`fact_history`: claim, source page, decision) with "Follow chain", relationships in view, Path from / Path to into `explain_path`. Labels on crowded graphs (>24 nodes) show only for highlighted/hovered nodes or when zoomed in.
+
+## Consequential actions
+Approve, Reject and Execute each go through an inline confirm step (`ActionControls`) stating the effect.

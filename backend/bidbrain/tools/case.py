@@ -61,7 +61,9 @@ def case_open(g: Graph, title: str, tender_text: str = "", bid_date: str | None 
            "au": authority})
     if tender_ref:
         g.run("MATCH (c:Case {id:$id}) MERGE (t:Tender {key:$r}) ON CREATE SET t.ref = $r "
-              "MERGE (c)-[:FOR_TENDER]->(t)", {"id": cid, "r": tender_ref})
+              "MERGE (c)-[:FOR_TENDER]->(t) "
+              # a tender with a live case in this session is open here, whatever the corpus said
+              "SET t.status = 'open', t.status_basis = 'live case ' + $id", {"id": cid, "r": tender_ref})
     return {"result": {"case_id": cid}}
 
 
@@ -184,32 +186,94 @@ def audit_bid(g: Graph, bid: str | None = None) -> dict:
             "cypher": [q]}
 
 
+# Every path from a changed subject to a decision that rests on it. Each prefix walks from the subject (s) to a
+# node a bid or a clause can point at (the subject itself; a person's led works; a credential's holder and the
+# holder's works); each suffix walks from there to the affected item (x). The path is returned with the item.
+_REACH = {
+    "Person": ["", "<-[:LED_BY]-(:Work)"],
+    "Credential": ["", "<-[:HOLDS]-(:Person)", "<-[:HOLDS]-(:Person)<-[:LED_BY]-(:Work)"],
+}
+_SUFFIX = [
+    ("bid", "<-[:CITES|PROPOSES|SECURED_BY]-(x:Bid)"),
+    ("clause", "<-[:SATISFIED_BY]-(x:Clause)<-[:HAS_CLAUSE]-(:Case {status:'open'})"),
+    ("case", "<-[:SATISFIED_BY]-(:Clause)<-[:HAS_CLAUSE]-(x:Case {status:'open'})"),
+    ("tender", "<-[:CITES|PROPOSES|SECURED_BY]-(:Bid)-[:FOR_TENDER]->(x:Tender)"),
+    ("tender", "<-[:SATISFIED_BY]-(:Clause)<-[:HAS_CLAUSE]-(:Case {status:'open'})-[:FOR_TENDER]->(x:Tender)"),
+]
+_EXTRA = {
+    "Person": [("credential", "-[:HOLDS]->(x:Credential)")],
+    "Credential": [("person", "<-[:HOLDS]-(x:Person)")],
+    "Bond": [("tender", "-[:SECURES]->(x:Tender)")],
+}
+
+
+def dependency_patterns(label: str) -> list[tuple[str, str]]:
+    """(kind, pattern after the subject node) for every dependency path blast_radius follows from `label`."""
+    pats = [(kind, pre + suf) for pre in _REACH.get(label, [""]) for kind, suf in _SUFFIX]
+    return pats + _EXTRA.get(label, [])
+
+
+def dependents(g: Graph, label: str, key: str) -> tuple[list[dict], list[str]]:
+    """Every item that depends on (label, key), each with the paths that explain why: node ids
+    ('Label:key') and relationship types (with direction) from the changed subject to the item."""
+    out: dict[tuple[str, str], dict] = {}
+    cyphers = []
+    for kind, pat in dependency_patterns(label):
+        q = (f"MATCH p = (s:{label} {{key:$k}}){pat} "
+             "RETURN coalesce(x.id, x.key) AS id, coalesce(x.title, x.name, x.key, x.id) AS name, "
+             "[n IN nodes(p) | labels(n)[0] + ':' + coalesce(n.key, n.id)] AS nodes, "
+             "[r IN relationships(p) | type(r)] AS rels, "
+             "[r IN relationships(p) | labels(startNode(r))[0] + ':' + coalesce(startNode(r).key, startNode(r).id)] "
+             "AS starts, x.submitted AS submitted, [(x)<-[:HAS_CLAUSE]-(c1:Case) | c1.id][0] AS case_id, "
+             "[(x)<-[:HAS_CLAUSE]-(c2:Case) | c2.title][0] AS case_title, x.status AS status")
+        cyphers.append(q)
+        for r in g.read(q, {"k": key}):
+            nodes, rels = r["nodes"], r["rels"]
+            # direction: an edge points forward along the path when it starts at the earlier node
+            hops = [{"type": t, "dir": "->" if st == nodes[i] else "<-"} for i, (t, st) in enumerate(zip(rels, r["starts"]))]
+            text = nodes[0] + "".join((f"-[:{h['type']}]->" if h["dir"] == "->" else f"<-[:{h['type']}]-") + n
+                                      for h, n in zip(hops, nodes[1:]))
+            item = out.setdefault((kind, r["id"]), {"kind": kind, "id": r["id"], "name": r["name"], "paths": []})
+            for f in ("submitted", "case_id", "case_title", "status"):
+                if r[f] is not None:
+                    item[f] = r[f]
+            if text not in {p["text"] for p in item["paths"]}:
+                item["paths"].append({"nodes": nodes, "rels": hops, "text": text})
+    order = {"case": 0, "clause": 1, "bid": 2, "tender": 3, "credential": 4, "person": 5}
+    return sorted(out.values(), key=lambda d: (order.get(d["kind"], 9), str(d["id"]))), cyphers
+
+
 @tool("blast_radius",
       """What depends on a fact: given a subject (work / person / bond / financial statement / credential)
-      find open cases whose clauses rely on it, past bids that cited it, tenders it secures — then
-      re-run every affected clause and report verdict flips (PASS -> FAIL etc.).""",
+      find every open case and clause that relies on it, past bids that cited it (for a person: bids that
+      proposed them or cited a work they led; for a credential: through its holder), tenders those bids or
+      cases are for, and tenders it secures; each with the explaining path. Then re-run every affected clause
+      and report verdict flips (PASS -> FAIL etc.).""",
       {"label": {"type": "string"}, "key": {"type": "string"}, "rerun": {"type": "boolean"}}, ["label", "key"])
 def blast_radius(g: Graph, label: str, key: str, rerun: bool = True) -> dict:
-    from bidbrain.tools.proof import qualify_clause
     if label not in LABEL_OF:      # the label is interpolated into Cypher below
         raise ValueError(f"label must be one of {sorted(LABEL_OF)}")
     label = LABEL_OF[label]
-    direct = g.read(f"""MATCH (s:{label} {{key:$k}})<-[:SATISFIED_BY]-(k:Clause)<-[:HAS_CLAUSE]-(c:Case)
-                        RETURN DISTINCT c.id AS case_id, c.title AS case, k.id AS clause_id""", {"k": key})
-    bids = g.read(f"""MATCH (s:{label} {{key:$k}})<-[:CITES|PROPOSES|SECURED_BY]-(b:Bid)
-                      RETURN b.key AS bid, b.submitted AS submitted""", {"k": key})
-    tenders = g.read(f"MATCH (s:{label} {{key:$k}})-[:SECURES]->(t:Tender) RETURN t.key AS tender", {"k": key}) \
-        if label == "Bond" else []
+    deps, dep_cypher = dependents(g, label, key)
+    direct = [{"case_id": d["case_id"], "case": d.get("case_title"), "clause_id": d["id"],
+               "path": d["paths"][0]["text"]} for d in deps if d["kind"] == "clause"]
+    bids = [{"bid": d["id"], "submitted": d.get("submitted"), "path": d["paths"][0]["text"],
+             "paths": [p["text"] for p in d["paths"]]} for d in deps if d["kind"] == "bid"]
+    tenders = [{"tender": d["id"], "status": d.get("status"), "path": d["paths"][0]["text"]}
+               for d in deps if d["kind"] == "tender"]
+    secured = [t for t in tenders if label == "Bond" and "-[:SECURES]->" in t["path"]]
+    relying = sorted({d["clause_id"] for d in direct})
     kinds = {"Work": ["similar_works"], "Person": ["key_personnel"], "Credential": ["key_personnel"],
              "FinancialStatement": ["turnover"], "Certification": ["certification"]}.get(label, [])
     # every open clause whose *candidate set* could include this subject is re-checked, not only the
     # ones it currently satisfies: a corrigendum can make a failing clause pass, too
     clauses = g.read("""MATCH (c:Case {status:'open'})-[:HAS_CLAUSE]->(k:Clause) WHERE k.kind IN $kinds
+                           OR k.id IN $relying
                         OPTIONAL MATCH (k)-[:SATISFIED_BY]->(s)
                         RETURN c.id AS case_id, c.title AS case, c.bid_date AS bid_date, k.id AS clause_id,
                                k.ref AS ref, k.kind AS kind, k.params AS params, k.verdict AS verdict,
                                k.prefer_reference AS pref, collect(s.key) AS sat""",
-                     {"kinds": kinds})
+                     {"kinds": kinds, "relying": relying})
     flips, rewired = [], []
     if rerun:
         for c in clauses:
@@ -241,21 +305,26 @@ def blast_radius(g: Graph, label: str, key: str, rerun: bool = True) -> dict:
                 rewired.append({"case": r["case"], "case_id": r["case_id"], "clause": r["clause"],
                                 "kind": r["kind"], "from": r["verdict"], "to": r["verdict"], "basis": r["basis"],
                                 "clause_id": r["clause_id"], "reference_letters": [r["letter"]]})
-    sg = {"nodes": [{"id": f"{label}:{key}", "label": label, "name": key}]
-          + [{"id": f"Case:{d['case_id']}", "label": "Case", "name": d["case"]} for d in direct]
-          + [{"id": f"Bid:{b['bid']}", "label": "Bid", "name": b["bid"]} for b in bids],
-          "edges": [{"source": f"Case:{d['case_id']}", "target": f"{label}:{key}", "type": "RELIES_ON"} for d in direct]
-          + [{"source": f"Bid:{b['bid']}", "target": f"{label}:{key}", "type": "CITES"} for b in bids]}
-    return {"result": {"subject": f"{label}:{key}", "cases_relying": direct, "past_bids_citing": bids,
-                       "tenders_secured": tenders, "clauses_rechecked": len(clauses), "verdict_flips": flips,
+    nodes, edges = {f"{label}:{key}": {"id": f"{label}:{key}", "label": label, "name": key}}, {}
+    for d in deps:
+        for p in d["paths"]:
+            for n in p["nodes"]:
+                nodes.setdefault(n, {"id": n, "label": n.split(":", 1)[0], "name": n.split(":", 1)[1]})
+            for i, h in enumerate(p["rels"]):
+                a, b = p["nodes"][i], p["nodes"][i + 1]
+                src, dst = (a, b) if h["dir"] == "->" else (b, a)
+                edges[(src, dst, h["type"])] = {"source": src, "target": dst, "type": h["type"]}
+    by_kind: dict[str, int] = {}
+    for d in deps:
+        by_kind[d["kind"]] = by_kind.get(d["kind"], 0) + 1
+    return {"result": {"subject": f"{label}:{key}", "dependents": deps, "dependents_by_kind": by_kind,
+                       "cases_relying": direct, "past_bids_citing": bids,
+                       "tenders": tenders, "tenders_secured": secured, "clauses_rechecked": len(clauses), "verdict_flips": flips,
                        "evidence_changed": rewired},
-            "subgraph": sg,
-            "cypher": [f"MATCH (s:{label} {{key:$k}})<-[:SATISFIED_BY]-(k:Clause)<-[:HAS_CLAUSE]-(c:Case) "
-                       "RETURN DISTINCT c.id, c.title, k.id",
-                       f"MATCH (s:{label} {{key:$k}})<-[:CITES|PROPOSES|SECURED_BY]-(b:Bid) RETURN b.key, b.submitted",
-                       f"MATCH (s:{label} {{key:$k}})-[:SECURES]->(t:Tender) RETURN t.key",
-                       "MATCH (c:Case {status:'open'})-[:HAS_CLAUSE]->(k:Clause) WHERE k.kind IN $kinds "
-                       "RETURN c.id, c.bid_date, k.id, k.kind, k.params, k.verdict   // each is re-run with qualify_clause"]}
+            "subgraph": {"nodes": list(nodes.values()), "edges": list(edges.values())},
+            "cypher": dep_cypher + [
+                       "MATCH (c:Case {status:'open'})-[:HAS_CLAUSE]->(k:Clause) WHERE k.kind IN $kinds OR k.id IN $relying "
+                       "RETURN c.id, c.bid_date, k.id, k.kind, k.params, k.verdict   // each is re-run with the selection policy"]}
 
 
 _DETAIL = ("expiring_within_90d", "safe_alternates", "near_misses")
@@ -305,7 +374,11 @@ def overall_verdict(g: Graph, case_id: str) -> str:
         return not (verdict == "PASS" and f["kind"] in _VERDICT_BOUND)
 
     high = any(live(f, r["v"]) for r in rows for f in r["high"] if f)
-    return "NO-BID" if "FAIL" in verds else ("BID WITH FIXES" if "AT_RISK" in verds or high else "BID")
+    if "FAIL" in verds:
+        return "NO-BID"
+    if "NEEDS REVIEW" in verds:          # an unverified material requirement never yields a BID
+        return "NEEDS REVIEW"
+    return "BID WITH FIXES" if "AT_RISK" in verds or high else "BID"
 
 
 def apply_flips(g: Graph, flips: list[dict], cause: str, evidence_changed: list[dict] | None = None,
@@ -440,7 +513,7 @@ def _expected_findings(g: Graph, k: dict) -> list[dict]:
                        f"{', '.join(str(ch['boundary_attested_by_3_views']) for ch in checks)} attested). "
                        f"Request letters from the client before submission or cite alternates.")
                 want.append({"kind": "absence", "text": txt, "cites": [("Work", m["key"]) for m in missing],
-                             "severity": "high" if "reference" in (k["text"] or "").lower() else "medium"})
+                             "severity": "high"})   # a credited work with no letter is always a fix, as in the auditor
         if k["verdict"] == "FAIL" and detail.get("near_misses"):
             nm = detail["near_misses"][:3]
             cats = " / ".join(params.get("categories") or []) or "similar-works"

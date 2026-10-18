@@ -50,7 +50,7 @@ export function ActionControls({ action, onChange, size = "sm", withNote = false
   { action: Pick<ActionRow, "id" | "status" | "kind" | "title">; onChange: (a: ActionFull) => void; size?: "xs" | "sm"; withNote?: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState(false);
+  const [confirm, setConfirm] = useState<false | "approve" | "reject" | "execute">(false);
   const [note, setNote] = useState("");
   const st = action.status;
 
@@ -78,11 +78,16 @@ export function ActionControls({ action, onChange, size = "sm", withNote = false
       )}
       {confirm ? (
         <div className="rounded-md border border-line-strong bg-surface-2 p-3">
-          <div className="text-[13px] font-medium text-ink">Execute “{action.title}”?</div>
-          <p className="mt-0.5 text-[12.5px] leading-snug text-ink-2">{EXECUTE_EFFECT[action.kind] || "Runs the deterministic executor for this action."}</p>
+          <div role="alertdialog" aria-label={`Confirm ${confirm}`} className="text-[13px] font-medium text-ink">
+            {confirm === "execute" ? "Execute" : confirm === "approve" ? "Approve" : "Reject"} “{action.title}”?</div>
+          <p className="mt-0.5 text-[12.5px] leading-snug text-ink-2">
+            {confirm === "execute" ? (EXECUTE_EFFECT[action.kind] || "Runs the deterministic executor for this action.")
+              : confirm === "approve" ? "Records your approval in the audit trail. Nothing runs until someone executes it."
+              : "Closes this action without running it. The audit trail keeps the rejection."}</p>
           <div className="mt-2.5 flex flex-wrap gap-2">
-            <Button variant="primary" size={size} loading={busy === "execute"} onClick={() => act("execute")}>
-              <Play size={13} strokeWidth={1.75} aria-hidden /> Confirm execute
+            <Button variant={confirm === "reject" ? "danger" : "primary"} size={size} loading={busy === confirm} autoFocus onClick={() => act(confirm)}>
+              {confirm === "execute" ? <Play size={13} strokeWidth={1.75} aria-hidden /> : confirm === "approve" ? <Check size={13} strokeWidth={2} aria-hidden /> : <X size={13} strokeWidth={2} aria-hidden />}
+              {" "}Confirm {confirm}
             </Button>
             <Button variant="ghost" size={size} disabled={!!busy} onClick={() => setConfirm(false)}>Cancel</Button>
           </div>
@@ -90,16 +95,16 @@ export function ActionControls({ action, onChange, size = "sm", withNote = false
       ) : (
         <div className="flex flex-wrap items-center gap-1.5">
           {st === "pending" && (
-            <Button variant="primary" size={size} loading={busy === "approve"} disabled={!!busy} onClick={() => act("approve")}>
+            <Button variant="primary" size={size} loading={busy === "approve"} disabled={!!busy} onClick={() => setConfirm("approve")}>
               <Check size={13} strokeWidth={2} aria-hidden /> Approve
             </Button>
           )}
           {st === "approved" && (
-            <Button variant="primary" size={size} disabled={!!busy} onClick={() => setConfirm(true)}>
+            <Button variant="primary" size={size} disabled={!!busy} onClick={() => setConfirm("execute")}>
               <Play size={13} strokeWidth={1.75} aria-hidden /> Execute
             </Button>
           )}
-          <Button variant="secondary" size={size} loading={busy === "reject"} disabled={!!busy} onClick={() => act("reject")}>
+          <Button variant="secondary" size={size} loading={busy === "reject"} disabled={!!busy} onClick={() => setConfirm("reject")}>
             <X size={13} strokeWidth={2} aria-hidden /> Reject
           </Button>
           {st === "pending" && <span className="text-[12px] text-ink-3">Execute is enabled after approval</span>}

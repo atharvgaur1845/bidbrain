@@ -57,11 +57,13 @@ def test_accounts_that_did_not_exist_yet_are_not_believed(gc):
     assert later["decision_then"]["policy"] == "authority" and later["decision_then"]["at"] == 0
 
 
-def test_a_certificate_is_not_believed_before_its_own_date(gc):
-    r = _r(gc, PKG116, "completed", "2019-06-01")
+def test_a_certificate_counts_from_the_completion_date_it_prints(gc):
+    # the certificate (printed 2026-03-31) states the completion date 2020-02-11: the fact holds from then
+    r = _r(gc, PKG116, "completed", "2020-02-10")
     assert r["value"] is None
-    assert [x["valid_from"] for x in r["not_yet_issued"]] == ["2026-03-31"]
-    assert _r(gc, PKG116, "completed", "2026-03-31")["value"] == "2020-02-11"   # counts from the start of that day
+    assert {x["valid_from"] for x in r["not_yet_issued"]} == {"2020-02-11"}
+    assert all(x["document_date"] == "2026-03-31" for x in r["not_yet_issued"])
+    assert _r(gc, PKG116, "completed", "2020-02-11")["value"] == "2020-02-11"   # inclusive on the day
 
 
 def test_both_axes_are_reported_per_claim(gc):
@@ -70,10 +72,10 @@ def test_both_axes_are_reported_per_claim(gc):
     for c in r["alive_then"]:
         assert c["recorded_at"] == 0 and c["recorded"] == "corpus (starting record)"
         assert c["valid_from"] and c["valid_from_basis"]
-    # the portfolio prints no date: counted from the corpus snapshot, and the result says so
+    # the portfolio prints each work's completion date with it: dated by that, not by the snapshot
     pf = next(c for c in r["alive_then"] if c["source_kind"] == "portfolio")
-    assert pf["valid_from_basis"].startswith("undated corpus document")
-    assert r["undated_kinds"] == ["portfolio"] and "portfolio" in r["note"]
+    assert pf["valid_from"] == "2020-02-11" and pf["valid_from_basis"].startswith("effective date")
+    assert r["undated_kinds"] == [] and r["note"] is None
 
 
 def test_undated_cv_claims_are_flagged(gc):
