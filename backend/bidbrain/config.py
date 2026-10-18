@@ -20,6 +20,7 @@ EMBED_CACHE = DATA / "chunk_embeddings.npz"
 
 FALKOR_HOST = os.getenv("FALKOR_HOST", "localhost")
 FALKOR_PORT = int(os.getenv("FALKOR_PORT", "6379"))
+FALKOR_URL = os.getenv("FALKOR_URL", "")
 BASE_GRAPH = os.getenv("BASE_GRAPH", "bidbrain_base")
 
 # Every date in the graph is also stored as an integer day number so Cypher

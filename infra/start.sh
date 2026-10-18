@@ -21,38 +21,44 @@ export BIDBRAIN_STATE_DIR="${BIDBRAIN_STATE_DIR:-/app/state}"
 # (name:role:sha256(secret),...). Without them promote / publish / approve / retire are disabled (fail closed).
 if [ -z "${BIDBRAIN_PRINCIPALS:-}" ]; then echo "auth: no BIDBRAIN_PRINCIPALS; shared publication disabled"; fi
 if [ -z "${FORWARDED_HOPS:-}" ] && [ -n "${SPACE_ID:-}" ]; then export FORWARDED_HOPS=1; fi
-FALKOR_DIR="$BIDBRAIN_STATE_DIR/falkordb"
-mkdir -p "$FALKOR_DIR"
-PIDFILE="$FALKOR_DIR/falkordb.pid"
-
-start_falkor() {
-  redis-server --loadmodule /var/lib/falkordb/bin/falkordb.so \
-      TIMEOUT_DEFAULT 15000 TIMEOUT_MAX 180000 MAX_QUEUED_QUERIES 200 THREAD_COUNT 4 \
-      RESULTSET_SIZE 10000 QUERY_MEM_CAPACITY 1073741824 \
-    --bind 127.0.0.1 --port 6379 --dir "$FALKOR_DIR" \
-    --appendonly no --save "${FALKOR_SAVE:-300 1}" \
-    --daemonize yes --pidfile "$PIDFILE" \
-    --maxmemory 6gb --logfile "$FALKOR_DIR/falkordb.log"
-  # loading a large AOF can take a while: wait for PONG (not just any reply, e.g. LOADING)
-  for i in $(seq 1 600); do
-    [ "$(redis-cli -p 6379 ping 2>/dev/null)" = "PONG" ] && return 0
-    if [ "$i" -gt 15 ] && ! kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then return 1; fi
-    sleep 0.2
-  done
-  return 1
-}
-
-if ! start_falkor; then
-  # unreadable data dir (e.g. an on-disk format change after an image upgrade): keep it for
-  # inspection, start empty, and let the JSON mirror restore company memory
-  echo "FalkorDB could not load $FALKOR_DIR; moving it aside and starting empty"
-  redis-cli -p 6379 shutdown nosave >/dev/null 2>&1 || true
-  mv "$FALKOR_DIR" "$FALKOR_DIR.unreadable-$(date +%s)"
+# FALKOR_URL set (e.g. FalkorDB Cloud behind a Render web service): use that server, start nothing locally.
+if [ -n "${FALKOR_URL:-}" ]; then
+  echo "FalkorDB: external server from FALKOR_URL (no local FalkorDB started)"
+else
+  FALKOR_DIR="$BIDBRAIN_STATE_DIR/falkordb"
   mkdir -p "$FALKOR_DIR"
-  start_falkor
+  PIDFILE="$FALKOR_DIR/falkordb.pid"
+
+  start_falkor() {
+    redis-server --loadmodule /var/lib/falkordb/bin/falkordb.so \
+        TIMEOUT_DEFAULT 15000 TIMEOUT_MAX 180000 MAX_QUEUED_QUERIES 200 THREAD_COUNT 4 \
+        RESULTSET_SIZE 10000 QUERY_MEM_CAPACITY 1073741824 \
+      --bind 127.0.0.1 --port 6379 --dir "$FALKOR_DIR" \
+      --appendonly no --save "${FALKOR_SAVE:-300 1}" \
+      --daemonize yes --pidfile "$PIDFILE" \
+      --maxmemory 6gb --logfile "$FALKOR_DIR/falkordb.log"
+    # loading a large AOF can take a while: wait for PONG (not just any reply, e.g. LOADING)
+    for i in $(seq 1 600); do
+      [ "$(redis-cli -p 6379 ping 2>/dev/null)" = "PONG" ] && return 0
+      if [ "$i" -gt 15 ] && ! kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then return 1; fi
+      sleep 0.2
+    done
+    return 1
+  }
+
+  if ! start_falkor; then
+    # unreadable data dir (e.g. an on-disk format change after an image upgrade): keep it for
+    # inspection, start empty, and let the JSON mirror restore company memory
+    echo "FalkorDB could not load $FALKOR_DIR; moving it aside and starting empty"
+    redis-cli -p 6379 shutdown nosave >/dev/null 2>&1 || true
+    mv "$FALKOR_DIR" "$FALKOR_DIR.unreadable-$(date +%s)"
+    mkdir -p "$FALKOR_DIR"
+    start_falkor
+  fi
+  echo "FalkorDB up: $(redis-cli -p 6379 MODULE LIST | tr '\n' ' ' | head -c 120)"
+  echo "FalkorDB graphs kept from the last run: $(redis-cli -p 6379 GRAPH.LIST | grep -v '^bidbrain_base$' | grep -c . || true)"
+
 fi
-echo "FalkorDB up: $(redis-cli -p 6379 MODULE LIST | tr '\n' ' ' | head -c 120)"
-echo "FalkorDB graphs kept from the last run: $(redis-cli -p 6379 GRAPH.LIST | grep -v '^bidbrain_base$' | grep -c . || true)"
 
 python -m bidbrain.ingest.load_graph          # rebuilds bidbrain_base only
 python -m bidbrain.conflicts.demo || echo "demo PDFs skipped"

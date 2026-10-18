@@ -17,6 +17,10 @@ from bidbrain import config
 
 @lru_cache(maxsize=1)
 def db() -> FalkorDB:
+    # FALKOR_URL (redis://user:pass@host:port, or rediss:// for TLS) is how a managed FalkorDB Cloud
+    # instance is reached; plain host/port stays the default for the bundled local container.
+    if config.FALKOR_URL:
+        return FalkorDB.from_url(config.FALKOR_URL)
     return FalkorDB(host=config.FALKOR_HOST, port=config.FALKOR_PORT)
 
 
