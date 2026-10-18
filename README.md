@@ -20,7 +20,7 @@ approves and deterministic code executes. A fact that the bid manager publishes,
 principal with the approver role approves it, becomes part of the company record, and every workspace that opts in to company memory starts from it.
 
 > **Live demo:** https://atharvgaur18-bidbrain.hf.space (Hugging Face Space, free CPU; the graph rebuilds at every
-> restart, so a cold start takes about a minute). **Video:** [docs/demo/bidbrain_demo.mp4](https://github.com/atharvgaur1845/bidbrain/blob/master/docs/demo/bidbrain_demo.mp4) (3 min 16 s, captioned). **Blog:** [docs/BLOG.md](docs/BLOG.md).
+> restart, so a cold start takes about a minute). **Video:** [docs/demo/bidbrain_demo_voiced.mp4](https://github.com/atharvgaur1845/bidbrain/blob/master/docs/demo/bidbrain_demo_voiced.mp4) (3 min 16 s, captioned, AI voice-over). **Blog:** [docs/BLOG.md](docs/BLOG.md).
 
 **Tracks:** Company Brain (lead) · Agents That Act on
 Connected Data · Agent Memory & Coordination
