@@ -20,7 +20,7 @@ approves and deterministic code executes. A fact that the bid manager publishes,
 principal with the approver role approves it, becomes part of the company record, and every workspace that opts in to company memory starts from it.
 
 > **Live demo:** https://atharvgaur18-bidbrain.hf.space (Hugging Face Space, free CPU; the graph rebuilds at every
-> restart, so a cold start takes about a minute). **Video:** TEAM TO FILL IN, not recorded yet.
+> restart, so a cold start takes about a minute). **Video:** [docs/demo/bidbrain_demo.mp4](https://github.com/atharvgaur1845/bidbrain/blob/master/docs/demo/bidbrain_demo.mp4) (3 min 16 s, captioned). **Blog:** [docs/BLOG.md](docs/BLOG.md).
 
 **Tracks:** Company Brain (lead) · Agents That Act on
 Connected Data · Agent Memory & Coordination
@@ -528,7 +528,7 @@ Caveats:
 
 ## Run it
 
-Release status: hosted at https://atharvgaur18-bidbrain.hf.space (same Docker image as below); the video is the
+Release status: hosted at https://atharvgaur18-bidbrain.hf.space (same Docker image as below); the video is in docs/demo/bidbrain_demo.mp4.
 **TEAM TO FILL IN** placeholder at the top. This is the verified local launch. The scripted demo, step by step, is in [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
 
 **Docker (recommended).** One container: FalkorDB, the FastAPI API, MCP and the static UI.
