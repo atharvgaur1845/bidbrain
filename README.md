@@ -529,7 +529,7 @@ Caveats:
 ## Run it
 
 Release status: hosted at https://atharvgaur18-bidbrain.hf.space (same Docker image as below); the video is in docs/demo/bidbrain_demo.mp4.
-**TEAM TO FILL IN** placeholder at the top. This is the verified local launch. The scripted demo, step by step, is in [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
+This is the verified local launch. The scripted demo, step by step, is in [docs/DEMO_RUNBOOK.md](docs/DEMO_RUNBOOK.md).
 
 **Docker (recommended).** One container: FalkorDB, the FastAPI API, MCP and the static UI.
 
